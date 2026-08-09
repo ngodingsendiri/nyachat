@@ -5,7 +5,6 @@ package com.startupmini.nyachat
 import com.startupmini.nyachat.Constants
 
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,60 +23,25 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.isImeVisible
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.zIndex
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ExitToApp
-import androidx.compose.material.icons.rounded.ChatBubble
-import androidx.compose.material.icons.rounded.ChatBubbleOutline
-import androidx.compose.material.icons.rounded.PieChart
-import androidx.compose.material.icons.rounded.Pin
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Group
-import androidx.compose.material.icons.rounded.SystemUpdate
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -90,44 +54,45 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.core.content.FileProvider
 import com.startupmini.nyachat.R
-import com.startupmini.nyachat.data.local.SecureStorage
-import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.data.backup.DriveBackupController
+import com.startupmini.nyachat.data.local.FinancialTransaction
+import com.startupmini.nyachat.data.local.SecureStorage
+import com.startupmini.nyachat.data.remote.GitHubRelease
+import com.startupmini.nyachat.data.remote.GitHubUpdateChecker
 import com.startupmini.nyachat.ui.MainViewModel
 import com.startupmini.nyachat.ui.screens.AddTransactionDialog
 import com.startupmini.nyachat.ui.screens.AiReportDialog
+import com.startupmini.nyachat.ui.screens.ApiKeyDialog
+import com.startupmini.nyachat.ui.screens.BackupProgressDialog
 import com.startupmini.nyachat.ui.screens.ChatScreen
+import com.startupmini.nyachat.ui.screens.ConfirmClearDataDialog
+import com.startupmini.nyachat.ui.screens.CrossFamilyRestoreDialog
+import com.startupmini.nyachat.ui.screens.GlowingBackground
+import com.startupmini.nyachat.ui.screens.LogoutDialog
+import com.startupmini.nyachat.ui.screens.MainNavigationBar
+import com.startupmini.nyachat.ui.screens.MainTopBar
+import com.startupmini.nyachat.ui.screens.PassphraseDialog
+import com.startupmini.nyachat.ui.screens.PinDisplayDialog
+import com.startupmini.nyachat.ui.screens.PinSwitchDialog
 import com.startupmini.nyachat.ui.screens.RekapScreen
+import com.startupmini.nyachat.ui.screens.RestoreConfirmDialog
+import com.startupmini.nyachat.ui.screens.RestorePickerDialog
 import com.startupmini.nyachat.ui.screens.SettingsSheet
-import com.startupmini.nyachat.data.remote.GitHubRelease
-import com.startupmini.nyachat.data.remote.GitHubUpdateChecker
+import com.startupmini.nyachat.ui.screens.UpdateAvailableDialog
+import com.startupmini.nyachat.ui.screens.UpdateMessageDialog
+import com.startupmini.nyachat.ui.screens.installApk
+import com.startupmini.nyachat.ui.screens.timestampForFile
 import com.startupmini.nyachat.ui.theme.CoupleFinanceTheme
 import java.io.File
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -542,75 +507,12 @@ driveController.getAutoPassphrase = {
                         // Scaffold.kt), sehingga Tab melompat ke navbar SEBELUM konten.
                         // Column manual → urutan fokus TopAppBar → konten → NavigationBar.
                         Column(modifier = Modifier.fillMaxSize()) {
-                            val uniqueSenders by remember(messages) {
-                                    derivedStateOf {
-                                        messages
-                                            .map { it.sender }
-                                            .filter { it != Constants.Sender.AI }
-                                            .distinct()
-                                            .take(4)
-                                    }
-                                }
-                                TopAppBar(
-                                    title = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(start = 0.dp)
-                                        ) {
-                                            StackedAvatars(
-                                                senders = uniqueSenders.ifEmpty {
-                                                    userName?.let { listOf(it) } ?: emptyList()
-                                                },
-                                                modifier = Modifier.padding(end = 10.dp)
-                                            )
-                                            Column {
-                                                Text(
-                                                    text = stringResource(R.string.topbar_title),
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                if (uniqueSenders.size > 1) {
-                                                    Text(
-                                                        text = stringResource(R.string.topbar_member_count, uniqueSenders.size),
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                } else if (uniqueSenders.size == 1) {
-                                                    Text(
-                                                        text = uniqueSenders.first(),
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    },
-                                    actions = {
-                                        IconButton(onClick = { showManageMembers = true }) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Group,
-                                                contentDescription = stringResource(R.string.manage_members_title),
-                                                tint = MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                        IconButton(onClick = { showSettingsSheet = true }) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Settings,
-                                                contentDescription = stringResource(R.string.action_settings),
-                                                tint = MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    },
-                                    colors = TopAppBarDefaults.topAppBarColors(
-                                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                                        titleContentColor = MaterialTheme.colorScheme.onSurface,
-                                        actionIconContentColor = MaterialTheme.colorScheme.onSurface
-                                    )
-                                )
+                            MainTopBar(
+                                messages = messages,
+                                userName = userName,
+                                onManageMembers = { showManageMembers = true },
+                                onSettings = { showSettingsSheet = true }
+                            )
 
                             // Konten layar (tab aktif) — langsung di bawah topbar.
                             // (F1: NavigationBar dipindah ke BAWAH Column — setelah konten —
@@ -825,133 +727,46 @@ driveController.getAutoPassphrase = {
                             }
 
                             if (showPinDialog) {
-                                AlertDialog(
-                                    onDismissRequest = { showPinDialog = false },
-                                    icon = { Icon(imageVector = Icons.Rounded.Pin, contentDescription = null) },
-                                    title = { Text(stringResource(R.string.menu_pin)) },
-                                    text = {
-                                        Column {
-                                            Text(
-                                                text = stringResource(R.string.pin_settings_hint),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Spacer(modifier = Modifier.height(14.dp))
-                                            Surface(
-                                                shape = RoundedCornerShape(14.dp),
-                                                color = MaterialTheme.colorScheme.primaryContainer,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text(
-                                                    text = workspacePin ?: "-",
-                                                    style = MaterialTheme.typography.headlineMedium,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                    letterSpacing = 8.sp,
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.padding(vertical = 12.dp)
-                                                )
-                                            }
+                                PinDisplayDialog(
+                                    workspacePin = workspacePin,
+                                    onCopyPin = {
+                                        workspacePin?.let {
+                                            // L7: ClipData berlabel supaya clipboard privacy/permission
+                                            // (API ≥ 31) menampilkan origin app dan mencegah app lain
+                                            // membaca PIN tanpa izin.
+                                            val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                            cm.setPrimaryClip(android.content.ClipData.newPlainText("Nyachat", it))
+                                            showSnack(context.getString(R.string.pin_copied), null, null)
                                         }
+                                        showPinDialog = false
                                     },
-                                    confirmButton = {
-                                        TextButton(
-                                            onClick = {
-                                                workspacePin?.let {
-                                                    // L7: ClipData berlabel supaya clipboard privacy/permission
-                                                    // (API ≥ 31) menampilkan origin app dan mencegah app lain
-                                                    // membaca PIN tanpa izin.
-                                                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Nyachat", it))
-                                                    showSnack(context.getString(R.string.pin_copied), null, null)
-                                                }
-                                                showPinDialog = false
-                                            }
-                                        ) {
-                                            Text(stringResource(R.string.pin_settings_copy))
-                                        }
-                                    },
-                                    dismissButton = {
-                                        TextButton(onClick = { showPinDialog = false }) {
-                                            Text(stringResource(R.string.action_cancel))
-                                        }
-                                    }
+                                    onDismiss = { showPinDialog = false }
                                 )
                             }
 
                             if (showConfirmClearDialog) {
-                                AlertDialog(
-                                    onDismissRequest = { showConfirmClearDialog = false },
-                                    title = { Text(stringResource(R.string.confirm_clear_title)) },
-                                    text = {
-                                        Text(stringResource(R.string.confirm_clear_message))
+                                ConfirmClearDataDialog(
+                                    onConfirm = {
+                                        viewModel.clearAllData()
+                                        showConfirmClearDialog = false
                                     },
-                                    confirmButton = {
-                                        TextButton(
-                                            onClick = {
-                                                viewModel.clearAllData()
-                                                showConfirmClearDialog = false
-                                            }
-                                        ) {
-                                            Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
-                                        }
-                                    },
-                                    dismissButton = {
-                                        TextButton(onClick = { showConfirmClearDialog = false }) {
-                                            Text(stringResource(R.string.action_cancel))
-                                        }
-                                    }
+                                    onDismiss = { showConfirmClearDialog = false }
                                 )
                             }
 
                             if (showLogoutDialog) {
-                                AlertDialog(
-                                    onDismissRequest = { showLogoutDialog = false },
-                                    icon = { Icon(Icons.AutoMirrored.Rounded.ExitToApp, contentDescription = null) },
-                                    title = { Text(stringResource(R.string.logout_dialog_title)) },
-                                    text = {
-                                        Column {
-                                            Text(
-                                                text = stringResource(R.string.logout_dialog_message),
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            TextButton(
-                                                onClick = {
-                                                    showLogoutDialog = false
-                                                    performLogoutCleanup()
-                                                },
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text(
-                                                    stringResource(R.string.logout_keep_data),
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            }
-                                            TextButton(
-                                                onClick = {
-                                                    showLogoutDialog = false
-                                                    viewModel.logoutAndDeleteAllData {
-                                                        performLogoutCleanup()
-                                                    }
-                                                },
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text(
-                                                    stringResource(R.string.logout_delete_data),
-                                                    color = MaterialTheme.colorScheme.error,
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            }
+                                LogoutDialog(
+                                    onKeepData = {
+                                        showLogoutDialog = false
+                                        performLogoutCleanup()
+                                    },
+                                    onDeleteData = {
+                                        showLogoutDialog = false
+                                        viewModel.logoutAndDeleteAllData {
+                                            performLogoutCleanup()
                                         }
                                     },
-                                    confirmButton = {
-                                        TextButton(onClick = { showLogoutDialog = false }) {
-                                            Text(stringResource(R.string.action_cancel))
-                                        }
-                                    }
+                                    onDismiss = { showLogoutDialog = false }
                                 )
                             }
 
@@ -997,109 +812,61 @@ driveController.getAutoPassphrase = {
 
                     // Konfirmasi ganti workspace (PIN berbeda): tampil di SEMUA layar.
                     pendingPinConnect?.let { (pin, role, name) ->
-                        AlertDialog(
-                            onDismissRequest = { pendingPinConnect = null },
-                            icon = { Icon(Icons.Rounded.Pin, contentDescription = null) },
-                            title = { Text(stringResource(R.string.pin_switch_title)) },
-                            text = { Text(stringResource(R.string.pin_switch_message)) },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        pendingPinConnect = null
-                                        viewModel.clearLocalData()
-                                        connectGate = Triple(pin, role, name)
-                                    }
-                                ) {
-                                    Text(
-                                        stringResource(R.string.pin_switch_confirm),
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                }
+                        PinSwitchDialog(
+                            onConfirm = {
+                                pendingPinConnect = null
+                                viewModel.clearLocalData()
+                                connectGate = Triple(pin, role, name)
                             },
-                            dismissButton = {
-                                TextButton(onClick = { pendingPinConnect = null }) {
-                                    Text(stringResource(R.string.action_cancel))
-                                }
-                            }
+                            onDismiss = { pendingPinConnect = null }
                         )
                     }
 
                     // Dialog update tampil di SEMUA layar (termasuk layar login/PIN),
                     // jadi yang belum selesai onboarding tetap dapat notif rilis baru.
                     updateInfo?.let { release ->
-                        AlertDialog(
-                            onDismissRequest = { if (!isDownloadingUpdate) updateInfo = null },
-                            icon = { Icon(Icons.Rounded.SystemUpdate, contentDescription = null) },
-                            title = { Text(stringResource(R.string.update_available_title)) },
-                            text = {
-                                Text(
-                                    text = if (isDownloadingUpdate) {
-                                        stringResource(R.string.update_downloading)
-                                    } else if (BuildConfig.DEBUG) {
-                                        stringResource(R.string.update_available_message, release.versionName)
-                                    } else {
-                                        stringResource(R.string.update_available_message_release, release.versionName)
-                                    }
-                                )
-                            },
-                            confirmButton = {
-                                // Aksi selalu tersedia di SEMUA build. Debug → unduh &
-                                // pasang langsung (permission REQUEST_INSTALL_PACKAGES). 
-                                // Release → buka halaman release GitHub di browser (ganti
-                                // APK terpasang lebih aman lewat Play Store, tapi tau
-                                // dulu ke halaman rilis agar tetap ada tombol aksi).
-                                TextButton(
-                                    enabled = !isDownloadingUpdate,
-                                    onClick = {
-                                        scope.launch {
-                                            if (BuildConfig.DEBUG) {
-                                                isDownloadingUpdate = true
-                                                try {
-                                                    val url = release.apkUrl
-                                                    if (url == null) throw IllegalStateException("APK tidak tersedia di release")
-                                                    val dest = File(context.cacheDir, "downloads/nyachat-${release.versionName}.apk")
-                                                    GitHubUpdateChecker.downloadApk(url, dest)
-                                                    installApk(context, dest)
-                                                } catch (e: Exception) {
-                                                    updateMessage = context.getString(R.string.update_download_failed)
-                                                } finally {
-                                                    isDownloadingUpdate = false
-                                                    updateInfo = null
-                                                }
-                                            } else {
-                                                val intent = android.content.Intent(
-                                                    android.content.Intent.ACTION_VIEW,
-                                                    android.net.Uri.parse(release.releaseUrl)
-                                                )
-                                                context.startActivity(intent)
-                                                updateInfo = null
-                                            }
+                        UpdateAvailableDialog(
+                            release = release,
+                            isDownloading = isDownloadingUpdate,
+                            onAction = {
+                                scope.launch {
+                                    // Aksi selalu tersedia di SEMUA build. Debug → unduh &
+                                    // pasang langsung (permission REQUEST_INSTALL_PACKAGES).
+                                    // Release → buka halaman release GitHub di browser (ganti
+                                    // APK terpasang lebih aman lewat Play Store, tapi tau
+                                    // dulu ke halaman rilis agar tetap ada tombol aksi).
+                                    if (BuildConfig.DEBUG) {
+                                        isDownloadingUpdate = true
+                                        try {
+                                            val url = release.apkUrl
+                                            if (url == null) throw IllegalStateException("APK tidak tersedia di release")
+                                            val dest = File(context.cacheDir, "downloads/nyachat-${release.versionName}.apk")
+                                            GitHubUpdateChecker.downloadApk(url, dest)
+                                            installApk(context, dest)
+                                        } catch (e: Exception) {
+                                            updateMessage = context.getString(R.string.update_download_failed)
+                                        } finally {
+                                            isDownloadingUpdate = false
+                                            updateInfo = null
                                         }
+                                    } else {
+                                        val intent = android.content.Intent(
+                                            android.content.Intent.ACTION_VIEW,
+                                            android.net.Uri.parse(release.releaseUrl)
+                                        )
+                                        context.startActivity(intent)
+                                        updateInfo = null
                                     }
-                                ) {
-                                    Text(stringResource(if (BuildConfig.DEBUG) R.string.update_action else R.string.update_action_release))
                                 }
                             },
-                            dismissButton = {
-                                if (!isDownloadingUpdate) {
-                                    TextButton(onClick = { updateInfo = null }) {
-                                        Text(stringResource(R.string.update_later))
-                                    }
-                                }
-                            }
+                            onDismiss = { updateInfo = null }
                         )
                     }
 
                     updateMessage?.let { msg ->
-                        AlertDialog(
-                            onDismissRequest = { updateMessage = null },
-                            title = { Text(stringResource(R.string.update_check_title)) },
-                            text = { Text(msg) },
-                            confirmButton = {
-                                TextButton(onClick = { updateMessage = null }) {
-                                    Text(stringResource(R.string.action_ok))
-                                }
-                            }
+                        UpdateMessageDialog(
+                            message = msg,
+                            onDismiss = { updateMessage = null }
                         )
                     }
 
@@ -1107,148 +874,43 @@ driveController.getAutoPassphrase = {
                     // B3: modal bisa dibatalkan — kalau Drive menggantung, user tidak
                     // terkunci; tombol Batal membatalkan operasi aktif di controller.
                     if (backupBusy) {
-                        AlertDialog(
-                            onDismissRequest = { driveController.cancelActiveOperation() },
-                            title = { Text(stringResource(R.string.backup_progress)) },
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Text(
-                                        stringResource(R.string.backup_please_wait),
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                            },
-                            confirmButton = {},
-                            dismissButton = {
-                                TextButton(onClick = { driveController.cancelActiveOperation() }) {
-                                    Text(stringResource(R.string.action_cancel))
-                                }
-                            }
+                        BackupProgressDialog(
+                            onCancel = { driveController.cancelActiveOperation() }
                         )
                     }
 
                     restoreBackups?.let { files ->
-                        AlertDialog(
-                            onDismissRequest = { driveController.dismissBackups() },
-                            title = { Text(stringResource(R.string.restore_pick_title)) },
-                            text = {
-                                Column {
-                                    Text(
-                                        stringResource(R.string.restore_pick_hint),
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    files.forEach { f ->
-                                        TextButton(
-                                            onClick = { driveController.confirmRestore(f) },
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text(
-                                                text = f.name,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            },
-                            confirmButton = {
-                                TextButton(onClick = { driveController.dismissBackups() }) {
-                                    Text(stringResource(R.string.action_cancel))
-                                }
-                            }
+                        RestorePickerDialog(
+                            files = files,
+                            onPick = { driveController.confirmRestore(it) },
+                            onDismiss = { driveController.dismissBackups() }
                         )
                     }
 
                     restoreTarget?.let { f ->
-                        AlertDialog(
-                            onDismissRequest = { driveController.dismissRestoreTarget() },
-                            title = { Text(stringResource(R.string.restore_confirm_title)) },
-                            text = { Text(stringResource(R.string.restore_confirm_message, f.name)) },
-                            confirmButton = {
-                                TextButton(onClick = { driveController.confirmRestore(f) }) {
-                                    Text(stringResource(R.string.action_restore))
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { driveController.dismissRestoreTarget() }) {
-                                    Text(stringResource(R.string.action_cancel))
-                                }
-                            }
+                        RestoreConfirmDialog(
+                            file = f,
+                            onConfirm = { driveController.confirmRestore(f) },
+                            onDismiss = { driveController.dismissRestoreTarget() }
                         )
                     }
 
                     // Backup milik workspace lain → konfirmasi eksplisit sebelum
                     // menimpa data lokal & menyinkronkannya ke workspace ini (P1).
                     pendingCrossFamilyRestore?.let {
-                        AlertDialog(
-                            onDismissRequest = { driveController.cancelCrossFamilyRestore() },
-                            title = { Text(stringResource(R.string.restore_cross_family_title)) },
-                            text = { Text(stringResource(R.string.restore_cross_family_message)) },
-                            confirmButton = {
-                                TextButton(onClick = { driveController.proceedCrossFamilyRestore() }) {
-                                    Text(stringResource(R.string.action_restore))
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { driveController.cancelCrossFamilyRestore() }) {
-                                    Text(stringResource(R.string.action_cancel))
-                                }
-                            }
+                        CrossFamilyRestoreDialog(
+                            onConfirm = { driveController.proceedCrossFamilyRestore() },
+                            onDismiss = { driveController.cancelCrossFamilyRestore() }
                         )
                     }
 
                     // Prompt passphrase (Sprint-2): muncul saat membuat backup
                     // terenkripsi atau membuka backup terenkripsi saat restore.
                     backupPassphrasePrompt?.let { prompt ->
-                        val isBackupPrompt = prompt is DriveBackupController.PassphrasePrompt.Backup
-                        var passphrase by remember(prompt) { mutableStateOf("") }
-                        AlertDialog(
-                            onDismissRequest = { driveController.cancelPassphrase() },
-                            title = {
-                                Text(
-                                    stringResource(
-                                        if (isBackupPrompt) R.string.backup_passphrase_title
-                                        else R.string.restore_passphrase_title
-                                    )
-                                )
-                            },
-                            text = {
-                                Column {
-                                    Text(
-                                        stringResource(
-                                            if (isBackupPrompt) R.string.backup_passphrase_message
-                                            else R.string.restore_passphrase_message
-                                        )
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    OutlinedTextField(
-                                        value = passphrase,
-                                        onValueChange = { passphrase = it },
-                                        singleLine = true,
-                                        visualTransformation = PasswordVisualTransformation(),
-                                        label = { Text(stringResource(R.string.backup_passphrase_hint)) },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            },
-                            confirmButton = {
-                                TextButton(
-                                    enabled = passphrase.length >= 8,
-                                    onClick = { driveController.submitPassphrase(passphrase) }
-                                ) {
-                                    Text(stringResource(R.string.action_ok))
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { driveController.cancelPassphrase() }) {
-                                    Text(stringResource(R.string.action_cancel))
-                                }
-                            }
+                        PassphraseDialog(
+                            prompt = prompt,
+                            onSubmit = { driveController.submitPassphrase(it) },
+                            onCancel = { driveController.cancelPassphrase() }
                         )
                     }
 
@@ -1278,40 +940,10 @@ driveController.getAutoPassphrase = {
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
                     exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(220)) + fadeOut(animationSpec = tween(220))
                 ) {
-                    val keyboardController = LocalSoftwareKeyboardController.current
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)) {
-                        NavigationBarItem(
-                            selected = selectedTab == 0,
-                            onClick = {
-                                keyboardController?.hide()
-                                selectedTab = 0
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = if (selectedTab == 0) Icons.Rounded.ChatBubble else Icons.Rounded.ChatBubbleOutline,
-                                    contentDescription = stringResource(R.string.tab_chat_desc)
-                                )
-                            },
-                            label = { Text(stringResource(R.string.tab_diskusi)) },
-                            modifier = Modifier.testTag("tab_chat")
-                        )
-
-                        NavigationBarItem(
-                            selected = selectedTab == 1,
-                            onClick = {
-                                keyboardController?.hide()
-                                selectedTab = 1
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.PieChart,
-                                    contentDescription = stringResource(R.string.tab_rekap_desc)
-                                )
-                            },
-                            label = { Text(stringResource(R.string.tab_rekap)) },
-                            modifier = Modifier.testTag("tab_rekap")
-                        )
-                    }
+                    MainNavigationBar(
+                        selectedTab = selectedTab,
+                        onTabSelected = { selectedTab = it }
+                    )
                 }
                     }
                 }
@@ -1320,182 +952,3 @@ driveController.getAutoPassphrase = {
     }
 }
 
-@Composable
-fun GlowingBackground() {
-    val primary = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-    val secondary = MaterialTheme.colorScheme.secondary.copy(alpha = 0.06f)
-    val tertiary = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.06f)
-    
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        Box(
-            modifier = Modifier
-                .offset(x = (-100).dp, y = (-100).dp)
-                .size(300.dp)
-                .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(primary, Color.Transparent)))
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .offset(x = 100.dp, y = 100.dp)
-                .size(350.dp)
-                .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(secondary, Color.Transparent)))
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .offset(x = 50.dp, y = (-50).dp)
-                .size(250.dp)
-                .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(tertiary, Color.Transparent)))
-        )
-    }
-}
-
-@Composable
-fun ApiKeyDialog(
-    title: String,
-    hint: String,
-    initialKey: String,
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit
-) {
-    var key by remember { mutableStateOf(initialKey) }
-
-    // F3 (audit focus order): fokus langsung ke kolom API key saat dialog dibuka.
-    val keyFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        delay(120)
-        keyFocusRequester.requestFocus()
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                Text(
-                    text = hint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                OutlinedTextField(
-                    value = key,
-                    onValueChange = { key = it },
-                    label = { Text(stringResource(R.string.api_key_label)) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(keyFocusRequester)
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onSave(key.trim()) },
-                enabled = key.isNotBlank()
-            ) {
-                Text(stringResource(R.string.action_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.action_cancel))
-            }
-        }
-    )
-}
-
-/** Nama file dengan timestamp: 20260803-143000 */
-private fun timestampForFile(): String =
-    SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-
-/** Buka intent install untuk APK hasil unduhan (via FileProvider). */
-private fun installApk(context: Context, file: File) {
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, "application/vnd.android.package-archive")
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    context.startActivity(intent)
-}
-
-/**
- * Avatar bertumpuk (stacked) bergaya Twitter/X group chat.
- * Setiap avatar adalah lingkaran berwarna unik dari hash nama pengirim,
- * dengan inisial huruf di tengah. Avatar berikutnya sedikit overlap ke kiri.
- */
-@Composable
-private fun StackedAvatars(
-    senders: List<String>,
-    modifier: Modifier = Modifier,
-    avatarSize: Int = 32,
-    overlapDp: Int = 10
-) {
-    if (senders.isEmpty()) return
-    val show = senders.take(3)
-    val totalWidth = (avatarSize + (show.size - 1) * (avatarSize - overlapDp)).dp
-
-    Box(
-        modifier = modifier
-            .width(totalWidth)
-            .height(avatarSize.dp)
-    ) {
-        show.forEachIndexed { index, name ->
-            val avatarColor = avatarColorFor(name)
-            val initials = name.take(2).uppercase()
-            // Teks adaptif (audit WCAG): inisial gelap saat bg avatar terang (orange/sky/
-            // hijau — putih hanya ~2.3-3:1), putih saat bg gelap (indigo/ungu/crimson).
-            val fgColor = if (avatarColor.luminance() > 0.22f) Color(0xFF202124) else Color.White
-            Box(
-                modifier = Modifier
-                    .size(avatarSize.dp)
-                    .offset(x = (index * (avatarSize - overlapDp)).dp)
-                    .zIndex((show.size - index).toFloat())
-                    .clip(CircleShape)
-                    .drawBehind { drawCircle(color = avatarColor) },
-                contentAlignment = Alignment.Center
-            ) {
-                // White border ring
-                Box(
-                    modifier = Modifier
-                        .size(avatarSize.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.25f))
-                )
-                Text(
-                    text = initials,
-                    color = fgColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = (avatarSize / 2.8).sp,
-                    maxLines = 1
-                )
-            }
-        }
-    }
-}
-
-/** Warna avatar deterministik berdasarkan hash nama — konsisten antar sesi.
- *  Gunakan & 0x7FFFFFFF, bukan Math.abs: abs(Int.MIN_VALUE) tetap negatif dan
- *  bisa menghasilkan indeks negatif → ArrayIndexOutOfBoundsException. */
-private fun avatarColorFor(name: String): Color {
-    val palette = listOf(
-        Color(0xFF6C3DE8), // indigo
-        Color(0xFF00A878), // teal
-        Color(0xFFE84393), // pink
-        Color(0xFFFF8C42), // orange
-        Color(0xFF3D9BE9), // sky blue
-        Color(0xFFB23A48), // crimson
-        Color(0xFF4CAF50), // green
-        Color(0xFF9C27B0), // purple
-    )
-    return palette[(name.hashCode() and 0x7FFFFFFF) % palette.size]
-}
