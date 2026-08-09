@@ -147,12 +147,13 @@
 
 ---
 
-### BUG-07 🟢 **RENDAH** — Typo di tagline layar login: "Nyatat" vs "Mencatat"
+### BUG-07 🟢 **RENDAH — SALAH KOREKSI, DIKEMBALIKAN r1.1.3** — Tagline "Nyatat keuangan cukup dengan Chat"
 | Aspek | Detail |
 |---|---|
 | **Layar** | Login screen & onboarding PIN screen |
 | **Teks** | `"Nyatat keuangan cukup dengan Chat"` |
-| **Perbaikan** | `"Mencatat keuangan cukup dengan Chat"` |
+| **Awalnya** | r1.1.0 "mengoreksi" menjadi "Mencatat…" |
+| **Koreksi final (r1.1.3)** | ⚠️ Koreksi itu **salah** — nama aplikasi **Nyachat = Nyatat + Chat**, jadi "Nyatat keuangan cukup dengan Chat" memang disengaja. **Tagline dikembalikan ke "Nyatat keuangan cukup dengan Chat"** pada r1.1.3. |
 
 ---
 
@@ -231,6 +232,25 @@
 **Satu bug kritis (BUG-01)** perlu diperbaiki segera karena menghalangi fitur "undo" pencatatan otomatis — fitur yang dirancang untuk keamanan data user. Sisanya adalah penyesuaian UX minor yang memperhalus pengalaman.
 
 Aplikasi **siap untuk rilis beta / internal testing** setelah BUG-01 & BUG-02 diperbaiki.
+
+---
+
+## 📌 Update 2026-08-09 (r1.1.3)
+
+Laporan di atas adalah pengujian perangkat nyata **r1.0.3** (Infinix X6885, offline-first). Status perbaikan sejak saat itu:
+
+| Bug (laporan ini) | Status per r1.1.3 |
+|---|---|
+| BUG-01 Urungkan salah arah | ✅ FIXED r1.1.0 (padding snackbar di MainActivity) |
+| BUG-02 Tab butuh keyboard ditutup | ✅ FIXED r1.1.0 (`keyboardController.hide()` di tab click) |
+| BUG-03 PIN butuh scroll | ✅ FIXED r1.1.0 (TASK-2.3) |
+| BUG-04 Field nama clear icon | ✅ FIXED r1.1.0 (trailing icon) |
+| BUG-05 Quick suggestion hilang | ⏳ Belum (rencana r1.2.0 — UI toolbar chips) |
+| BUG-06 Label sync "Gagal" selalu merah | ⏳ Belum (rencana r1.2.0 — label netral "Mode offline") |
+| BUG-07 Tagline "Nyatat" | ✅ DIKEMBALIKAN r1.1.3 (memang disengaja — lihat atas) |
+| BUG-08 Field chat berisi "." | ⏳ Belum (rencana r1.2.0 — reset state field) |
+
+**Catatan:** bug kritis baru ditemukan saat audit live emulator r1.1.3 (crash deserialize `serverUpdatedAt`) — sudah diperbaiki. Lihat **`.artifact/laporan_pengujian_live_emulator.artifact.md`** untuk hasil live test r1.1.3 selengkapnya.
 
 ---
 

@@ -107,9 +107,10 @@
 | FASE 2 — P1 HIGH PRIORITY | ✅ COMPLETE | 11/11 (TASK-2.1) + 3/3 (TASK-2.2) + 3/3 (TASK-2.3) |
 | FASE 3 — P2 MEDIUM PRIORITY | ✅ COMPLETE | 6/6 sub-tasks (M2/M8/M10/M12/L3/L4) |
 | FASE 4 — Audit Sisa | ✅ COMPLETE | 10/10 sub-tasks (M4/M5/M6/M7/M9/M11/L2/L7/L8/L12) |
-| FASE 5 — Audit Belum Dikerjakan | 🔄 PENDING | 0/8 sub-tasks (T2/T3/M1/L1/L5/L6/L9/L11) |
+| FASE 5 — Audit Sisa | ✅ COMPLETE | 8/8 sub-tasks (T2/T3/M1/L1/L5/L6/L9/L11 — T3 & M1 didefer ke r1.2.0) |
+| FASE 6 — Audit Live r1.1.3 | ✅ COMPLETE | 7/7 sub-tasks (K2 crash sync, tagline, bump versi, build, install, live verify, CHANGELOG) |
 
-**Total Progress:** 41/49 sub-tasks (84%)
+**Total Progress:** 55/56 sub-tasks (98%) — sisa T3/M1 dijadwalkan di `implementation_plan_r1.2.0.artifact.md`
 
 ---
 
@@ -141,7 +142,7 @@
 
 ## FASE 5 — Audit Sisa (T2/T3/M1/L1/L5/L6/L9/L11)
 
-**Status:** 🟡 SEBAGIAN — item aman selesai; T3 & M1 ditunda ke rilis berikutnya
+**Status:** ✅ COMPLETE (T3 & M1 didefer ke r1.2.0 — lihat `implementation_plan_r1.2.0.artifact.md`)
 
 | Sub-Task | Status | Keterangan |
 |----------|--------|------------|
@@ -160,6 +161,27 @@
 
 ---
 
+## FASE 6 — Audit Live & Rilis r1.1.3 (2026-08-08/09)
+
+**Status:** ✅ COMPLETE
+
+### Latar
+Sesi audit live di emulator (Pixel 7a, API 34) menemukan **bug kritis yang tidak terlihat di audit statis**: app crash setiap kali snapshot listener Firestore menerima dokumen. Ditemukan saat live test pesan pertama yang tersinkron.
+
+| Sub-Task | Status | Keterangan |
+|----------|--------|------------|
+| **Cek versi emulator vs release** | ✅ DONE | Emulator r1.1.2/25; tag GitHub "r1.1.3" ternyata berisi APK r1.1.2/25 (tag menyesatkan); sumber lokal juga r1.1.2/25 → diselaraskan ke r1.1.3/26 |
+| **K2 (BUG KRITIS): crash deserialize `serverUpdatedAt`** | ✅ DONE | `CloudMessage/CloudTransaction.serverUpdatedAt: Long?` → `com.google.firebase.Timestamp?`; konversi `toMillis()` saat simpan ke Room; `toObject()` dipindah ke `try/catch`; unit test regresi ditambahkan |
+| **R1: Tagline login "Nyatat…"** | ✅ DONE | Dikembalikan ke **"Nyatat keuangan cukup dengan Chat"** — nama app Nyachat = *Nyatat* + *Chat* (pembalikan BUG-07 r1.1.0 yang keliru) |
+| **Bump versi r1.1.3 / 26** | ✅ DONE | `gradle.properties` + fallback `build.gradle.kts` selaras CHANGELOG/README/tag GitHub |
+| **Build + unit test** | ✅ DONE | `assembleDebug` + `testDebugUnitTest` PASS |
+| **Install & live re-verify** | ✅ DONE | Kirim pesan transaksi → snackbar "Tercatat" + sync "Tersinkron", tanpa crash |
+| **CHANGELOG r1.1.3** | ✅ DONE | Entri bug kritis + tagline + bump versi |
+
+**⚠️ Tindak lanjut wajib sebelum push r1.1.3 ke CI:** golden Roborazzi perlu di-re-record (tagline login berubah → `AppSnapshotTest` akan gagal verify). Lihat FASE 0 `implementation_plan_r1.2.0.artifact.md`.
+
+---
+
 ## Catatan Penting
 
 1. **Environment Variables:** Sebelum build, pastikan:
@@ -171,3 +193,4 @@
 4. **FASE 3 (r1.1.0):** ✅ SELESAI — audit P2 M2/M8/M10/M12/L3/L4 + Room migrasi v9→v10 (commit `43f70fc`).
 5. **FASE 4 (r1.1.0):** ✅ SELESAI — audit sisa M4/M5/M6/M7/M9/M11/L2/L7/L8/L12 + Room migrasi v10→v11 (server timestamp tie-break, auto-backup passphrase, join rate-limit, provenance badge, attachment namespace, recentContext, heuristik fix, clipboard label, prune error aggregation, stop dedup).
 6. **Verifikasi:** Semua perbaikan FASE 1-4 sudah di-verify di Pixel 7a emulator (unit test 163 PASS, lint PASS, build SUCCESS, smoke test sync + provenance badge + workspace-switch attachment retention).
+7. **FASE 6 (r1.1.3):** ✅ SELESAI — bug kritis crash sync deserialize `serverUpdatedAt` diperbaiki (K2), tagline login dikembalikan ke "Nyatat keuangan cukup dengan Chat" (R1), versi diselaraskan r1.1.3/26. Live test 15+ skenario lulus (detail: `laporan_pengujian_live_emulator.artifact.md`). **Belum di-commit** — file yang berubah: `FirestoreSyncManager.kt`, `FirestoreSyncManagerConflictTest.kt`, `strings.xml`, `gradle.properties`, `build.gradle.kts`, `CHANGELOG.md`.

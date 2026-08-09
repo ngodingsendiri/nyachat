@@ -2,7 +2,7 @@
 
 Laporan audit komprehensif proyek **Nyachat** — aplikasi Android pencatat keuangan keluarga/kelompok berbasis **percakapan chat + AI**.
 
-> Tanggal audit: 2026-08-06 · Bahasa: Indonesia
+> Tanggal audit statis: 2026-08-06 · Update status: 2026-08-09 (r1.1.3) · Bahasa: Indonesia
 
 ---
 
@@ -13,7 +13,7 @@ Laporan audit komprehensif proyek **Nyachat** — aplikasi Android pencatat keua
 | Atribut | Nilai |
 |---|---|
 | ApplicationId | `com.startupmini.nyachat` |
-| Versi | `r1.0.3` (versionCode 23) |
+| Versi | `r1.1.3` (versionCode 26) |
 | minSdk / targetSdk / compileSdk | 24 / 36 / 36 |
 | Build | Gradle 9.3.1 · AGP 9.1.1 · Kotlin 2.2.10 · KSP 2.3.6 |
 | Filsafat | **Offline-first** — data lokal Room, AI BYOK, sync Firestore opsional |
@@ -58,7 +58,9 @@ app/src/main/java/com/startupmini/nyachat/
 
 ## 3. Lapisan Data (Room)
 
-**Database:** `keuangan_pasutri_db`, **versi 8** dengan 7 migrasi bertahap, `exportSchema = true` → skema ke `app/schemas`.
+**Database:** `keuangan_pasutri_db`, **versi 11** dengan 11 migrasi bertahap (v1→v11), `exportSchema = true` → skema ke `app/schemas`.
+
+> **Update r1.1.0→r1.1.3:** v9 (sourceMessageCloudId index), v10 (index transaksi), v11 (serverUpdatedAt + detectedBy). Migration test Room sudah ada (`AppDatabaseMigrationTest` — jalur 8→10, 9→10, 10→11).
 
 | Tabel / Entity | Kolom penting |
 |---|---|
@@ -207,20 +209,33 @@ Workflow `build-apk.yml` (push `main` / tag `r*`):
 - Testing (unit + snapshot UI) + CI gate berkualitas sebelum build.
 
 ### ⚠️ Poin yang perlu diperhatikan
-1. **`MainActivity.kt` (1474 baris) + `ChatScreen` (1400) + `RekapScreen` (1441) sangat besar** — UI shell & screen bisa dipecah (composable terpisah, state holder). Kandidat refactor ke Navigation Compose / multi-file.
+1. **`MainActivity.kt` (~1474 baris) + `ChatScreen` (~1400) + `RekapScreen` (~1441) sangat besar** — UI shell & screen bisa dipecah (composable terpisah, state holder). Kandidat refactor ke Navigation Compose / multi-file. ➜ **Ditunda ke r1.2.0** (rencana T3 di `implementation_plan_r1.2.0.artifact.md`).
 2. **Singleton `object` untuk service** (`GeminiService`, `FirestoreSyncManager`, `MembershipManager`) menyimpan state global statis — menyulitkan unit test murni & bisa bocor antar sesi login. `FirestoreSyncManager` & `MembershipManager` sudah di-test tapi makin besar (735 & 429 baris).
-3. **`debug.keystore` publik** — risiko keamanan terukur (README §"Risiko debug.keystore publik (P1)"): siapa pun bisa menandatangani APK debug dengan SHA-1 terdaftar. Mitigasi yang disebut: Firebase App Check + edukasi download dari release resmi.
-4. **Versi dependensi tua/tidak terkini**:
+3. **`debug.keystore` publik** — risiko keamanan terukur (README §"Risiko debug.keystore publik (P1)"): siapa pun bisa menandatangani APK debug dengan SHA-1 terdaftar. Mitigasi yang disebut: Firebase App Check + edukasi download dari release resmi. ➜ Mitigasi terdokumentasi (T2 selesai), **App Check masih rencana**.
+4. **Versi dependensi tua/tidak terkini** (M1):
    - `composeBom = 2024.09.00` (lama; perlu naik ke versi lebih baru)
    - `lifecycle 2.8.7`, `activityCompose 1.10.1`, `room 2.7.0` — masih terekspektasi tapi bisa diperbarui
    - `okhttp 4.10.0`, `robolectric 4.16.1`, `roborazzi 1.59.0`
-5. **`evaluate` label**: `AppSnapshotTest` disediakan; pastikan baseline PNG di-commit terbaru saat UI berubah.
-6. **Gradle properties**: perlu dicek flag performa (`org.gradle.caching`, `configuration-cache`) — belum terlihat dari baca singkat.
-7. **`ROLE` minSdk 24 + targetSdk 36** — pastikan edge-to-edge (`enableEdgeToEdge`) sudah menangani inset di semua screen (perlu verifikasi visual saat deploy).
-8. **AGENTS.md di context mengacu Node.js/Azure** — itu file proyek lain; untuk proyek ini yang relevan README.md & docs/. Perlu disesuaikan agar tidak menyesatkan agent.
+   ➜ **Ditunda ke r1.2.0** (rencana M1).
+5. **`AppSnapshotTest` (Roborazzi)** — baseline PNG di-commit; tagline login diubah di r1.1.3 → **golden perlu di-re-record** (tindak lanjut wajib sebelum CI verify lulus).
+6. **Gradle properties**: sudah baik — `org.gradle.caching=true`, `configuration-cache=true`, `parallel=true`, `jvmargs=-Xmx4g` (L10 terverifikasi).
+7. **minSdk 24 + targetSdk 36** — edge-to-edge (`enableEdgeToEdge`) ditangani; terverifikasi visual di emulator (inset status bar & nav bar OK).
+8. **AGENTS.md mengacu Node.js/Azure** — file proyek lain; untuk proyek ini yang relevan README.md & docs/. (Belum diubah — lint minor.)
+
+---
+
+## 12b. Update Audit Live (2026-08-08/09, r1.1.3)
+
+Selain audit statis, dilakukan **audit live di emulator** (Pixel 7a, API 34) dengan APK r1.1.3:
+
+| Temuan | Status | Detail |
+|---|---|---|
+| 🚨 **BUG KRITIS**: crash deserialize `serverUpdatedAt` | ✅ DIPERBAIKI r1.1.3 | `CloudMessage/CloudTransaction.serverUpdatedAt` berganti `Long?` → `com.google.firebase.Timestamp?` + konversi `toMillis()`; `toObject()` masuk `try/catch`. Semua fitur sync lintas perangkat tadinya crash di tulis pertama — kini aman. |
+| Tagline login "Nyatat…" | ✅ DIKEMBALIKAN | r1.1.3 mengembalikan **"Nyatat keuangan cukup dengan Chat"** (nama app = Nyatat + Chat; pembalikan BUG-07 r1.1.0 yang salah koreksi). |
+| Live test 15+ skenario | ✅ LULUS | Lihat `laporan_pengujian_live_emulator.artifact.md`. |
 
 ---
 
 ## 13. Kesimpulan
 
-Nyachat adalah proyek Android berarsitektur baik, **offline-first**, dengan fokus keamanan & testing yang serius. Produk siap pakai (r1.0.3) dengan pipeline CI lengkap menuju Google Play. Area yang paling menjanjikan untuk peningkatan berikutnya: **pemecahan file raksasa (MainActivity/ChatScreen/RekapScreen), modernisasi dependensi Compose/lifecycle, dan penguatan isolasi service singleton**.
+Nyachat adalah proyek Android berarsitektur baik, **offline-first**, dengan fokus keamanan & testing yang serius. Produk siap pakai (**r1.1.3**) dengan pipeline CI lengkap menuju Google Play. Audit live menemukan & memperbaiki **1 bug kritis sync** (crash deserialize Timestamp) yang luput dari audit statis — membuktikan nilai live testing. Area peningkatan berikutnya: **pemecahan file raksasa (T3), modernisasi dependensi (M1), re-record golden Roborazzi, dan penguatan isolasi service singleton** — dirinci di `implementation_plan_r1.2.0.artifact.md`.
