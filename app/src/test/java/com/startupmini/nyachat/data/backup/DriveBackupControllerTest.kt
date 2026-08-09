@@ -8,6 +8,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -38,6 +39,7 @@ class DriveBackupControllerTest {
         var downloadResult: BackupResult<String> = BackupResult.Success("""{"app":"Nyachat"}""")
         var uploadCalls = 0
         var pruneCalls = 0
+        var downloadCalls = 0
         var lastToken: String? = null
         var lastFileName: String? = null
         var lastJson: String? = null
@@ -70,7 +72,10 @@ class DriveBackupControllerTest {
             context: Context,
             token: String,
             fileId: String
-        ): BackupResult<String> = downloadResult
+        ): BackupResult<String> {
+            downloadCalls++
+            return downloadResult
+        }
 
         override suspend fun pruneOldBackups(
             context: Context,
@@ -109,6 +114,8 @@ class DriveBackupControllerTest {
         assertEquals(1, api.pruneCalls)
         assertEquals("token", api.lastToken)
         assertTrue(api.lastFileName!!.startsWith("Nyachat-backup-"))
+        // Backup plain → nama tanpa penanda .enc.json (tidak ada badge 🔒).
+        assertFalse(api.lastFileName!!.endsWith(DriveBackupManager.ENCRYPTED_NAME_SUFFIX))
         assertFalse(controller.busy.value)
         assertTrue(controller.message.value!!.contains("Backup berhasil"))
     }
@@ -215,12 +222,18 @@ class DriveBackupControllerTest {
         val api = FakeDriveApi()
         val controller = newController(api, this)
         var successStamped = false
-        controller.onSuccessfulBackup = { successStamped = true }
+        var lastBackupEncryptedFlag: Boolean? = null
+        controller.onSuccessfulBackup = { encrypted ->
+            successStamped = true
+            lastBackupEncryptedFlag = encrypted
+        }
 
         assertTrue(controller.silentBackup())
         assertEquals(1, api.uploadCalls)
         assertEquals(1, api.pruneCalls)
         assertTrue(successStamped)
+        // Backup plain → flag enkripsi file AKTUAL = false (bukan setting toggle).
+        assertEquals(false, lastBackupEncryptedFlag)
     }
 
     @Test
@@ -255,6 +268,8 @@ class DriveBackupControllerTest {
         // Yang di-upload amplop terenkripsi, BUKAN JSON plaintext.
         assertTrue(BackupCrypto.isEncryptedEnvelope(api.lastJson!!))
         assertFalse(api.lastJson!!.contains("\"app\":\"Nyachat\",\"format\""))
+        // File backup terenkripsi diberi penanda .enc.json → badge 🔒 di picker.
+        assertTrue(api.lastFileName!!.endsWith(DriveBackupManager.ENCRYPTED_NAME_SUFFIX))
         // Isi amplop bisa dibuka kembali dengan passphrase yang sama.
         assertEquals(
             """{"app":"Nyachat"}""",
@@ -286,11 +301,16 @@ class DriveBackupControllerTest {
         // walau enkripsi aktif (sebelumnya dilewati → backup 24 jam hilang).
         controller.getAutoPassphrase = { "auto-passphrase-keystore" }
         controller.buildBackupJson = { """{"app":"Nyachat","format":1}""" }
+        var lastBackupEncryptedFlag: Boolean? = null
+        controller.onSuccessfulBackup = { encrypted -> lastBackupEncryptedFlag = encrypted }
 
         assertTrue(controller.silentBackup())
         assertEquals(1, api.uploadCalls)
         // Isi yang diupload harus berupa envelope terenkripsi (bukan plaintext).
         assertTrue(api.lastJson != null && BackupCrypto.isEncryptedEnvelope(api.lastJson!!))
+        // File backup terenkripsi → flag enkripsi AKTUAL = true + penanda nama.
+        assertEquals(true, lastBackupEncryptedFlag)
+        assertTrue(api.lastFileName!!.endsWith(DriveBackupManager.ENCRYPTED_NAME_SUFFIX))
     }
 
     @Test
@@ -303,6 +323,92 @@ class DriveBackupControllerTest {
 
         assertFalse(controller.silentBackup())
         assertEquals(0, api.uploadCalls)
+    }
+
+    // ---- Temuan #4: badge 🔒 di picker restore ----
+
+    @Test
+    fun parseEncryptionStatusMenanganiPenandaNamaDanAppProperties() {
+        // Penanda nama `.enc.json` → true walau tanpa appProperties.
+        assertEquals(true, parseEncryptionStatus("Nyachat-backup-20260809-184131.enc.json", null))
+        // appProperties eksplisit (semua backup baru): true / false.
+        assertEquals(
+            true,
+            parseEncryptionStatus("Nyachat-backup-20260809-184131.json", JSONObject().put("encrypted", "true"))
+        )
+        assertEquals(
+            false,
+            parseEncryptionStatus("Nyachat-backup-20260809-183501.json", JSONObject().put("encrypted", "false"))
+        )
+        // Backup lama: tanpa penanda & tanpa appProperties → null (perlu probe).
+        assertNull(parseEncryptionStatus("Nyachat-backup-20260809-183501.json", null))
+        // appProperties tanpa key encrypted → null.
+        assertNull(parseEncryptionStatus("backup.json", JSONObject()))
+    }
+
+    @Test
+    fun restorePickerMenandaiFileTerenkripsiDariPenandaNama() = runTest {
+        val api = FakeDriveApi()
+        api.listResult = BackupResult.Success(
+            listOf(
+                // Status sudah diketahui dari metadata Drive (manager sudah
+                // mem-parsing appProperties/penanda nama) → tanpa unduh isi.
+                DriveBackupFile("id1", "Nyachat-backup-20260809-184131.enc.json", "2026-08-09T18:41:31.000Z", encrypted = true),
+                DriveBackupFile("id2", "Nyachat-backup-20260809-183501.json", "2026-08-09T18:35:01.000Z", encrypted = false)
+            )
+        )
+        val controller = newController(api, this)
+
+        controller.startRestore()
+        advanceUntilIdle()
+
+        val files = controller.backups.value!!
+        // Backup baru: badge 🔒 tanpa perlu unduh isi — termasuk yang plain
+        // (statusnya sudah diketahui dari appProperties).
+        assertTrue(files[0].encrypted == true)
+        assertFalse(files[1].encrypted == true)
+        assertEquals(0, api.downloadCalls)
+    }
+
+    @Test
+    fun restorePickerProbeFileLamaTerenkripsiUntukBadge() = runTest {
+        val api = FakeDriveApi()
+        api.listResult = BackupResult.Success(
+            listOf(
+                // Backup lama: tanpa metadata Drive → encrypted = null.
+                DriveBackupFile("id1", "Nyachat-backup-20260809-184131.json", "2026-08-09T18:41:31.000Z")
+            )
+        )
+        // Isinya amplop terenkripsi → probe saat listing mendeteksi & badge 🔒.
+        api.downloadResult = BackupResult.Success(
+            BackupCrypto.encryptToEnvelope("""{"app":"Nyachat"}""", "rahasia123", iterations = 1_000)
+        )
+        val controller = newController(api, this)
+
+        controller.startRestore()
+        advanceUntilIdle()
+
+        assertTrue(controller.backups.value!!.first().encrypted == true)
+        assertEquals(1, api.downloadCalls)
+    }
+
+    @Test
+    fun restorePickerProbeFileLamaPlainTetapTanpaBadge() = runTest {
+        val api = FakeDriveApi()
+        api.listResult = BackupResult.Success(
+            listOf(
+                DriveBackupFile("id1", "Nyachat-backup-20260809-183501.json", "2026-08-09T18:35:01.000Z")
+            )
+        )
+        api.downloadResult = BackupResult.Success("""{"app":"Nyachat","format":1}""")
+        val controller = newController(api, this)
+
+        controller.startRestore()
+        advanceUntilIdle()
+
+        // Isi plain → probe selesai, hasil disimpan false → tanpa badge 🔒.
+        assertFalse(controller.backups.value!!.first().encrypted == true)
+        assertEquals(1, api.downloadCalls)
     }
 
     @Test
@@ -324,13 +430,30 @@ class DriveBackupControllerTest {
         // Prompt passphrase muncul, restore belum jalan.
         assertTrue(controller.passphrasePrompt.value is DriveBackupController.PassphrasePrompt.Restore)
 
-        // Passphrase salah → pesan error, tidak diterapkan.
+        // Passphrase salah → error lewat saluran SNACKBAR khusus (passphraseError),
+        // modal progres sudah ditutup (busy=false) & tidak diterapkan.
         var applied = false
         controller.restoreParsedBackup = { applied = true; true }
         controller.submitPassphrase("salah999")
         advanceUntilIdle()
         assertFalse(applied)
-        assertTrue(controller.message.value!!.contains("Passphrase salah"))
+        assertFalse(controller.busy.value)
+        assertTrue(controller.passphraseError.value!!.contains("Passphrase salah"))
+        assertNull(controller.message.value)
+
+        // dismiss → saluran bersih (snackbar sudah tampil).
+        controller.dismissPassphraseError()
+        assertNull(controller.passphraseError.value)
+
+        // Batal juga membersihkan saluran error: jalankan ulang alur restore
+        // (download → prompt passphrase) lalu submit salah & batalkan.
+        controller.confirmRestore(DriveBackupFile("id1", "backup.json", "2026-01-01"))
+        advanceUntilIdle()
+        controller.submitPassphrase("salah999")
+        advanceUntilIdle()
+        assertNotNull(controller.passphraseError.value)
+        controller.cancelActiveOperation()
+        assertNull(controller.passphraseError.value)
     }
 
     @Test

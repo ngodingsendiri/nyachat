@@ -39,7 +39,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.LaunchedEffect
@@ -54,43 +53,27 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.backup.DriveBackupController
 import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.data.local.SecureStorage
-import com.startupmini.nyachat.data.remote.GitHubRelease
-import com.startupmini.nyachat.data.remote.GitHubUpdateChecker
+import com.startupmini.nyachat.ui.MainAppDialogs
+import com.startupmini.nyachat.ui.MainDialogController
+import com.startupmini.nyachat.ui.MainOverlays
 import com.startupmini.nyachat.ui.MainViewModel
-import com.startupmini.nyachat.ui.screens.AddTransactionDialog
-import com.startupmini.nyachat.ui.screens.AiReportDialog
-import com.startupmini.nyachat.ui.screens.ApiKeyDialog
-import com.startupmini.nyachat.ui.screens.BackupProgressDialog
+import com.startupmini.nyachat.ui.SyncLifecycleGlue
+import com.startupmini.nyachat.ui.buildChatCallbacks
+import com.startupmini.nyachat.ui.buildRekapCallbacks
 import com.startupmini.nyachat.ui.screens.ChatScreen
-import com.startupmini.nyachat.ui.screens.ConfirmClearDataDialog
-import com.startupmini.nyachat.ui.screens.CrossFamilyRestoreDialog
 import com.startupmini.nyachat.ui.screens.GlowingBackground
-import com.startupmini.nyachat.ui.screens.LogoutDialog
 import com.startupmini.nyachat.ui.screens.MainNavigationBar
 import com.startupmini.nyachat.ui.screens.MainTopBar
-import com.startupmini.nyachat.ui.screens.PassphraseDialog
-import com.startupmini.nyachat.ui.screens.PinDisplayDialog
-import com.startupmini.nyachat.ui.screens.PinSwitchDialog
 import com.startupmini.nyachat.ui.screens.RekapScreen
-import com.startupmini.nyachat.ui.screens.RestoreConfirmDialog
-import com.startupmini.nyachat.ui.screens.RestorePickerDialog
-import com.startupmini.nyachat.ui.screens.SettingsSheet
-import com.startupmini.nyachat.ui.screens.UpdateAvailableDialog
-import com.startupmini.nyachat.ui.screens.UpdateMessageDialog
-import com.startupmini.nyachat.ui.screens.installApk
-import com.startupmini.nyachat.ui.screens.timestampForFile
 import com.startupmini.nyachat.ui.theme.CoupleFinanceTheme
-import java.io.File
 import java.text.NumberFormat
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -157,24 +140,10 @@ class MainActivity : ComponentActivity() {
                 }
 
                 var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-                var showAddDialog by remember { mutableStateOf(false) }
-                // BUG-08: dinaikkan tiap dialog transaksi manual ditutup — ChatScreen
-                // mereset input-nya supaya karakter sisa tidak menempel di field chat.
-                var chatResetTrigger by remember { mutableIntStateOf(0) }
-                // Gate BUG-08: reset field chat HANYA saat dialog dibuka dari tab Chat
-                // (tap badge finansial). Dialog dari tab Rekap tidak boleh menghapus
-                // draf chat user yang diketik sebelum pindah tab.
-                var resetChatOnDialogClose by remember { mutableStateOf(false) }
-                var showSettingsSheet by remember { mutableStateOf(false) }
-                var showManageMembers by remember { mutableStateOf(false) }
-                var showGeminiKeyDialog by remember { mutableStateOf(false) }
-                var showLogoutDialog by remember { mutableStateOf(false) }
-                var pendingPinConnect by remember { mutableStateOf<Triple<String, String, String>?>(null) }
-                var connectGate by remember { mutableStateOf<Triple<String, String, String>?>(null) }
-                var showOpenRouterKeyDialog by remember { mutableStateOf(false) }
-                var showConfirmClearDialog by remember { mutableStateOf(false) }
-                var showPinDialog by remember { mutableStateOf(false) }
-                var editTarget by remember { mutableStateOf<FinancialTransaction?>(null) }
+                // TASK-1.3 lanjutan: seluruh state dialog/overlay dipindah ke
+                // MainDialogController supaya MainActivity fokus wiring, bukan
+                // deklarasi belasan remember state.
+                val dialogs = remember { MainDialogController() }
 
                 // Non-secret dari appPrefs
                 var workspaceRole by remember { mutableStateOf(appPrefs.getString(Constants.Prefs.WORKSPACE_ROLE, Constants.Defaults.ROLE)) }
@@ -195,9 +164,6 @@ class MainActivity : ComponentActivity() {
 
                 var firebaseReady by remember { mutableStateOf(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) }
                 val scope = rememberCoroutineScope()
-                var updateInfo by remember { mutableStateOf<GitHubRelease?>(null) }
-                var isDownloadingUpdate by remember { mutableStateOf(false) }
-                var updateMessage by remember { mutableStateOf<String?>(null) }
 
                 // ---- Snackbar (audit P1.1): feedback ringan (hasil export, info
                 // backup, "Tercatat + Urungkan") tanpa memblokir layar. Host
@@ -249,6 +215,20 @@ class MainActivity : ComponentActivity() {
                 // Waktu backup Drive terakhir (item 9) — state lokal supaya baris
                 // "Backup terakhir" di Pengaturan langsung ter-update tanpa reopen.
                 var lastBackupMillis by remember { mutableLongStateOf(appPrefs.getLong(Constants.Prefs.LAST_AUTO_BACKUP, 0L)) }
+                // Status enkripsi FILE backup terakhir yang berhasil dibuat — beda
+                // dari toggle [backupEncrypted] (setting). Dipakai label status di
+                // Settings supaya mencerminkan isi file, bukan setting saat ini.
+                // Migrasi user lama: pref baru tak ada → fallback ke toggle saat ini
+                // (best-effort, lebih akurat daripada false; backup berikutnya
+                // menimpa dengan nilai per-file yang sebenarnya).
+                var lastBackupEncrypted by remember {
+                    mutableStateOf(
+                        appPrefs.getBoolean(
+                            Constants.Prefs.LAST_BACKUP_ENCRYPTED,
+                            appPrefs.getBoolean(Constants.Prefs.BACKUP_ENCRYPTED, false)
+                        )
+                    )
+                }
                 val driveController = remember { DriveBackupController(scope, context) }
                 driveController.getWorkspacePin = { workspacePin }
                 driveController.buildBackupJson = { viewModel.buildBackupJson(workspacePin) }
@@ -268,12 +248,15 @@ driveController.getAutoPassphrase = {
                     }
                     auto
                 }
-                driveController.onSuccessfulBackup = {
+                driveController.onSuccessfulBackup = { encrypted ->
                     val now = System.currentTimeMillis()
-                    appPrefs.edit().putLong(Constants.Prefs.LAST_AUTO_BACKUP, now).apply()
+                    appPrefs.edit()
+                        .putLong(Constants.Prefs.LAST_AUTO_BACKUP, now)
+                        .putBoolean(Constants.Prefs.LAST_BACKUP_ENCRYPTED, encrypted)
+                        .apply()
                     lastBackupMillis = now
+                    lastBackupEncrypted = encrypted
                 }
-                val backupBusy by driveController.busy.collectAsStateWithLifecycle()
                 val backupMessage by driveController.message.collectAsStateWithLifecycle()
                 val restoreBackups by driveController.backups.collectAsStateWithLifecycle()
                 val restoreTarget by driveController.restoreTarget.collectAsStateWithLifecycle()
@@ -295,6 +278,22 @@ driveController.getAutoPassphrase = {
                     }
                 }
 
+                // Temuan #3 live test: passphrase restore salah → snackbar SPESIFIK
+                // durasi Long supaya jelas terlihat (sebelumnya dialog hanya menutup
+                // tanpa feedback yang teramati). Saluran terpisah dari [backupMessage]
+                // agar tidak tertutup modal progres & durasinya tidak ikut Short.
+                val backupPassphraseError by driveController.passphraseError.collectAsStateWithLifecycle()
+                LaunchedEffect(backupPassphraseError) {
+                    val msg = backupPassphraseError
+                    if (msg != null) {
+                        snackbarHostState.showSnackbar(
+                            message = msg,
+                            duration = SnackbarDuration.Long
+                        )
+                        driveController.dismissPassphraseError()
+                    }
+                }
+
                 // Bersihkan sesi & kembali ke layar login setelah logout.
                 val performLogoutCleanup = {
                     viewModel.stopCloudSync()
@@ -307,99 +306,29 @@ driveController.getAutoPassphrase = {
                     workspacePin = null
                     geminiKey = null
                     openRouterKey = null
-                    showSettingsSheet = false
+                    dialogs.showSettingsSheet = false
                 }
 
-                LaunchedEffect(workspacePin, userName) {
-                    val pin = workspacePin
-                    if (pin != null) {
-                        viewModel.startCloudSync(pin, workspaceRole ?: Constants.Roles.MEMBER)
-                        com.startupmini.nyachat.data.remote.MembershipManager.start(
-                            pin, workspaceRole ?: Constants.Roles.MEMBER
-                        )
-                    } else {
-                        viewModel.stopCloudSync()
-                    }
-                    userName?.let { viewModel.setSender(it) }
-                }
-                LaunchedEffect(geminiKey) {
-                    com.startupmini.nyachat.data.remote.GeminiService.userApiKey = geminiKey
-                }
-                LaunchedEffect(openRouterKey) {
-                    com.startupmini.nyachat.data.remote.OpenRouterService.userApiKey = openRouterKey
-                }
-                LaunchedEffect(Unit) {
-                    // Cek update otomatis (throttle 1 jam biar gak nembak GitHub API tiap buka app).
-                    // Timestamp cuma di-set kalau ceknya SUKSES — kalau gagal (offline/rate-limit),
-                    // cooldown tidak terpakai dan dicoba lagi saat app dibuka berikutnya.
-                    val lastCheck = appPrefs.getLong(Constants.Prefs.LAST_UPDATE_CHECK, 0L)
-                    if (System.currentTimeMillis() - lastCheck > 60 * 60 * 1000L) {
-                        val release = GitHubUpdateChecker.checkLatest()
-                        if (release != null) {
-                            appPrefs.edit().putLong(Constants.Prefs.LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
-                            if (GitHubUpdateChecker.isNewer(release.versionName, BuildConfig.VERSION_NAME)) {
-                                updateInfo = release
-                            }
-                        }
-                    }
-                }
-                // Backup otomatis (menyerupai WhatsApp): sekali setiap 24 jam saat app dibuka,
-                // bila sudah login & pernah menyetujui akses Google Drive. Berjalan diam-diam;
-                // kalau belum pernah menyetujui konsen Drive, dilewati tanpa dialog. (P4-4:
-                // logika pindah ke DriveBackupController.silentBackup — timestamp auto-backup
-                // di-set lewat onSuccessfulBackup.)
-                LaunchedEffect(workspacePin, firebaseReady) {
-                    val pin = workspacePin
-                    if (pin == null || !firebaseReady) return@LaunchedEffect
-                    val last = appPrefs.getLong(Constants.Prefs.LAST_AUTO_BACKUP, 0L)
-                    if (System.currentTimeMillis() - last > 24 * 60 * 60 * 1000L) {
-                        runCatching { driveController.silentBackup() }
-                    }
-                }
+                // TASK-1.3.3: seluruh lifecycle glue (sync, API key, update check,
+                // auto-backup, pause/resume listener, re-check membership) hidup
+                // di SyncLifecycleGlue — MainActivity hanya wiring dependency.
+                SyncLifecycleGlue(
+                    viewModel = viewModel,
+                    workspacePin = workspacePin,
+                    workspaceRole = workspaceRole,
+                    userName = userName,
+                    firebaseReady = firebaseReady,
+                    isGateActive = dialogs.connectGate != null,
+                    geminiKey = geminiKey,
+                    openRouterKey = openRouterKey,
+                    appPrefs = appPrefs,
+                    driveController = driveController,
+                    scope = scope,
+                    onLogoutCleanup = { performLogoutCleanup() },
+                    onUpdateAvailable = { dialogs.updateInfo = it }
+                )
 
-            // P2-12: pause/resume listener realtime mengikuti lifecycle activity.
-            // Saat app di background, snapshot listener Firestore diputus (hemat
-            // baterai & kuota); saat kembali ke foreground dipasang ulang dan
-            // menerima snapshot terbaru — data tidak hilang karena Room adalah
-            // sumber kebenaran lokal.
-            // P4-2: LifecycleResumeEffect menggantikan LifecycleObserver yang
-            // deprecated (menghilangkan warning kompilasi). Blok berjalan saat
-            // lifecycle RESUMED; onPauseOrDispose dipanggil saat turun ke PAUSED
-            // atau composable dibuang.
-            LifecycleResumeEffect(Unit) {
-                com.startupmini.nyachat.data.remote.FirestoreSyncManager.resumeListeners()
-                com.startupmini.nyachat.data.remote.MembershipManager.resumeListeners()
-                onPauseOrDispose {
-                    com.startupmini.nyachat.data.remote.FirestoreSyncManager.pauseListeners()
-                    com.startupmini.nyachat.data.remote.MembershipManager.pauseListeners()
-                }
-            }
-
-            // A3: Re-check keanggotaan saat app resume (ON_RESUME).
-            // Kalau sudah login & punya workspace tapi BUKAN sedang di gate,
-            // cek ulang status keanggotaan — handle kasus owner menolak/setujui
-            // di device lain saat app di background.
-            LifecycleResumeEffect(workspacePin, firebaseReady, connectGate) {
-                val pin = workspacePin
-                if (pin != null && firebaseReady && connectGate == null) {
-                    scope.launch {
-                        val status = com.startupmini.nyachat.data.remote.MembershipManager.checkMembership(pin)
-                        when (status) {
-                            com.startupmini.nyachat.data.remote.MembershipStatus.FAMILY_NOT_FOUND,
-                            com.startupmini.nyachat.data.remote.MembershipStatus.NOT_REQUESTED -> {
-                                // Workspace dihapus atau user dikick/ditolak di device lain.
-                                // Reset state lokal & kembali ke layar PIN.
-                                performLogoutCleanup()
-                            }
-                            com.startupmini.nyachat.data.remote.MembershipStatus.FAILED -> {
-                                // Error jaringan — biarkan state apa adanya, coba lagi nanti.
-                            }
-                            else -> { /* MEMBER atau PENDING — OK, lanjut */ }
-                        }
-                    }
-                }
-                onPauseOrDispose { }
-            }                // Launcher konsen OAuth Drive (muncul sekali; setelah disetujui
+                // Launcher konsen OAuth Drive (muncul sekali; setelah disetujui
                 // aksi diulang otomatis via DriveBackupController.onConsentResult).
                 // Kalau user menekan Batal (bukan OK), aksi tidak diulang supaya
                 // tidak muncul dialog berulang-ulang.
@@ -458,6 +387,27 @@ driveController.getAutoPassphrase = {
                 Box(modifier = Modifier.fillMaxSize()) {
                     GlowingBackground()
 
+                    // TASK-1.3.2: callback kelompok layar diekstrak ke interface
+                    // ChatCallbacks/RekapCallbacks (build*Callbacks di MainCallbacks.kt).
+                    // MainActivity tetap memegang state UI (editTarget, dialog, reset
+                    // chat) dan hanya menyerahkan setter-nya ke factory.
+                    val chatCallbacks = buildChatCallbacks(
+                        viewModel = viewModel,
+                        txBySourceCloudId = txBySourceCloudId,
+                        txByChatMessageId = txByChatMessageId,
+                        onEditTarget = { dialogs.editTarget = it },
+                        onSetResetChatOnDialogClose = { dialogs.resetChatOnDialogClose = it },
+                        onSetShowAddDialog = { dialogs.showAddDialog = it },
+                        showSnack = showSnack,
+                        chatTransactionNotFoundMessage = context.getString(R.string.chat_transaction_not_found)
+                    )
+                    val rekapCallbacks = buildRekapCallbacks(
+                        viewModel = viewModel,
+                        onEditTarget = { dialogs.editTarget = it },
+                        onSetResetChatOnDialogClose = { dialogs.resetChatOnDialogClose = it },
+                        onSetShowAddDialog = { dialogs.showAddDialog = it }
+                    )
+
                     // Edge-to-edge (wajib di targetSdk 36): Column induk menata konten
                     // vs NavigationBar secara vertikal. Box konten memakai weight(1f)
                     // sehingga berhenti tepat di atas navbar — tanpa offset hardcoded,
@@ -480,7 +430,7 @@ driveController.getAutoPassphrase = {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .then(
-                                    if (connectGate != null) {
+                                    if (dialogs.connectGate != null) {
                                         Modifier.semantics { invisibleToUser() }
                                     } else {
                                         Modifier
@@ -493,10 +443,10 @@ driveController.getAutoPassphrase = {
                                 if (previous != null && previous != pin) {
                                     // PIN berbeda → isolasi workspace: konfirmasi dulu
                                     // sebelum menghapus data lokal workspace lama.
-                                    pendingPinConnect = Triple(pin, role, name)
+                                    dialogs.pendingPinConnect = Triple(pin, role, name)
                                 } else {
                                     // Melewati gate keanggotaan dulu sebelum masuk.
-                                    connectGate = Triple(pin, role, name)
+                                    dialogs.connectGate = Triple(pin, role, name)
                                 }
                             }
                         )
@@ -510,8 +460,8 @@ driveController.getAutoPassphrase = {
                             MainTopBar(
                                 messages = messages,
                                 userName = userName,
-                                onManageMembers = { showManageMembers = true },
-                                onSettings = { showSettingsSheet = true }
+                                onManageMembers = { dialogs.showManageMembers = true },
+                                onSettings = { dialogs.showSettingsSheet = true }
                             )
 
                             // Konten layar (tab aktif) — langsung di bawah topbar.
@@ -546,38 +496,16 @@ driveController.getAutoPassphrase = {
                                     when (tab) {
                                         0 -> ChatScreen(
                                             quickSuggestions = quickSuggestions,
-                                            resetChatInputTrigger = chatResetTrigger,
+                                            resetChatInputTrigger = dialogs.chatResetTrigger,
                                             messages = messages,
                                             activeSender = activeSender,
                                             isAiThinking = isAiThinking,
                                             workspacePin = workspacePin,
-                                            onSendMessage = { text, imagePath, filePath, fileName, replyToSender, replyToText ->
-                                                viewModel.sendMessage(
-                                                    text, imagePath, filePath, fileName, replyToSender, replyToText
-                                                )
-                                            },
-                                            onEditMessage = { id, newText -> viewModel.editMessage(id, newText) },
-                                            onAskAiClicked = { viewModel.askAiInChat(it) },
-                                            onDeleteMessage = { viewModel.deleteChatMessage(it) },
-                                            onOpenTransaction = { msg ->
-                                                // tap badge finansial (item 5): cari transaksi terkait lalu
-                                                // buka dialog edit. Cross-device: di perangkat lain, id lokal
-                                                // Room berbeda sehingga fallback chatMessageId gagal. Transaksi
-                                                // menyimpan sourceMessageCloudId = cloudId pesan asal → cari
-                                                // transaksi dengan sourceMessageCloudId == cloudId pesan kamu.
-                                                // M8: lookup via Map indeks O(1), bukan scan linear.
-                                                val tx = msg.cloudId?.let { msgCloudId ->
-                                                    txBySourceCloudId[msgCloudId]
-                                                } ?: txByChatMessageId[msg.id]
-                                                if (tx != null) {
-                                                    editTarget = tx
-                                                    // BUG-08: dialog dibuka dari tab Chat → reset input saat ditutup.
-                                                    resetChatOnDialogClose = true
-                                                    showAddDialog = true
-                                                } else {
-                                                    showSnack(context.getString(R.string.chat_transaction_not_found), null, null)
-                                                }
-                                            }
+                                            onSendMessage = chatCallbacks::onSendMessage,
+                                            onEditMessage = chatCallbacks::onEditMessage,
+                                            onAskAiClicked = chatCallbacks::onAskAiClicked,
+                                            onDeleteMessage = chatCallbacks::onDeleteMessage,
+                                            onOpenTransaction = chatCallbacks::onOpenTransaction
                                         )
 
                                         1 -> RekapScreen(
@@ -585,346 +513,71 @@ driveController.getAutoPassphrase = {
                                             totalIncome = totalIncome,
                                             totalExpense = totalExpense,
                                             isAuditLoading = isAuditLoading,
-                                            onGenerateAudit = { viewModel.generateAiAuditReport() },
+                                            onGenerateAudit = rekapCallbacks::onGenerateAudit,
                                             isMonthlyLoading = isMonthlyLoading,
                                             insights = weeklyInsights,
-                                            onGenerateMonthly = { viewModel.generateMonthlyAnalysis() },
-                                            onAddTransactionClicked = {
-                                                editTarget = null
-                                                // BUG-08: dialog dari tab Rekap — jangan reset draf chat.
-                                                resetChatOnDialogClose = false
-                                                showAddDialog = true
-                                            },
-                                            onDeleteTransaction = { viewModel.deleteTransaction(it) },
-                                            onEditTransaction = {
-                                                editTarget = it
-                                                // BUG-08: dialog dari tab Rekap — jangan reset draf chat.
-                                                resetChatOnDialogClose = false
-                                                showAddDialog = true
-                                            },
+                                            onGenerateMonthly = rekapCallbacks::onGenerateMonthly,
+                                            onAddTransactionClicked = rekapCallbacks::onAddTransactionClicked,
+                                            onDeleteTransaction = rekapCallbacks::onDeleteTransaction,
+                                            onEditTransaction = rekapCallbacks::onEditTransaction,
                                             syncStatus = syncStatus
                                         )
                                     }
                                 }
                             }
 
-                            // Dialogs
-                            if (showAddDialog) {
-                                AddTransactionDialog(
-                                    transaction = editTarget,
-                                    initialLoggedBy = userName,
-                                    onDismiss = {
-                                        showAddDialog = false
-                                        editTarget = null
-                                        if (resetChatOnDialogClose) chatResetTrigger++
-                                    },
-                                    onConfirm = { tx ->
-                                        if (editTarget != null) {
-                                            viewModel.updateTransaction(tx)
-                                        } else {
-                                            viewModel.addManualTransaction(
-                                                tx.type, tx.category, tx.amount, tx.description, tx.loggedBy
-                                            )
-                                        }
-                                        showAddDialog = false
-                                        editTarget = null
-                                        if (resetChatOnDialogClose) chatResetTrigger++
-                                    }
-                                )
-                            }
-
-                            // Settings Bottom Sheet — di-ekstrak ke SettingsSheet.kt (P2-13)
-                            if (showSettingsSheet) {
-                                SettingsSheet(
-                                    isDarkMode = isDarkMode,
-                                    userName = userName,
-                                    workspaceRole = workspaceRole,
-                                    workspacePin = workspacePin,
-                                    backupBusy = backupBusy,
-                                    isBackupEncrypted = backupEncrypted,
-                                    lastBackupMillis = lastBackupMillis,
-                                    onDismiss = { showSettingsSheet = false },
-                                    onToggleDarkMode = {
-                                        isDarkMode = !isDarkMode
-                                        appPrefs.edit().putBoolean(Constants.Prefs.IS_DARK_MODE, isDarkMode).apply()
-                                    },
-                                    onToggleBackupEncryption = {
-                                        backupEncrypted = !backupEncrypted
-                                        appPrefs.edit().putBoolean(Constants.Prefs.BACKUP_ENCRYPTED, backupEncrypted).apply()
-                                    },
-                                    onCheckUpdate = {
-                                        showSettingsSheet = false
-                                        scope.launch {
-                                            val release = GitHubUpdateChecker.checkLatest()
-                                            if (release != null && GitHubUpdateChecker.isNewer(release.versionName, BuildConfig.VERSION_NAME)) {
-                                                updateInfo = release
-                                            } else {
-                                                showSnack(context.getString(R.string.update_no_update), null, null)
-                                            }
-                                        }
-                                    },
-                                    onGeminiKey = {
-                                        showSettingsSheet = false
-                                        showGeminiKeyDialog = true
-                                    },
-                                    onOpenRouterKey = {
-                                        showSettingsSheet = false
-                                        showOpenRouterKeyDialog = true
-                                    },
-                                    onPin = {
-                                        showSettingsSheet = false
-                                        showPinDialog = true
-                                    },
-                                    onExportCsv = {
-                                        showSettingsSheet = false
-                                        exportCsvLauncher.launch("Nyachat-rekap-${timestampForFile()}.csv")
-                                    },
-                                    onBackup = {
-                                        showSettingsSheet = false
-                                        driveController.startBackup()
-                                    },
-                                    onRestore = {
-                                        showSettingsSheet = false
-                                        driveController.startRestore()
-                                    },
-                                    onClearData = {
-                                        showSettingsSheet = false
-                                        showConfirmClearDialog = true
-                                    },
-                                    onLogout = {
-                                        showSettingsSheet = false
-                                        showLogoutDialog = true
-                                    }
-                                )
-                            }
-
-                            if (showGeminiKeyDialog) {
-                                ApiKeyDialog(
-                                    title = stringResource(R.string.menu_gemini_key),
-                                    hint = stringResource(R.string.gemini_key_hint),
-                                    initialKey = geminiKey ?: "",
-                                    onDismiss = { showGeminiKeyDialog = false },
-                                    onSave = { newKey ->
-                                        secureStorage.putSecret(context, Constants.Prefs.GEMINI_API_KEY, newKey)
-                                        geminiKey = newKey
-                                        showGeminiKeyDialog = false
-                                    }
-                                )
-                            }
-
-                            if (showOpenRouterKeyDialog) {
-                                ApiKeyDialog(
-                                    title = stringResource(R.string.menu_openrouter_key),
-                                    hint = stringResource(R.string.openrouter_key_hint),
-                                    initialKey = openRouterKey ?: "",
-                                    onDismiss = { showOpenRouterKeyDialog = false },
-                                    onSave = { newKey ->
-                                        secureStorage.putSecret(context, Constants.Prefs.OPENROUTER_API_KEY, newKey)
-                                        openRouterKey = newKey
-                                        showOpenRouterKeyDialog = false
-                                    }
-                                )
-                            }
-
-                            if (showPinDialog) {
-                                PinDisplayDialog(
-                                    workspacePin = workspacePin,
-                                    onCopyPin = {
-                                        workspacePin?.let {
-                                            // L7: ClipData berlabel supaya clipboard privacy/permission
-                                            // (API ≥ 31) menampilkan origin app dan mencegah app lain
-                                            // membaca PIN tanpa izin.
-                                            val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                            cm.setPrimaryClip(android.content.ClipData.newPlainText("Nyachat", it))
-                                            showSnack(context.getString(R.string.pin_copied), null, null)
-                                        }
-                                        showPinDialog = false
-                                    },
-                                    onDismiss = { showPinDialog = false }
-                                )
-                            }
-
-                            if (showConfirmClearDialog) {
-                                ConfirmClearDataDialog(
-                                    onConfirm = {
-                                        viewModel.clearAllData()
-                                        showConfirmClearDialog = false
-                                    },
-                                    onDismiss = { showConfirmClearDialog = false }
-                                )
-                            }
-
-                            if (showLogoutDialog) {
-                                LogoutDialog(
-                                    onKeepData = {
-                                        showLogoutDialog = false
-                                        performLogoutCleanup()
-                                    },
-                                    onDeleteData = {
-                                        showLogoutDialog = false
-                                        viewModel.logoutAndDeleteAllData {
-                                            performLogoutCleanup()
-                                        }
-                                    },
-                                    onDismiss = { showLogoutDialog = false }
-                                )
-                            }
-
-                            auditReport?.let { report ->
-                                AiReportDialog(
-                                    reportText = report,
-                                    onDismiss = { viewModel.dismissAuditReport() }
-                                )
-                            }
-
-                            monthlyReport?.let { report ->
-                                AiReportDialog(
-                                    reportText = report,
-                                    onDismiss = { viewModel.dismissMonthlyReport() }
-                                )
-                            }
+                            // TASK-1.3 lanjutan: dialog lapisan konten (transaksi,
+                            // settings, API key, PIN, clear data, logout, AI report)
+                            // dipindah ke MainAppDialogs.kt.
+                            MainAppDialogs(
+                                viewModel = viewModel,
+                                context = context,
+                                appPrefs = appPrefs,
+                                secureStorage = secureStorage,
+                                scope = scope,
+                                dialogs = dialogs,
+                                isDarkMode = isDarkMode,
+                                backupEncrypted = backupEncrypted,
+                                lastBackupMillis = lastBackupMillis,
+                                lastBackupEncrypted = lastBackupEncrypted,
+                                userName = userName,
+                                workspaceRole = workspaceRole,
+                                workspacePin = workspacePin,
+                                geminiKey = geminiKey,
+                                openRouterKey = openRouterKey,
+                                auditReport = auditReport,
+                                monthlyReport = monthlyReport,
+                                driveController = driveController,
+                                exportCsvLauncher = exportCsvLauncher,
+                                showSnack = showSnack,
+                                onToggleDarkMode = {
+                                    isDarkMode = !isDarkMode
+                                    appPrefs.edit().putBoolean(Constants.Prefs.IS_DARK_MODE, isDarkMode).apply()
+                                },
+                                onToggleBackupEncryption = {
+                                    backupEncrypted = !backupEncrypted
+                                    appPrefs.edit().putBoolean(Constants.Prefs.BACKUP_ENCRYPTED, backupEncrypted).apply()
+                                },
+                                onGeminiKeySaved = { geminiKey = it },
+                                onOpenRouterKeySaved = { openRouterKey = it },
+                                onPerformLogoutCleanup = { performLogoutCleanup() }
+                            )
                         }
                     }
 
-                    // Gate keanggotaan: setelah PIN dimasukkan, sebelum data terbuka.
-                    // Owner menyiapkan workspace; anggota kirim permintaan & menunggu
-                    // persetujuan pemilik. Layar penuh menimpa semua konten lain.
-                    connectGate?.let { (pin, role, name) ->
-                        com.startupmini.nyachat.ui.screens.MembershipGateScreen(
-                            pin = pin,
-                            role = role,
-                            onReady = {
-                                connectGate = null
-                                applyPinConnect(pin, role, name)
-                            },
-                            onCancel = { connectGate = null }
-                        )
-                    }
-
-                    // Layar kelola anggota & permintaan bergabung (owner/member).
-                    if (showManageMembers && workspacePin != null) {
-                        com.startupmini.nyachat.ui.screens.ManageMembersScreen(
-                            pin = workspacePin!!,
-                            isOwner = (workspaceRole == Constants.Roles.OWNER),
-                            onDismiss = { showManageMembers = false }
-                        )
-                    }
-
-                    // Konfirmasi ganti workspace (PIN berbeda): tampil di SEMUA layar.
-                    pendingPinConnect?.let { (pin, role, name) ->
-                        PinSwitchDialog(
-                            onConfirm = {
-                                pendingPinConnect = null
-                                viewModel.clearLocalData()
-                                connectGate = Triple(pin, role, name)
-                            },
-                            onDismiss = { pendingPinConnect = null }
-                        )
-                    }
-
-                    // Dialog update tampil di SEMUA layar (termasuk layar login/PIN),
-                    // jadi yang belum selesai onboarding tetap dapat notif rilis baru.
-                    updateInfo?.let { release ->
-                        UpdateAvailableDialog(
-                            release = release,
-                            isDownloading = isDownloadingUpdate,
-                            onAction = {
-                                scope.launch {
-                                    // Aksi selalu tersedia di SEMUA build. Debug → unduh &
-                                    // pasang langsung (permission REQUEST_INSTALL_PACKAGES).
-                                    // Release → buka halaman release GitHub di browser (ganti
-                                    // APK terpasang lebih aman lewat Play Store, tapi tau
-                                    // dulu ke halaman rilis agar tetap ada tombol aksi).
-                                    if (BuildConfig.DEBUG) {
-                                        isDownloadingUpdate = true
-                                        try {
-                                            val url = release.apkUrl
-                                            if (url == null) throw IllegalStateException("APK tidak tersedia di release")
-                                            val dest = File(context.cacheDir, "downloads/nyachat-${release.versionName}.apk")
-                                            GitHubUpdateChecker.downloadApk(url, dest)
-                                            installApk(context, dest)
-                                        } catch (e: Exception) {
-                                            updateMessage = context.getString(R.string.update_download_failed)
-                                        } finally {
-                                            isDownloadingUpdate = false
-                                            updateInfo = null
-                                        }
-                                    } else {
-                                        val intent = android.content.Intent(
-                                            android.content.Intent.ACTION_VIEW,
-                                            android.net.Uri.parse(release.releaseUrl)
-                                        )
-                                        context.startActivity(intent)
-                                        updateInfo = null
-                                    }
-                                }
-                            },
-                            onDismiss = { updateInfo = null }
-                        )
-                    }
-
-                    updateMessage?.let { msg ->
-                        UpdateMessageDialog(
-                            message = msg,
-                            onDismiss = { updateMessage = null }
-                        )
-                    }
-
-                    // ---- Dialog Export CSV / Backup / Restore Drive ----
-                    // B3: modal bisa dibatalkan — kalau Drive menggantung, user tidak
-                    // terkunci; tombol Batal membatalkan operasi aktif di controller.
-                    if (backupBusy) {
-                        BackupProgressDialog(
-                            onCancel = { driveController.cancelActiveOperation() }
-                        )
-                    }
-
-                    restoreBackups?.let { files ->
-                        RestorePickerDialog(
-                            files = files,
-                            onPick = { driveController.confirmRestore(it) },
-                            onDismiss = { driveController.dismissBackups() }
-                        )
-                    }
-
-                    restoreTarget?.let { f ->
-                        RestoreConfirmDialog(
-                            file = f,
-                            onConfirm = { driveController.confirmRestore(f) },
-                            onDismiss = { driveController.dismissRestoreTarget() }
-                        )
-                    }
-
-                    // Backup milik workspace lain → konfirmasi eksplisit sebelum
-                    // menimpa data lokal & menyinkronkannya ke workspace ini (P1).
-                    pendingCrossFamilyRestore?.let {
-                        CrossFamilyRestoreDialog(
-                            onConfirm = { driveController.proceedCrossFamilyRestore() },
-                            onDismiss = { driveController.cancelCrossFamilyRestore() }
-                        )
-                    }
-
-                    // Prompt passphrase (Sprint-2): muncul saat membuat backup
-                    // terenkripsi atau membuka backup terenkripsi saat restore.
-                    backupPassphrasePrompt?.let { prompt ->
-                        PassphraseDialog(
-                            prompt = prompt,
-                            onSubmit = { driveController.submitPassphrase(it) },
-                            onCancel = { driveController.cancelPassphrase() }
-                        )
-                    }
-
-                    // Snackbar overlay (audit P1.1): tampil di semua layar. Offset
-                    // adaptif: windowInsetsPadding(ime) mengangkat host di atas
-                    // keyboard saat IME terbuka (navbar otomatis tersembunyi & konten
-                    // melebar ke bawah); tanpa IME cukup 16dp di atas NavigationBar —
-                    // menggantikan angka 96dp hardcoded.
-                    SnackbarHost(
-                        hostState = snackbarHostState,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .windowInsetsPadding(WindowInsets.ime.only(WindowInsetsSides.Bottom))
-                            .padding(bottom = 16.dp)
+                    // TASK-1.3 lanjutan: overlay global (gate keanggotaan, kelola
+                    // anggota, ganti workspace, update, backup/restore Drive, snackbar)
+                    // dipindah ke MainOverlays.kt.
+                    MainOverlays(
+                        viewModel = viewModel,
+                        context = context,
+                        scope = scope,
+                        dialogs = dialogs,
+                        driveController = driveController,
+                        snackbarHostState = snackbarHostState,
+                        workspacePin = workspacePin,
+                        workspaceRole = workspaceRole,
+                        onApplyPinConnect = applyPinConnect
                     )
                         }
 
@@ -933,7 +586,7 @@ driveController.getAutoPassphrase = {
                 // login/PIN/gate keanggotaan navbar disembunyikan supaya onboarding
                 // tetap fokus & tidak terlihat "menu chat/rekap bocor" sebelum masuk.
                 val isInMainApp = secretsLoaded &&
-                    workspacePin != null && userName != null && firebaseReady && connectGate == null
+                    workspacePin != null && userName != null && firebaseReady && dialogs.connectGate == null
                 val imeVisible = WindowInsets.isImeVisible
                 AnimatedVisibility(
                     visible = isInMainApp && !imeVisible,

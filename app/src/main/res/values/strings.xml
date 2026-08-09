@@ -245,14 +245,14 @@
     <string name="restore_success">Backup berhasil dipulihkan! Semua chat &amp; transaksi sudah dikembalikan dan disinkronkan ke perangkat lain.</string>
     <string name="restore_cross_family_title">Backup dari workspace lain</string>
     <string name="restore_cross_family_message">Backup ini dibuat di workspace (PIN) yang berbeda. Melanjutkan akan mengganti seluruh data lokal dan menyinkronkan isi backup ke workspace saat ini. Lanjut?</string>
-    <string name="restore_wrong_passphrase">Passphrase salah atau file backup rusak. Coba lagi dengan passphrase yang dipakai saat backup dibuat.</string>
+    <string name="restore_wrong_passphrase_snackbar">Passphrase salah. Coba lagi dengan passphrase yang dipakai saat backup dibuat.</string>
     <string name="backup_passphrase_title">Enkripsi Backup</string>
     <string name="backup_passphrase_message">Backup akan dienkripsi dengan passphrase ini. Passphrase TIDAK disimpan — tanpa passphrase, backup tidak bisa dipulihkan. Pastikan mudah kamu ingat!</string>
     <string name="backup_passphrase_hint">Passphrase (min. 8 karakter)</string>
     <string name="restore_passphrase_title">Backup Terenkripsi</string>
     <string name="restore_passphrase_message">Backup ini terenkripsi. Masukkan passphrase yang dipakai saat backup dibuat untuk membukanya.</string>
     <string name="settings_backup_encrypt">Enkripsi backup Drive</string>
-    <string name="settings_backup_encrypt_desc">Lindungi file backup dengan passphrase (AES-256). Auto-backup harian dijeda saat aktif.</string>
+    <string name="settings_backup_encrypt_desc">Lindungi file backup dengan passphrase (AES-256). Auto-backup harian tetap berjalan terenkripsi otomatis.</string>
     <string name="restore_failed">Gagal mengunduh backup dari Google Drive.</string>
     <string name="restore_failed_parse">File backup tidak valid atau rusak.</string>
 

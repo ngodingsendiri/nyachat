@@ -7,6 +7,9 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,8 +52,12 @@ class DriveBackupController(
     var parseRestore: (String, String?) -> BackupData? = { _, _ -> null }
     /** Terapkan backup ke data lokal + cloud. */
     var restoreParsedBackup: suspend (BackupData) -> Boolean = { false }
-    /** Dipanggil setiap backup berhasil (untuk menandai auto-backup terakhir). */
-    var onSuccessfulBackup: () -> Unit = {}
+    /** Dipanggil setiap backup berhasil (untuk menandai auto-backup terakhir).
+     *  Parameter [Boolean] = apakah FILE backup yang baru dibuat terenkripsi
+     *  (status file AKTUAL, bukan setting toggle saat ini) — dipakai UI untuk
+     *  menampilkan label "Backup terakhir … Terenkripsi/Tanpa enkripsi" yang
+     *  mencerminkan isi file di Drive. */
+    var onSuccessfulBackup: (Boolean) -> Unit = {}
     /** Apakah enkripsi backup aktif (dari Pengaturan). */
     var getEncryptionEnabled: () -> Boolean = { false }
 
@@ -67,6 +74,12 @@ class DriveBackupController(
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+
+    /** Error passphrase restore — saluran khusus supaya snackbar "Passphrase
+     *  salah" tampil jelas (durasi Long) dan TIDAK tertutup modal progres
+     *  (temuan #3 live test: sebelumnya dialog hanya menutup tanpa feedback). */
+    private val _passphraseError = MutableStateFlow<String?>(null)
+    val passphraseError: StateFlow<String?> = _passphraseError.asStateFlow()
 
     private val _backups = MutableStateFlow<List<DriveBackupFile>?>(null)
     val backups: StateFlow<List<DriveBackupFile>?> = _backups.asStateFlow()
@@ -136,6 +149,7 @@ class DriveBackupController(
         _busy.value = false
         _backups.value = null
         _restoreTarget.value = null
+        _passphraseError.value = null
     }
 
     // ===== Backup =====
@@ -159,12 +173,12 @@ class DriveBackupController(
             val token = driveToken { runBackup(encryptedPassphrase) } ?: return@launchOperation
             val plain = buildBackupJson()
             val json = encryptedPassphrase?.let { BackupCrypto.encryptToEnvelope(plain, it) } ?: plain
-            val fileName = "Nyachat-backup-${timestampForFile()}.json"
+            val fileName = backupFileName(encrypted = encryptedPassphrase != null)
             val uploadResult = driveApi.uploadBackup(context, token, fileName, json)
             when (uploadResult) {
                 is BackupResult.Success -> {
                     driveApi.pruneOldBackups(context, token, 5)
-                    onSuccessfulBackup()
+                    onSuccessfulBackup(encryptedPassphrase != null)
                     _message.value = context.getString(R.string.backup_success, fileName)
                 }
                 else -> _message.value = context.getString(R.string.backup_failed)
@@ -195,11 +209,11 @@ class DriveBackupController(
                     val json = runCatching { BackupCrypto.encryptToEnvelope(plain, passphrase) }.getOrNull()
                         ?: return false
                     val uploadResult = driveApi.uploadBackup(
-                        context, token, "Nyachat-backup-${timestampForFile()}.json", json
+                        context, token, backupFileName(encrypted = encryptionOn), json
                     )
                     if (uploadResult is BackupResult.Success) {
                         driveApi.pruneOldBackups(context, token, 5)
-                        onSuccessfulBackup()
+                        onSuccessfulBackup(encryptionOn)
                         true
                     } else {
                         false
@@ -214,11 +228,11 @@ class DriveBackupController(
                 val token = tokenResult.value
                 val json = buildBackupJson()
                 val uploadResult = driveApi.uploadBackup(
-                    context, token, "Nyachat-backup-${timestampForFile()}.json", json
+                    context, token, backupFileName(encrypted = false), json
                 )
                 if (uploadResult is BackupResult.Success) {
                     driveApi.pruneOldBackups(context, token, 5)
-                    onSuccessfulBackup()
+                    onSuccessfulBackup(false)
                     true
                 } else {
                     false
@@ -243,12 +257,46 @@ class DriveBackupController(
                     if (files.isEmpty()) {
                         _message.value = context.getString(R.string.restore_no_backup)
                     } else {
-                        _backups.value = files.take(5)
+                        _backups.value = resolveEncryptionFlags(files.take(5), token)
                     }
                 }
                 else -> _message.value = context.getString(R.string.restore_failed)
             }
         }
+    }
+
+    /**
+     * Pastikan [DriveBackupFile.encrypted] akurat untuk SEMUA file di picker
+     * restore. File baru sudah membawa metadata (`appProperties`/penanda nama)
+     * → diketahui tanpa unduh; hanya file lama (encrypted == null) yang
+     * di-*probe*: unduh isi & cek amplop enkripsi. Gagal unduh → anggap plain
+     * (netral, tanpa badge) — restore tetap mendeteksi enkripsi dari isi saat
+     * file benar-benar diunduh di [confirmRestore].
+     */
+    private suspend fun resolveEncryptionFlags(
+        files: List<DriveBackupFile>,
+        token: String
+    ): List<DriveBackupFile> = coroutineScope {
+        // Probe file lama dijalankan PARALEL (≤5 file kecil) supaya dialog
+        // picker tidak lama menggantung pada jaringan lambat.
+        files.map { f ->
+            async {
+                if (f.encrypted != null) {
+                    f
+                } else {
+                    val payload = when (val r = driveApi.downloadBackup(context, token, f.fileId)) {
+                        is BackupResult.Success -> r.value
+                        else -> null
+                    }
+                    if (payload != null && BackupCrypto.isEncryptedEnvelope(payload)) {
+                        f.copy(encrypted = true)
+                    } else {
+                        // Hasil probe disimpan (true/false) supaya tidak di-probe ulang.
+                        f.copy(encrypted = false)
+                    }
+                }
+            }
+        }.awaitAll()
     }
 
     /** Unduh & siapkan restore file [file] (konfirmasi lintas-workspace jika perlu). */
@@ -299,10 +347,15 @@ class DriveBackupController(
         val data = parseRestore(payload, passphrase)
         when {
             data == null -> {
-                _message.value = context.getString(
-                    if (passphrase != null) R.string.restore_wrong_passphrase
-                    else R.string.restore_failed_parse
-                )
+                if (passphrase != null) {
+                    // Passphrase salah: tutup modal progres DULU (busy=false)
+                    // supaya snackbar error tidak tampil di balik dialog, lalu
+                    // kirim lewat saluran khusus (temuan #3).
+                    _busy.value = false
+                    _passphraseError.value = context.getString(R.string.restore_wrong_passphrase_snackbar)
+                } else {
+                    _message.value = context.getString(R.string.restore_failed_parse)
+                }
             }
             data.familyId != null && data.familyId != getWorkspacePin() -> {
                 // Backup milik workspace lain → konfirmasi eksplisit dulu
@@ -416,6 +469,7 @@ class DriveBackupController(
     // ===== Dismiss dari dialog =====
 
     fun dismissMessage() { _message.value = null }
+    fun dismissPassphraseError() { _passphraseError.value = null }
     fun dismissBackups() { _backups.value = null }
     fun dismissRestoreTarget() { _restoreTarget.value = null }
 }
@@ -423,3 +477,9 @@ class DriveBackupController(
 /** Nama file dengan timestamp: 20260803-143000 */
 private fun timestampForFile(): String =
     SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+
+/** Nama file backup: `Nyachat-backup-<ts>.json` / `….<ts>.enc.json` bila terenkripsi.
+ *  Penanda `.enc.json` dipakai picker restore untuk menampilkan badge 🔒
+ *  tanpa harus mengunduh isi file (file baru). */
+private fun backupFileName(encrypted: Boolean): String =
+    "Nyachat-backup-${timestampForFile()}${if (encrypted) ".enc" else ""}.json"

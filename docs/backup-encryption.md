@@ -98,7 +98,7 @@ JSON backup menyimpan `familyId` (PIN workspace asal). Saat restore:
 | `data/backup/BackupCrypto.kt` | Enkripsi/dekripsi amplop (murni JVM, teruji unit) |
 | `data/backup/DataExporter.kt` | Build/parse JSON backup + enkripsi opsional |
 | `data/backup/DriveBackupController.kt` | Wiring backup/restore, `getAutoPassphrase`, `silentBackup` |
-| `data/backup/DriveBackupManager.kt` | Upload/download Drive, `pruneOldBackups` |
+| `data/backup/DriveBackupManager.kt` | Upload/download Drive, `pruneOldBackups`, metadata `appProperties.encrypted` |
 | `SecureStorage.kt` | Menyimpan `BACKUP_AUTO_PASSPHRASE` di Android Keystore |
 
 ### Test terkait
@@ -106,5 +106,24 @@ JSON backup menyimpan `familyId` (PIN workspace asal). Saat restore:
 - `BackupCryptoTest` — round-trip enkripsi, passphrase salah, versi amplop,
   iterasi ekstrem, tamper header.
 - `DriveBackupControllerTest` — `silentBackupTerenkripsiDipakaiAutoPassphrase`,
-  `silentBackupTanpaAutoPassphraseDilewati`.
+  `silentBackupTanpaAutoPassphraseDilewati`, probe badge 🔒 picker restore.
 - `DataExporterTest` — round-trip JSON, format lama, enkripsi opsional.
+
+---
+
+## 6. Badge 🔒 di picker restore (temuan #4)
+
+Picker restore menampilkan badge `🔒 Terenkripsi` pada file backup yang
+terenkripsi. Status enkripsi **per file** diketahui dari 3 sumber (tanpa
+mengunduh isi):
+
+1. **Penanda nama** `.enc.json` (mis. `Nyachat-backup-20260809-184131.enc.json`)
+   → selalu `true`. Nama ini dipakai controller untuk semua backup terenkripsi
+   (manual & auto).
+2. **`appProperties.encrypted`** Drive — ditulis saat upload untuk SEMUA backup
+   baru (`true`/`false`), termasuk yang plain → file baru tidak pernah
+   di-probe.
+3. **Probe isi amplop** — backup LAMA (sebelum r1.1.3, tanpa metadata) ber-
+   status `null`; `DriveBackupController.resolveEncryptionFlags` mengunduh isi
+   (paralel, ≤5 file) & memeriksa `isEncryptedEnvelope` sebelum picker tampil.
+   Restore tetap mendeteksi enkripsi dari isi saat unduh (`handleDownloadedBackup`).

@@ -17,6 +17,10 @@ object Constants {
         const val OPENROUTER_API_KEY = "openrouter_api_key"
         const val LAST_UPDATE_CHECK = "last_update_check"
         const val LAST_AUTO_BACKUP = "last_auto_backup"
+        // Status enkripsi FILE backup terakhir yang berhasil dibuat (bukan setting
+        // toggle) — supaya label "Backup terakhir … Terenkripsi" mencerminkan
+        // isi file di Drive, bukan toggle yang berubah setelahnya.
+        const val LAST_BACKUP_ENCRYPTED = "last_backup_encrypted"
         const val BACKUP_ENCRYPTED = "backup_encrypted"
         // M5: passphrase otomatis untuk backup terenkripsi diam-diam (auto-backup
         // 24 jam). Disimpan di SecureStorage (Android Keystore), bukan prefs biasa

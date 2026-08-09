@@ -161,7 +161,7 @@ npm ci && npm run lint:rules
 
 ```
 app/src/main/java/com/startupmini/nyachat/
-├── MainActivity.kt          (UI shell + wiring)
+├── MainActivity.kt          (UI shell + wiring — TASK-1.3: 1501→572 baris)
 ├── Constants.kt             (satu sumber kebenaran konstanta/pref/field)
 ├── data/
 │   ├── local/               Room DB, DAO, SecureStorage, AvatarStore
@@ -171,7 +171,15 @@ app/src/main/java/com/startupmini/nyachat/
 │   └── backup/              DataExporter, BackupCrypto, DriveBackup{Controller,Manager}
 └── ui/
     ├── MainViewModel.kt     (StateFlow; jembatan UI ↔ repository)
-    ├── screens/             ChatScreen, RekapScreen, PinConnectScreen, SettingsSheet, ...
+    ├── SyncLifecycle.kt     (TASK-1.3: lifecycle glue — sync/API key/update/auto-backup/pause-resume/re-check membership)
+    ├── MainCallbacks.kt     (TASK-1.3: interface ChatCallbacks/RekapCallbacks + factory wiring)
+    ├── MainDialogController.kt (TASK-1.3: state holder 16 dialog/overlay)
+    ├── MainAppDialogs.kt    (TASK-1.3: dialog lapisan konten — transaksi, settings, API key, PIN, logout, AI report)
+    ├── MainOverlays.kt      (TASK-1.3: overlay global — gate, kelola anggota, update, backup Drive, snackbar)
+    ├── screens/             ChatScreen, ChatBubbles, ChatInput, RekapScreen, RekapCharts, RekapList,
+    │                        RekapScreenState, AiReportCard, PinConnectScreen, SettingsSheet,
+    │                        ChatBubbles/ChatInput (TASK-1.1), MainDialogs/BackupDialogs/
+    │                        MainTopBar/MainNavigationBar/GlowingBackground (TASK-1.3), ...
     ├── theme/               Color, Theme, Type, SemanticColors
     └── util/                AvatarImage, DateLabels
 ```
@@ -196,5 +204,5 @@ app/src/main/java/com/startupmini/nyachat/
 - [x] Badge provenance AI/heuristik + attachment namespace + Room v11
 - [x] CI rilis otomatis (APK debug + release + AAB)
 - [ ] Grafik bulanan & notifikasi pengingat
-- [ ] Refactor MainActivity/ChatScreen/RekapScreen (T3)
+- [x] Refactor MainActivity/ChatScreen/RekapScreen (T3) — MainActivity 572 baris, ChatScreen 566 baris, RekapScreen ~330 baris (semua selesai 2026-08-09; RekapScreen dipecah ke RekapScreenState.kt, RekapCharts.kt, RekapList.kt, AiReportCard.kt)
 - [ ] Upgrade dependensi ke versi stabil terbaru (M1)

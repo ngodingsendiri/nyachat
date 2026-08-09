@@ -79,6 +79,10 @@ fun SettingsSheet(
     backupBusy: Boolean,
     isBackupEncrypted: Boolean,
     lastBackupMillis: Long,
+    // Status enkripsi FILE backup terakhir yang berhasil dibuat (bukan setting
+    // toggle [isBackupEncrypted]) — label "Backup terakhir" harus mencerminkan
+    // isi file di Drive.
+    lastBackupEncrypted: Boolean,
     onDismiss: () -> Unit,
     onToggleDarkMode: () -> Unit,
     onToggleBackupEncryption: () -> Unit,
@@ -202,8 +206,10 @@ fun SettingsSheet(
                 enabled = !backupBusy,
                 onClick = onRestore
             )
-            // Enkripsi backup (Sprint-2): passphrase diminta saat backup/restore,
-            // tidak pernah disimpan. Auto-backup harian dijeda saat aktif.
+            // Enkripsi backup (Sprint-2): passphrase diminta saat backup/restore
+            // MANUAL, tidak pernah disimpan. M5: auto-backup harian TETAP
+            // berjalan saat enkripsi aktif — memakai passphrase otomatis Keystore
+            // (BACKUP_AUTO_PASSPHRASE) jadi tidak ada prompt tengah malam.
             SettingRow(
                 icon = Icons.Rounded.EnhancedEncryption,
                 title = stringResource(R.string.settings_backup_encrypt),
@@ -214,10 +220,11 @@ fun SettingsSheet(
                 }
             )
             // Status backup terakhir (item 9) — informatif, bukan aksi.
+            // Pakai [lastBackupEncrypted] (status file AKTUAL), bukan toggle.
             SettingRow(
                 icon = Icons.Rounded.CloudUpload,
                 title = stringResource(R.string.settings_last_backup_title),
-                subtitle = lastBackupSubtitle(lastBackupMillis, isBackupEncrypted),
+                subtitle = lastBackupSubtitle(lastBackupMillis, lastBackupEncrypted),
                 onClick = null
             )
 
@@ -242,9 +249,11 @@ fun SettingsSheet(
     }
 }
 
-/** Label "Backup terakhir: …" + status enkripsi untuk baris status (item 9). */
+/** Label "Backup terakhir: …" + status enkripsi untuk baris status (item 9).
+ *  [isLastBackupEncrypted] = status enkripsi FILE backup aktual (bukan setting
+ *  toggle) — dipisah dari toggle supaya label tidak menyesatkan. */
 @Composable
-private fun lastBackupSubtitle(lastBackupMillis: Long, isBackupEncrypted: Boolean): String {
+private fun lastBackupSubtitle(lastBackupMillis: Long, isLastBackupEncrypted: Boolean): String {
     val whenLabel = if (lastBackupMillis > 0) {
         val date = Date(lastBackupMillis)
         val dateFmt = SimpleDateFormat("d MMM yyyy", Locale.forLanguageTag("id-ID"))
@@ -254,7 +263,7 @@ private fun lastBackupSubtitle(lastBackupMillis: Long, isBackupEncrypted: Boolea
         stringResource(R.string.settings_last_backup_never)
     }
     val encLabel = stringResource(
-        if (isBackupEncrypted) R.string.settings_backup_encrypted_yes
+        if (isLastBackupEncrypted) R.string.settings_backup_encrypted_yes
         else R.string.settings_backup_encrypted_no
     )
     return "$whenLabel · $encLabel"
