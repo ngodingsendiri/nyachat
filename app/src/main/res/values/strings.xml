@@ -112,7 +112,7 @@
     <!-- PIN / onboarding -->
     <string name="pin_image_desc">Logo Nyachat</string>
     <string name="pin_title">Nyachat</string>
-    <string name="pin_subtitle">Mencatat keuangan cukup dengan Chat</string>
+    <string name="pin_subtitle">Nyatat keuangan cukup dengan Chat</string>
 
     <!-- Google Sign-In -->
     <string name="google_sign_in">Masuk dengan Google</string>

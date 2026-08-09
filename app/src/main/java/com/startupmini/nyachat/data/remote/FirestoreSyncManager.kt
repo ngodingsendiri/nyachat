@@ -48,9 +48,11 @@ data class CloudMessage(
     val editedAt: Long? = null,
     // M7: asal deteksi — "AI" atau "HEURISTIK" (fallback offline).
     val detectedBy: String? = null,
-    // M4: waktu terakhir ditulis di server Firestore (milis) — basis tie-break
-    // deterministik yang imun terhadap selisih jam antar-perangkat.
-    val serverUpdatedAt: Long? = null
+    // M4: waktu terakhir ditulis di server Firestore. Tipe Timestamp (bukan Long)
+    // karena serverTimestamp() tersimpan sebagai com.google.firebase.Timestamp di
+    // cloud — Long? membuat toObject() crash dengan "Could not deserialize object".
+    // Dikonversi ke millis (toMillis) saat disimpan ke Room.
+    val serverUpdatedAt: com.google.firebase.Timestamp? = null
 )
 
 /** Representasi dokumen Firestore untuk transaksi. */
@@ -65,8 +67,9 @@ data class CloudTransaction(
     val chatMessageId: Long? = null,
     val editedAt: Long? = null,
     val sourceMessageCloudId: String? = null, // Cross-device lookup key
-    // M4: waktu terakhir ditulis di server Firestore (milis) — tie-break deterministik.
-    val serverUpdatedAt: Long? = null
+    // M4: lihat CloudMessage — tipe Timestamp agar toObject() tidak crash;
+    // dikonversi ke millis saat disimpan ke Room.
+    val serverUpdatedAt: com.google.firebase.Timestamp? = null
 )
 
 /** Status sinkronisasi nyata untuk indikator UI (P2-16). */
@@ -288,12 +291,12 @@ object FirestoreSyncManager {
             scope.launch {
                 val dao = chatDao ?: return@launch
                 for (change in snapshot.documentChanges) {
-                    // M4: serverUpdatedAt ditulis server (serverTimestamp) — baca
-                    // eksplisit karena toObject tidak memetakan Timestamp ke Long.
-                    val serverMs = change.document.getTimestamp("serverUpdatedAt")?.toDate()?.time
-                    val cloud = change.document.toObject(CloudMessage::class.java)
-                        .copy(serverUpdatedAt = serverMs)
                     try {
+                        // M4: serverUpdatedAt tersimpan sebagai Timestamp di cloud —
+                        // toObject langsung memetakannya (tipe DTO = Timestamp).
+                        // toObject di dalam try/catch: skema yang tak dikenal dari
+                        // data lama/backup tidak boleh mematikan proses (crash).
+                        val cloud = change.document.toObject(CloudMessage::class.java)
                         when (change.type) {
                             DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED ->
                                 upsertMessage(dao, cloud)
@@ -334,11 +337,12 @@ object FirestoreSyncManager {
             scope.launch {
                 val dao = transDao ?: return@launch
                 for (change in snapshot.documentChanges) {
-                    // M4: serverUpdatedAt ditulis server — baca eksplisit (anggap server wall clock).
-                    val serverMs = change.document.getTimestamp("serverUpdatedAt")?.toDate()?.time
-                    val cloud = change.document.toObject(CloudTransaction::class.java)
-                        .copy(serverUpdatedAt = serverMs)
                     try {
+                        // M4: serverUpdatedAt tersimpan sebagai Timestamp di cloud —
+                        // toObject langsung memetakannya (tipe DTO = Timestamp).
+                        // toObject di dalam try/catch: skema tak dikenal tidak boleh
+                        // mematikan proses (crash) — log & lanjutkan.
+                        val cloud = change.document.toObject(CloudTransaction::class.java)
                         when (change.type) {
                             DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED ->
                                 upsertTransaction(dao, cloud)
@@ -411,14 +415,17 @@ object FirestoreSyncManager {
     internal fun cloudIsNewer(existing: ChatMessage, c: CloudMessage): Boolean =
         cloudIsNewer(
             existing.editedAt, existing.timestamp, existing.serverUpdatedAt,
-            c.editedAt, c.timestamp, c.serverUpdatedAt
+            c.editedAt, c.timestamp, c.serverUpdatedAt.toMillis()
         )
 
     internal fun cloudIsNewer(existing: FinancialTransaction, c: CloudTransaction): Boolean =
         cloudIsNewer(
             existing.editedAt, existing.timestamp, existing.serverUpdatedAt,
-            c.editedAt, c.timestamp, c.serverUpdatedAt
+            c.editedAt, c.timestamp, c.serverUpdatedAt.toMillis()
         )
+
+    /** Konversi Timestamp Firestore → millis epoch (null aman). */
+    internal fun com.google.firebase.Timestamp?.toMillis(): Long? = this?.toDate()?.time
 
     internal suspend fun upsertMessage(dao: ChatMessageDao, c: CloudMessage) {
         val existing = dao.getByCloudId(c.cloudId)
@@ -444,7 +451,7 @@ val local = if (existing != null) {
                 replyToText = c.replyToText,
                 editedAt = c.editedAt,
                 detectedBy = c.detectedBy,
-                serverUpdatedAt = c.serverUpdatedAt,
+                serverUpdatedAt = c.serverUpdatedAt.toMillis(),
                 // Lampiran (imagePath/filePath/fileName) TIDAK dikirim ke cloud —
                 // file hanya ada di perangkat yang mengirimnya. Pertahankan path
                 // lokal supaya bubble foto nota/dokumen tidak hilang saat listener
@@ -467,7 +474,7 @@ val local = if (existing != null) {
                 replyToText = c.replyToText,
                 editedAt = c.editedAt,
                 detectedBy = c.detectedBy,
-                serverUpdatedAt = c.serverUpdatedAt,
+                serverUpdatedAt = c.serverUpdatedAt.toMillis(),
                 cloudId = c.cloudId
             )
         }
@@ -495,7 +502,7 @@ val local = if (existing != null) {
                 chatMessageId = c.chatMessageId,
                 cloudId = c.cloudId,
                 sourceMessageCloudId = c.sourceMessageCloudId,
-                serverUpdatedAt = c.serverUpdatedAt
+                serverUpdatedAt = c.serverUpdatedAt.toMillis()
             )
         } else {
             FinancialTransaction(
@@ -509,7 +516,7 @@ val local = if (existing != null) {
                 chatMessageId = c.chatMessageId,
                 cloudId = c.cloudId,
                 sourceMessageCloudId = c.sourceMessageCloudId,
-                serverUpdatedAt = c.serverUpdatedAt
+                serverUpdatedAt = c.serverUpdatedAt.toMillis()
             )
         }
         dao.insertTransaction(local)

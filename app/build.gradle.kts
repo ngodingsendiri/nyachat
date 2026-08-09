@@ -11,8 +11,8 @@ plugins {
 // L11: versi & versionCode dari gradle.properties (satu sumber kebenaran).
 // CI & lokal bisa override via -PappVersion=... -PappVersionCode=... tanpa edit file.
 // Skema rilis: tag r* (r1.0.0, r1.0.1, ...) — lihat GitHubUpdateChecker.
-private val appVersion: String = project.findProperty("appVersion") as String? ?: "r1.1.2"
-private val appVersionCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 25
+private val appVersion: String = project.findProperty("appVersion") as String? ?: "r1.1.3"
+private val appVersionCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 26
 
 android {
   namespace = "com.startupmini.nyachat"

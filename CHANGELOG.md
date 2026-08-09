@@ -7,11 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [r1.1.3] - 2026-08-08
 
-### Fixed (review)
+### Fixed (audit live 2026-08-08)
+- **CRITICAL (crash sync)**: `Could not deserialize object. Failed to convert a
+  value of type com.google.firebase.Timestamp to long (found in field
+  'serverUpdatedAt')` — app FATAL EXCEPTION setiap kali snapshot listener
+  Firestore menerima dokumen (terverifikasi live di emulator: crash pada pesan
+  pertama yang tersinkron). Penyebab: DTO `CloudMessage`/`CloudTransaction`
+  mendeklarasikan `serverUpdatedAt: Long?` padahal cloud menyimpannya sebagai
+  `com.google.firebase.Timestamp` (dari `FieldValue.serverTimestamp()`), sehingga
+  `toObject()` selalu gagal sebelum `.copy()` dieksekusi. Diperbaiki dengan
+  mengganti tipe DTO ke `Timestamp?` + konversi `toMillis()` saat simpan ke Room.
+  Hardening: `toObject()` dipindahkan ke dalam `try/catch` agar skema tak dikenal
+  dari data lama/backup tidak lagi mematikan proses.
 - **L6 (penyempurnaan)**: fallback saran cepat tanpa key AI kini berbasis riwayat
   transaksi (personal tetap terjaga) — bukan statis kaku. `isAiAvailable()`
   memakai satu pemanggilan `getApiKey()`; konstanta `DEFAULT_SUGGESTIONS`
   dipusatkan di `GeminiService` (MainViewModel merujuk ke sana, hapus duplikasi).
+
+### Changed (audit live)
+- **Tagline login** dikembalikan ke **"Nyatat keuangan cukup dengan Chat"**
+  (pembalikan BUG-07) — nama aplikasi Nyachat berasal dari kata *Nyatat* + *Chat*.
+- Bump `gradle.properties` ke **r1.1.3 (versionCode 26)** — menyelaraskan sumber
+  dengan CHANGELOG/README/tag GitHub r1.1.3 (sebelumnya sumber masih r1.1.2/25
+  sehingga APK rilis r1.1.3 berisi versionName r1.1.2 yang menyesatkan).
 
 ## [r1.1.2] - 2026-08-08
 

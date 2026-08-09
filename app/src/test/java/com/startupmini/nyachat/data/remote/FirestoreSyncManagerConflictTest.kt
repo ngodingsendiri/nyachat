@@ -137,10 +137,26 @@ class FirestoreSyncManagerConflictTest {
         FirestoreSyncManager.upsertMessage(
             dao,
             CloudMessage(cloudId = "m1", sender = "Suami", messageText = "versi cloud tua",
-                timestamp = 100, editedAt = 100, serverUpdatedAt = 1000L)
+                timestamp = 100, editedAt = 100, serverUpdatedAt = com.google.firebase.Timestamp(java.util.Date(1000L)))
         )
 
         assertEquals("edit lokal", dao.getByCloudId("m1")?.messageText)
+    }
+
+    @Test
+    fun serverUpdatedAtTimestampDikonversiKeMillisSaatDisimpan() = runBlocking {
+        // BUG-FIX: serverUpdatedAt di cloud adalah Timestamp — DTO harus bisa
+        // menerimanya dan menyimpannya sebagai millis di Room (tanpa crash
+        // "Could not deserialize object").
+        val dao = FakeChatMessageDao()
+
+        FirestoreSyncManager.upsertMessage(
+            dao,
+            CloudMessage(cloudId = "m-ts", sender = "Suami", messageText = "halo",
+                timestamp = 100, serverUpdatedAt = com.google.firebase.Timestamp(java.util.Date(1234567L)))
+        )
+
+        assertEquals(1234567L, dao.getByCloudId("m-ts")?.serverUpdatedAt)
     }
 
     @Test
