@@ -193,6 +193,13 @@ class MainActivity : ComponentActivity() {
 
                 var selectedTab by rememberSaveable { mutableIntStateOf(0) }
                 var showAddDialog by remember { mutableStateOf(false) }
+                // BUG-08: dinaikkan tiap dialog transaksi manual ditutup — ChatScreen
+                // mereset input-nya supaya karakter sisa tidak menempel di field chat.
+                var chatResetTrigger by remember { mutableIntStateOf(0) }
+                // Gate BUG-08: reset field chat HANYA saat dialog dibuka dari tab Chat
+                // (tap badge finansial). Dialog dari tab Rekap tidak boleh menghapus
+                // draf chat user yang diketik sebelum pindah tab.
+                var resetChatOnDialogClose by remember { mutableStateOf(false) }
                 var showSettingsSheet by remember { mutableStateOf(false) }
                 var showManageMembers by remember { mutableStateOf(false) }
                 var showGeminiKeyDialog by remember { mutableStateOf(false) }
@@ -637,6 +644,7 @@ driveController.getAutoPassphrase = {
                                     when (tab) {
                                         0 -> ChatScreen(
                                             quickSuggestions = quickSuggestions,
+                                            resetChatInputTrigger = chatResetTrigger,
                                             messages = messages,
                                             activeSender = activeSender,
                                             isAiThinking = isAiThinking,
@@ -661,6 +669,8 @@ driveController.getAutoPassphrase = {
                                                 } ?: txByChatMessageId[msg.id]
                                                 if (tx != null) {
                                                     editTarget = tx
+                                                    // BUG-08: dialog dibuka dari tab Chat → reset input saat ditutup.
+                                                    resetChatOnDialogClose = true
                                                     showAddDialog = true
                                                 } else {
                                                     showSnack(context.getString(R.string.chat_transaction_not_found), null, null)
@@ -679,11 +689,15 @@ driveController.getAutoPassphrase = {
                                             onGenerateMonthly = { viewModel.generateMonthlyAnalysis() },
                                             onAddTransactionClicked = {
                                                 editTarget = null
+                                                // BUG-08: dialog dari tab Rekap — jangan reset draf chat.
+                                                resetChatOnDialogClose = false
                                                 showAddDialog = true
                                             },
                                             onDeleteTransaction = { viewModel.deleteTransaction(it) },
                                             onEditTransaction = {
                                                 editTarget = it
+                                                // BUG-08: dialog dari tab Rekap — jangan reset draf chat.
+                                                resetChatOnDialogClose = false
                                                 showAddDialog = true
                                             },
                                             syncStatus = syncStatus
@@ -700,6 +714,7 @@ driveController.getAutoPassphrase = {
                                     onDismiss = {
                                         showAddDialog = false
                                         editTarget = null
+                                        if (resetChatOnDialogClose) chatResetTrigger++
                                     },
                                     onConfirm = { tx ->
                                         if (editTarget != null) {
@@ -711,6 +726,7 @@ driveController.getAutoPassphrase = {
                                         }
                                         showAddDialog = false
                                         editTarget = null
+                                        if (resetChatOnDialogClose) chatResetTrigger++
                                     }
                                 )
                             }

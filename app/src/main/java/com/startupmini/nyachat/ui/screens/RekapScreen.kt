@@ -911,8 +911,10 @@ private fun SyncIndicator(syncStatus: SyncStatus) {
     val dotColor = when (syncStatus) {
         SyncStatus.SYNCED -> if (semantic.isDark) Color(0xFF34A853) else Color(0xFF188038)
         SyncStatus.SYNCING -> if (semantic.isDark) Color(0xFFFBBC04) else Color(0xFF8D6E00)
-        SyncStatus.OFFLINE -> if (semantic.isDark) Color(0xFF9AA0A6) else Color(0xFF5F6368)
-        SyncStatus.ERROR -> if (semantic.isDark) Color(0xFFEA4335) else Color(0xFFC5221F)
+        // OFFLINE & ERROR keduanya netral (BUG-06): "Mode offline"/"Belum sinkron"
+        // adalah status informatif — merah hanya menimbulkan alarm palsu padahal
+        // data lokal tetap aman dan akan tersinkron saat koneksi pulih.
+        SyncStatus.OFFLINE, SyncStatus.ERROR -> if (semantic.isDark) Color(0xFF9AA0A6) else Color(0xFF5F6368)
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,

@@ -96,7 +96,10 @@ fun ChatScreen(
     onOpenTransaction: (ChatMessage) -> Unit = {},
     // M9: PIN workspace aktif — lampiran (foto nota/dokumen) disimpan di folder
     // khusus per-workspace supaya ganti workspace tidak merusak foto workspace lama.
-    workspacePin: String? = null
+    workspacePin: String? = null,
+    // BUG-08: sinyal reset field chat — dinaikkan MainActivity saat dialog
+    // transaksi manual ditutup supaya karakter sisa tidak menempel di input.
+    resetChatInputTrigger: Int = 0
 ) {
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     var inputText by rememberSaveable { mutableStateOf("") }
@@ -115,6 +118,12 @@ fun ChatScreen(
 
     val inputFocusRequester = remember { FocusRequester() }
     val context = LocalContext.current
+
+    // BUG-08: reset field chat saat dialog transaksi manual ditutup — karakter
+    // sisa (mis. titik ribuan dari kolom nominal) tidak menempel di field chat.
+    LaunchedEffect(resetChatInputTrigger) {
+        if (resetChatInputTrigger > 0) inputText = ""
+    }
     val takePictureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val uri = cameraTempUri
         cameraTempUri = null

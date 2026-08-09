@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - r1.2.0 (FASE 3 - audit UX)
+
+### Fixed (BUG-06 & BUG-08 - audit live)
+- **BUG-06**: Indikator sinkronisasi tidak lagi menakut-nakuti saat offline.
+  Klasifikasi kegagalan sync dipetakan dengan benar: koneksi putus di lapisan
+  bawah (UNAVAILABLE, IOException termasuk nested cause, "Failed to resolve",
+  timeout) → **"Mode offline"** yang netral; error nyata (PERMISSION_DENIED,
+  kuota, dll.) tetap ditandai **"Belum sinkron"**. Label `sync_status_error`
+  diubah dari "Gagal sinkron" dan warna dot ERROR disamakan dengan OFFLINE
+  (abu-abu) — data lokal tetap aman dan akan tersinkron saat koneksi pulih.
+  Logika diekstrak ke fungsi murni `classifySyncFailure` + unit test (11 kasus:
+  kode Firestore, teks, rantai cause).
+- **BUG-08**: Field chat tidak lagi menyimpan karakter sisa setelah dialog
+  tambah/edit transaksi ditutup — `inputText` di-reset via trigger
+  `resetChatInputTrigger` (LaunchedEffect di ChatScreen) saat dialog ditutup.
+  Reset digate khusus dialog yang dibuka dari tab Chat (tap badge finansial);
+  draf chat tidak hilang saat user kembali dari tab Rekap.
+
 ## [r1.1.3] - 2026-08-08
 
 ### Fixed (audit live 2026-08-08)

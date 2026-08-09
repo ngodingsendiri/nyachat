@@ -280,8 +280,13 @@
     <string name="settings_backup_encrypted_no">Tanpa enkripsi</string>
     <string name="sync_status_synced">Tersinkron</string>
     <string name="sync_status_syncing">Menyinkronkan…</string>
-    <string name="sync_status_offline">Offline</string>
-    <string name="sync_status_error">Gagal sinkron</string>
+    <!-- BUG-06: label netral — "Mode offline" (bukan sekadar "Offline") supaya
+         jelas bahwa ini kondisi normal offline-first, bukan error. -->
+    <string name="sync_status_offline">Mode offline</string>
+    <!-- BUG-06: "Belum sinkron" lebih netral daripada "Gagal sinkron" yang
+         menakutkan padahal sering hanya koneksi sesaat (diperbaiki di
+         onSyncFailure agar offline dipetakan ke OFFLINE, bukan ERROR). -->
+    <string name="sync_status_error">Belum sinkron</string>
     <string name="manage_members_title">Kelola Anggota</string>
     <string name="manage_members_join_requests">Permintaan Bergabung</string>
     <string name="manage_members_no_requests">Tidak ada permintaan bergabung.</string>

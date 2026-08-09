@@ -739,14 +739,77 @@ val local = if (existing != null) {
         opsSignal.trySend(Unit)
     }
 
+    /**
+     * Klasifikasi kegagalan sinkronisasi untuk indikator UI (BUG-06, audit UX):
+     * OFFLINE saat koneksi putus, ERROR untuk kegagalan lainnya. Sebelumnya error
+     * offline di lapisan bawah (socket/IO, "Failed to resolve", timeout) jatuh ke
+     * ERROR sehingga user offline melihat label merah "Gagal sinkron" yang
+     * menakutkan padahal itu kondisi normal.
+     *
+     * Prioritas (error nyata tidak boleh dikira offline):
+     *  1) Kode Firestore EKSPLISIT non-jaringan — PERMISSION_DENIED, UNAUTHENTICATED,
+     *     RESOURCE_EXHAUSTED (kuota), ABORTED, dll. → ERROR. Cek kode dulu supaya
+     *     isi teks pesan yang kebetulan mirip (mis. "network") tidak menyesatkan.
+     *  2) UNAVAILABLE / DEADLINE_EXCEEDED (timeout) → OFFLINE.
+     *  3) Tanpa kode (exception lapisan bawah): teks offline + penyebab IOException
+     *     (termasuk rantai nested cause) → OFFLINE; selain itu ERROR.
+     */
+    internal fun classifySyncFailure(e: Throwable): SyncStatus {
+        val code = (e as? com.google.firebase.firestore.FirebaseFirestoreException)?.code
+        return classifySyncFailure(
+            networkCode = code == com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE ||
+                code == com.google.firebase.firestore.FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
+            hasExplicitCode = code != null,
+            message = e.message,
+            cause = e.cause
+        )
+    }
+
+    /**
+     * Overload murni — keputusan tanpa enum/objek Firebase. Unit test JVM tidak
+     * bisa mereferensikan [FirebaseFirestoreException.Code] karena static-init-nya
+     * memakai android.util.SparseArray (tidak di-mock di luar Robolectric), jadi
+     * jalur test memasok hasil ekstraksi [code] sebagai boolean.
+     *
+     * @param networkCode true bila kode Firestore UNAVAILABLE/DEADLINE_EXCEEDED
+     *   (koneksi putus / timeout).
+     * @param hasExplicitCode true bila Firestore memberi kode error eksplisit.
+     *   Kode non-jaringan (PERMISSION_DENIED, kuota, dll.) → ERROR, apapun teksnya.
+     */
+    internal fun classifySyncFailure(
+        networkCode: Boolean,
+        hasExplicitCode: Boolean,
+        message: String?,
+        cause: Throwable?
+    ): SyncStatus {
+        // Kode non-jaringan eksplisit → ERROR: error nyata tidak boleh dikira
+        // offline walau isi teks pesan kebetulan mirip (mis. "network").
+        if (hasExplicitCode && !networkCode) return SyncStatus.ERROR
+
+        val msg = message?.lowercase() ?: ""
+        if (msg.contains("offline") ||
+            msg.contains("failed to resolve") ||
+            msg.contains("unable to resolve") ||
+            msg.contains("timed out") ||
+            msg.contains("timeout") ||
+            msg.contains("network") ||
+            msg.contains("unreachable")
+        ) {
+            return SyncStatus.OFFLINE
+        }
+
+        // Firestore membungkus kegagalan socket/SSL sebagai cause — telusuri rantainya.
+        var c: Throwable? = cause
+        while (c != null) {
+            if (c is java.io.IOException) return SyncStatus.OFFLINE
+            c = c.cause
+        }
+        return if (networkCode) SyncStatus.OFFLINE else SyncStatus.ERROR
+    }
+
     /** Status error untuk indikator UI: OFFLINE saat koneksi putus, ERROR lainnya. */
     private fun onSyncFailure(e: Exception) {
-        val code = (e as? com.google.firebase.firestore.FirebaseFirestoreException)?.code
-        _syncStatus.value = if (code == com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE) {
-            SyncStatus.OFFLINE
-        } else {
-            SyncStatus.ERROR
-        }
+        _syncStatus.value = classifySyncFailure(e)
     }
 
     /** Set status SYNCED + emit event pemulihan bila sebelumnya error/offline
