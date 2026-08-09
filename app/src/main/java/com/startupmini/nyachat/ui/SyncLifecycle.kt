@@ -4,7 +4,9 @@ package com.startupmini.nyachat.ui
 
 import android.content.SharedPreferences
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
@@ -15,6 +17,7 @@ import com.startupmini.nyachat.data.remote.GitHubRelease
 import com.startupmini.nyachat.data.remote.GitHubUpdateChecker
 import com.startupmini.nyachat.data.remote.MembershipManager
 import com.startupmini.nyachat.data.remote.MembershipStatus
+import com.startupmini.nyachat.data.remote.NetworkMonitor
 import com.startupmini.nyachat.data.remote.OpenRouterService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -50,6 +53,25 @@ fun SyncLifecycleGlue(
     onLogoutCleanup: () -> Unit,
     onUpdateAvailable: (GitHubRelease) -> Unit
 ) {
+    // BUG-06 lanjutan (P0): deteksi jaringan — tanpa ini, indikator sync tetap
+    // "Tersinkron" saat offline murni (snapshot Firestore dari offline cache
+    // selalu sukses → markSynced). Monitor hidup selama komposisi glue; status
+    // diteruskan ke FirestoreSyncManager.setNetworkAvailable. Izin
+    // ACCESS_NETWORK_STATE ditambahkan di AndroidManifest.
+    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        val monitor = NetworkMonitor(context) { online ->
+            FirestoreSyncManager.setNetworkAvailable(online)
+        }
+        monitor.start()
+        // Kirim status awal sekali — callback tidak selalu langsung menembak
+        // (mis. jaringan stabil) dan status lama bisa saja "menggantung".
+        FirestoreSyncManager.setNetworkAvailable(monitor.isOnlineNow)
+        onDispose {
+            monitor.stop()
+        }
+    }
+
     // Start/stop cloud sync & membership saat PIN workspace berubah.
     LaunchedEffect(workspacePin, userName) {
         val pin = workspacePin

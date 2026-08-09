@@ -3,6 +3,12 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 3.7: notifikasi chat real-time (Android 13+ runtime permission) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- BUG-06 lanjutan (P0): deteksi jaringan via ConnectivityManager.NetworkCallback
+         agar indikator sync jujur saat offline murni (tanpa izin ini callback tak
+         menerima event jaringan). Normal — bukan runtime permission. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- REQUEST_INSTALL_PACKAGES TIDAK ada di build release (menghindari review Play
          atas sideload APK). Hanya aktif di build debug via app/src/debug/AndroidManifest.xml. -->
 
@@ -25,6 +31,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 3.7: terima FCM data message (pesan chat dari anggota) → notifikasi. -->
+        <service
+            android:name=".data.remote.ChatMessageFirebaseService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

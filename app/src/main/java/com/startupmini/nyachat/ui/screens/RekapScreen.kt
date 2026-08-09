@@ -68,6 +68,8 @@ fun RekapScreen(
     onDeleteTransaction: (FinancialTransaction) -> Unit,
     onEditTransaction: (FinancialTransaction) -> Unit,
     syncStatus: SyncStatus = SyncStatus.SYNCED,
+    // 3.8: waktu terakhir sinkron berhasil — label "Tersinkron · HH:mm" di banner.
+    lastSyncedAtMillis: Long? = null,
     insights: List<String> = emptyList()
 ) {
     val state = rememberRekapScreenState()
@@ -185,7 +187,8 @@ fun RekapScreen(
                         totalIncome = displayIncome,
                         totalExpense = displayExpense,
                         balance = balance,
-                        syncStatus = syncStatus
+                        syncStatus = syncStatus,
+                        lastSyncedAtMillis = lastSyncedAtMillis
                     )
                 }
             }

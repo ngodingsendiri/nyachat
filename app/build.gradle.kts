@@ -127,6 +127,9 @@ dependencies {
   implementation(libs.firebase.firestore)
   implementation(libs.firebase.auth)
   implementation(libs.firebase.crashlytics)
+  // 3.7: notifikasi chat real-time — FCM data message ditampilkan
+  // FirebaseMessagingService (versi dikelola firebase-bom).
+  implementation(libs.firebase.messaging)
   implementation(libs.androidx.credentials)
   implementation(libs.googleid)
   implementation(libs.androidx.credentials.play.services.auth)

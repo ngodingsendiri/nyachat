@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,12 +21,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -87,11 +88,22 @@ fun QuickSuggestionRow(
             .fillMaxWidth()
             .padding(vertical = 4.dp)
     ) {
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // BUG-05 (r1.2.0): LazyRow TIDAK men-layout item-nya di compose-bom
+        // 2026.06 (chips mengambil tinggi 48dp tapi isi kosong — terverifikasi
+        // live). Untuk 4-5 saran pendek, Row + horizontalScroll lebih sederhana
+        // & deterministik; tetap scrollable jika saran memanjang.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // Reviewer (BUG-05): chip heightIn(min=40dp) di row 48dp default top-align
+            // → ada slack ~8dp di bawah. CenterVertically agar seimbang.
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            items(suggestions) { text ->
+            suggestions.forEach { text ->
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant,
@@ -108,7 +120,12 @@ fun QuickSuggestionRow(
                         Text(
                             text = text,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // Reviewer (BUG-05): saran dari riwayat transaksi bisa panjang
+                            // (mis. "beli mie ayam 20000 20000") — jangan wrap ke 2 baris
+                            // yang terpotong row 48dp; ellipsis kalau kepanjangan.
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }

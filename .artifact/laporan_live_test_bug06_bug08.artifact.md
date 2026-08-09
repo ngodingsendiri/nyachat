@@ -30,6 +30,19 @@
 2. Atau: jangan `markSynced()` bila snapshot hanya berasal dari cache lokal (deteksi via `SnapshotMetadata.isFromCache` — perlu dicek kelayakan dengan listener saat ini).
 3. Alternatif minimal: tunjukkan label netral "Mode offline" berdasarkan state jaringan eksplisit, terlepas dari `SyncStatus` internal.
 
+### ✅ RESOLUSI (FIXED 2026-08-09) — opsi #1 diimplementasikan
+- **`NetworkMonitor`** (baru, `data/remote`): `registerDefaultNetworkCallback` → `onAvailable`/`onLost`/`onUnavailable` → `setNetworkAvailable`; `isOnlineNow` (getNetworkCapabilities) untuk status awal. Izin `ACCESS_NETWORK_STATE` ditambahkan di AndroidManifest.
+- **`FirestoreSyncManager`**: `networkAvailable` (null = belum diketahui); fungsi murni `resolveStatusOnNetworkChange` (hilang→OFFLINE; OFFLINE+pulih→SYNCING), `resolveStatusOnSyncSuccess` (false→OFFLINE; null/true→SYNCED), `resolveStatusOnDraining` (false→OFFLINE; lain→SYNCING); `markSynced` & drain antrian pending tidak lagi menimpa OFFLINE dari snapshot cache.
+- **Registrasi** di `SyncLifecycleGlue` (DisposableEffect + status awal `isOnlineNow`). +7 unit test (total 180+ PASS).
+
+**Verifikasi live (device A, semua jaringan mati):**
+1. Offline murni (airplane + wifi + data, ping unreachable) → indikator **"Mode offline"** (sebelumnya "Tersinkron" 60+ dtk) ✅
+2. Jaringan pulih → "Menyinkronkan…" → **"Tersinkron"** (setelah snapshot konfirmasi) ✅
+3. **Force-stop + relaunch saat offline** → **"Mode offline"** (kasus eksplisit yang sebelumnya GAGAL) ✅
+4. Bukti: `.artifact/live_shots/bug06_offline_indicator.png`, `bug06_offline_relaunch.png`
+
+Catatan: AVD ini berisi app dev lain (renangadmin) yang bisa merebut foreground → Nyachat ter-pause → listener dijeda → status menggantung sesaat; artefak lingkungan, bukan bug aplikasi.
+
 ---
 
 ## 2. BUG-08 — Field chat bersih setelah dialog transaksi ditutup
@@ -66,8 +79,21 @@
 
 **Analisis awal:**
 - Upload `syncMessageNow` mengirim `isFinancial` (baris 555–556) ✅; download `upsertMessage` mempertahankan `c.isFinancial` (446–470) ✅; `toObject(CloudMessage)` seharusnya memetakan benar.
-- Kontradiksi: cloud `true`, lokal `false` → ada jalur penulis `isFinancial=false` yang belum teridentifikasi (dugaan: mapping/parse CloudMessage atau overwrite tak terduga di jalur snapshot/pending op lama).
-- **Investigasi lanjut wajib** sebelum fitur badge dianggap sehat. Dampak: fitur inti transparansi transaksi rusak + opsi "Edit Transaksi" dari chat hilang + BUG-08 tidak bisa diuji E2E.
+- Kontradiksi: cloud `true`, lokal `false` → jalur penulis `isFinancial=false` = **rekonstruksi `upsertMessage` dari hasil `toObject(CloudMessage)`** yang kehilangan field (pola "detectedAmount tersimpan + isFinancial=false" hanya dihasilkan jalur ini).
+
+### ✅ RESOLUSI (FIXED 2026-08-09)
+**Akar masalah (dikonfirmasi + verifikasi web + test):** `com.google.firebase.firestore.util.CustomClassMapper` Firestore **tidak membaca metadata Kotlin**. Untuk Boolean berawalan "is" (`val isFinancial`), getter JVM-nya `isFinancial()` → mapper menurunkan nama field jadi **"financial"** (strip prefix "is") → field cloud "isFinancial" tak pernah terbaca → `toObject` selalu `false` (detectedAmount aman karena getter `getDetectedAmount()`).
+
+**Fix:** `@get:PropertyName("isFinancial")` pada `CloudMessage.isFinancial` (FirestoreSyncManager.kt) + test regresi `CloudMessageMappingTest` (round-trip CustomClassMapper + guard anotasi) — semua 180+ test PASS.
+
+**Verifikasi live (APK fix, device A):**
+1. Kirim "beli mie ayam 20000" → badge "- Rp20.000 · Lain-lain" muncul t+3s ✅
+2. **t+13s: badge MASIH ada** (sebelumnya hilang ~7s) ✅
+3. **Force-stop + restart: badge bertahan** (sebelumnya "permanen hilang") ✅
+4. **Badge lama pulih**: "beli nasi 30000" (Room sebelumnya isFinancial=0) tampil lagi + aksi "Buka transaksi" tersedia — self-healing via re-merge snapshot ✅
+5. Bukti: `.artifact/live_shots/bug1_badge_bertahan_13s.png`, `bug1_fixed_badge_restart.png`
+
+Catatan: perangkat offline-forever menahan `isFinancial=0` lama sampai koneksi pulih (re-merge berikutnya).
 
 ---
 
@@ -81,6 +107,16 @@
 **Dampak:** user kehilangan draf pesan setiap pindah tab; bertentangan dengan asumsi gate BUG-08. `ChatScreen` di-destroy oleh `AnimatedContent` saat tab berganti — state input tidak dipertahankan.
 
 **Saran:** hoist draf ke `MainActivity` (`rememberSaveable`) atau pertahankan state `ChatScreen` (mis. `movableContentOf`/simpan per tab).
+
+### ✅ RESOLUSI (FIXED 2026-08-09)
+**Fix:** hoist `chatDraft` ke MainActivity dengan `rememberSaveable` (level ini tidak pernah keluar komposisi) → `ChatScreen` menerima `draftText` + `onDraftChange`; semua jalur tulis (ketik, suggestion chip, Tanya AI, kirim, reset BUG-08) lewat callback. Reset `chatDraft=""` ditambahkan di `performLogoutCleanup` & `applyPinConnect` — isolasi antar-workspace (temuan reviewer).
+
+**Verifikasi live (device A, APK fix):**
+1. Ketik "draf tes 123" → pindah tab Chat → Rekap → kembali Chat → **draf tetap ada** ✅
+2. Round-trip kedua (Chat→Rekap→Chat) → draf tetap ada ✅
+3. Kirim draf → pesan terkirim & field bersih ✅
+4. Draf kedua "draf kedua 456" setelah round-trip → tetap ada ✅
+5. Bukti: `.artifact/live_shots/bug2_draft_bertahan_tab.png`
 
 ---
 
@@ -102,9 +138,9 @@
 
 ## Ringkasan prioritas tindak lanjut
 
-1. **P0 — BUG-1**: badge finansial hilang dari bubble (`isFinancial` lokal jadi false walau cloud true). Investigasi & fix jalur penulis.
-2. **P0 — BUG-06 lanjutan**: indikator tidak pernah "Mode offline" saat offline murni (tidak ada deteksi jaringan; offline cache → `markSynced`). Tambah `ConnectivityManager.NetworkCallback`.
-3. **P1 — BUG-2**: draf chat hilang saat pindah tab → hoist draf.
-4. **P1 — BUG-08 E2E**: ulangi test penuh setelah BUG-1 & BUG-2 beres.
+1. ~~**P0 — BUG-1**~~ ✅ **FIXED 2026-08-09** — `@get:PropertyName("isFinancial")` di `CloudMessage` (lihat Resolusi di atas).
+2. ~~**P0 — BUG-06 lanjutan**~~ ✅ **FIXED 2026-08-09** — `NetworkMonitor` + `ACCESS_NETWORK_STATE` (lihat Resolusi di atas).
+3. ~~**P1 — BUG-2**~~ ✅ **FIXED 2026-08-09** — hoist `chatDraft` ke MainActivity (`rememberSaveable`) + reset saat logout/ganti PIN (lihat Resolusi di atas).
+4. **P1 — BUG-08 E2E**: ulangi test penuh (BUG-1 & BUG-2 sudah tidak menghalangi).
 
 Bukti screenshot: `.artifact/live_shots/chat_badge_hilang.png` (bubble tanpa badge pasca-hilang).

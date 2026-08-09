@@ -6,6 +6,7 @@ import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.SetOptions
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.data.backup.DataExporter
@@ -39,6 +40,15 @@ data class CloudMessage(
     val sender: String = "",
     val messageText: String = "",
     val timestamp: Long = 0L,
+    // BUG-1 (P0): property Kotlin Boolean berawalan "is" menghasilkan getter JVM
+    // `isFinancial()` — CustomClassMapper Firestore menurunkan nama field jadi
+    // "financial" (strip prefix "is"), sehingga field cloud "isFinancial" TIDAK
+    // pernah terbaca → toObject() selalu memberi false walau cloud menyimpan true.
+    // Dampak: badge finansial hilang dari bubble ~5-10 detik setelah kirim pesan
+    // (snapshot listener me-merge ulang dari cloud dengan isFinancial=false;
+    // detectedAmount tetap tersimpan karena field-nya tidak kena masalah ini).
+    // @get:PropertyName memaksa nama field eksplisit agar round-trip benar.
+    @get:PropertyName("isFinancial")
     val isFinancial: Boolean = false,
     val detectedAmount: Double? = null,
     val detectedCategory: String? = null,
@@ -106,9 +116,16 @@ object FirestoreSyncManager {
     @Volatile private var pendingDao: PendingOpDao? = null
     @Volatile private var messagesListener: ListenerRegistration? = null
     @Volatile private var transactionsListener: ListenerRegistration? = null
+    // BUG-06 lanjutan (P0): status jaringan dari NetworkMonitor. null = belum
+    // diketahui (app baru mulai / callback belum menembak) → perilaku lama.
+    @Volatile private var networkAvailable: Boolean? = null
     /** Status sinkronisasi yang jujur untuk indikator UI (P2-16). */
     private val _syncStatus = MutableStateFlow(SyncStatus.SYNCED)
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
+    /** Waktu terakhir sinkron berhasil (FASE 3 item 3.8) — banner Rekap menampilkan
+     *  "Tersinkron · HH:mm". null = belum pernah sinkron di sesi ini. */
+    private val _lastSyncedAt = MutableStateFlow<Long?>(null)
+    val lastSyncedAt: StateFlow<Long?> = _lastSyncedAt.asStateFlow()
     /** Event sekali-jalan saat koneksi pulih (OFFLINE/ERROR → SYNCED) — UI
      *  menampilkan Snackbar singkat supaya user tahu status merah/kuning sudah
      *  selesai dan data kembali sinkron (audit #6). */
@@ -178,6 +195,7 @@ object FirestoreSyncManager {
         // logout — kalau tidak, workspace berikutnya sempat menampilkan indikator
         // sinkronisasi yang salah (P2-16).
         _syncStatus.value = SyncStatus.SYNCED
+        _lastSyncedAt.value = null
     }
 
     /**
@@ -812,13 +830,64 @@ val local = if (existing != null) {
         _syncStatus.value = classifySyncFailure(e)
     }
 
+    /**
+     * BUG-06 lanjutan (P0): status jaringan berubah (dipanggil NetworkMonitor).
+     * Jaringan hilang → OFFLINE (walau cache Firestore masih bisa memenuhi
+     * snapshot — markSynced tidak boleh mengembalikan ke SYNCED). Jaringan pulih
+     * → SYNCING sampai snapshot nyata mengonfirmasi (markSynced → SYNCED + event
+     * pemulihan). null → perilaku lama (tanpa deteksi jaringan).
+     */
+    fun setNetworkAvailable(available: Boolean) {
+        networkAvailable = available
+        _syncStatus.value = resolveStatusOnNetworkChange(_syncStatus.value, available)
+    }
+
+    /**
+     * Status indikator saat jaringan berubah (BUG-06 lanjutan) — MURNI untuk
+     * unit test JVM.
+     *  - Jaringan hilang → OFFLINE, apa pun status saat ini.
+     *  - Jaringan pulih dari OFFLINE → SYNCING (menunggu konfirmasi snapshot).
+     *  - Selain itu biarkan status berjalan (ERROR/SYNCING tidak ditimpa).
+     */
+    internal fun resolveStatusOnNetworkChange(current: SyncStatus, networkAvailable: Boolean): SyncStatus =
+        when {
+            !networkAvailable -> SyncStatus.OFFLINE
+            current == SyncStatus.OFFLINE -> SyncStatus.SYNCING
+            else -> current
+        }
+
+    /**
+     * Status setelah snapshot listener BERHASIL — murni untuk unit test.
+     * SYNCED hanya bila jaringan diketahui AKTIF; jaringan jelas mati (false)
+     * → OFFLINE (snapshot dari offline cache tidak menyesatkan); null (belum
+     * diketahui) → SYNCED (perilaku lama, tidak mengubah apa pun).
+     */
+    internal fun resolveStatusOnSyncSuccess(networkAvailable: Boolean?): SyncStatus =
+        if (networkAvailable == false) SyncStatus.OFFLINE else SyncStatus.SYNCED
+
+    /**
+     * Status saat drain antrian pending AKTIF (ada op untuk di-retry) — murni
+     * untuk unit test. Jaringan jelas mati → OFFLINE (retry tidak mungkin
+     * sukses; menimpa SYNCING yang menyesatkan); selain itu SYNCING.
+     */
+    internal fun resolveStatusOnDraining(networkAvailable: Boolean?): SyncStatus =
+        if (networkAvailable == false) SyncStatus.OFFLINE else SyncStatus.SYNCING
+
     /** Set status SYNCED + emit event pemulihan bila sebelumnya error/offline
-     *  (audit #6: indikator jujur + pemberitahuan saat koneksi pulih). */
+     *  (audit #6: indikator jujur + pemberitahuan saat koneksi pulih).
+     *  BUG-06 lanjutan: offline murni + cache — snapshot sukses dari cache tidak
+     *  boleh menyesatkan indikator menjadi "Tersinkron". */
     private fun markSynced() {
+        if (resolveStatusOnSyncSuccess(networkAvailable) == SyncStatus.OFFLINE) {
+            _syncStatus.value = SyncStatus.OFFLINE
+            return
+        }
         if (_syncStatus.value != SyncStatus.SYNCED) {
             _recoveryEvents.tryEmit("Sinkron tersambung kembali.")
         }
         _syncStatus.value = SyncStatus.SYNCED
+        // 3.8: setiap snapshot sukses = sinkron aktif → catat waktu terakhir.
+        _lastSyncedAt.value = System.currentTimeMillis()
     }
 
     /** Eksekusi satu op antrian. Return true kalau berhasil (op bisa dihapus). */
@@ -853,13 +922,17 @@ val local = if (existing != null) {
                 val ops = opDao.getAll()
                 if (ops.isEmpty()) {
                     backoffMs = MIN_RETRY_DELAY_MS
-                    _syncStatus.value = SyncStatus.SYNCED
+                    // BUG-06 lanjutan: antrian kosong ≠ sinkron — kalau jaringan
+                    // jelas mati, indikator tetap OFFLINE (bukan SYNCED palsu).
+                    _syncStatus.value = resolveStatusOnSyncSuccess(networkAvailable)
                     opsSignal.receive()
                     continue
-                }
-                _syncStatus.value = SyncStatus.SYNCING
-                var failed = false
-                for (op in ops) {
+                }                    // BUG-06 lanjutan: dengan jaringan jelas mati, retry tidak
+                    // akan sukses — tampilkan OFFLINE, bukan SYNCING yang
+                    // menyesatkan (reviewer).
+                    _syncStatus.value = resolveStatusOnDraining(networkAvailable)
+                    var failed = false
+                    for (op in ops) {
                     if (familyId.isEmpty()) return@launch
                     if (executeOp(op)) {
                         opDao.deleteById(op.id)

@@ -1,0 +1,13 @@
+{
+  "name": "functions",
+  "description": "Nyachat Cloud Functions — notifikasi chat real-time via FCM (FASE 3 item 3.7)",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0"
+  }
+}

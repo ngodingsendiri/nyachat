@@ -53,6 +53,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -128,6 +129,8 @@ class MainActivity : ComponentActivity() {
                 val weeklyInsights by viewModel.weeklyInsights.collectAsStateWithLifecycle()
                 val quickSuggestions by viewModel.quickSuggestions.collectAsStateWithLifecycle()
                 val syncStatus by com.startupmini.nyachat.data.remote.FirestoreSyncManager.syncStatus.collectAsStateWithLifecycle()
+                // 3.8: waktu terakhir sinkron berhasil → label "Tersinkron · HH:mm" di Rekap.
+                val lastSyncedAt by com.startupmini.nyachat.data.remote.FirestoreSyncManager.lastSyncedAt.collectAsStateWithLifecycle()
 
                 // M8: indeks transaksi per pesan (Map) supaya tap badge finansial tidak
                 // melakukan scan linear O(n) per komposisi — dibangun ulang hanya saat
@@ -144,6 +147,13 @@ class MainActivity : ComponentActivity() {
                 // MainDialogController supaya MainActivity fokus wiring, bukan
                 // deklarasi belasan remember state.
                 val dialogs = remember { MainDialogController() }
+
+                // BUG-2: draf chat DI-HOIST ke sini dengan rememberSaveable —
+                // AnimatedContent menghancurkan state ChatScreen saat pindah tab
+                // (Chat ⇄ Rekap), sehingga draf yang diketik tidak hilang. Juga
+                // bertahan saat rotasi/config change.
+                var chatDraft by rememberSaveable { mutableStateOf("") }
+
 
                 // Non-secret dari appPrefs
                 var workspaceRole by remember { mutableStateOf(appPrefs.getString(Constants.Prefs.WORKSPACE_ROLE, Constants.Defaults.ROLE)) }
@@ -165,10 +175,38 @@ class MainActivity : ComponentActivity() {
                 var firebaseReady by remember { mutableStateOf(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) }
                 val scope = rememberCoroutineScope()
 
+                // 3.7: izin notifikasi (Android 13+) diminta SEKALI setelah masuk
+                // app; kalau ditolak, user tetap bisa menyalakannya via Settings
+                // sistem (toggle di Settings app hanya kontrol tampilan notifikasi).
+                val notifPermissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { }
+                LaunchedEffect(workspacePin, firebaseReady) {
+                    if (workspacePin != null && firebaseReady) {
+                        // Pastikan token FCM perangkat tersinkron (termasuk user
+                        // lama setelah upgrade — onNewToken tidak akan menembak).
+                        com.startupmini.nyachat.data.remote.ChatMessageFirebaseService.ensureTokenSynced(context)
+                        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                            !appPrefs.getBoolean(Constants.Prefs.NOTIF_PERMISSION_ASKED, false)
+                        ) {
+                            appPrefs.edit().putBoolean(Constants.Prefs.NOTIF_PERMISSION_ASKED, true).apply()
+                            notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                }
+
                 // ---- Snackbar (audit P1.1): feedback ringan (hasil export, info
                 // backup, "Tercatat + Urungkan") tanpa memblokir layar. Host
                 // dipasang overlay di Box konten, di atas NavigationBar.
                 val snackbarHostState = remember { SnackbarHostState() }
+                // Lint LocalContextGetResourceValueCall (compose-bom 2026.06):
+                // jangan query resource via LocalContext di dalam LaunchedEffect/coroutine
+                // — resolve di composable scope via stringResource, lalu .format() untuk
+                // template berargumen.
+                val undoLabel = stringResource(R.string.action_undo)
+                val txRecordedTemplate = stringResource(R.string.tx_recorded)
+                val exportCsvSuccessLabel = stringResource(R.string.export_csv_success)
+                val exportCsvFailedLabel = stringResource(R.string.export_csv_failed)
                 val showSnack: (String, String?, (() -> Unit)?) -> Unit = { message, actionLabel, onAction ->
                     scope.launch {
                         val result = snackbarHostState.showSnackbar(
@@ -189,12 +227,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(Unit) {
-                    val undoLabel = context.getString(R.string.action_undo)
                     viewModel.transactionRecorded.collect { recorded ->
                         val tx = recorded.transaction
                         val prefix = if (tx.type == Constants.TransactionTypes.INCOME) "+" else "-"
                         val summary = "$prefix ${recordedCurrency.format(tx.amount)} (${tx.category})"
-                        val message = context.getString(R.string.tx_recorded, summary)
+                        val message = txRecordedTemplate.format(summary)
                         val result = snackbarHostState.showSnackbar(
                             message = message,
                             actionLabel = undoLabel,
@@ -212,6 +249,10 @@ class MainActivity : ComponentActivity() {
                 // state. Dependency di-assign ulang tiap komposisi supaya controller
                 // selalu membaca nilai state terkini (workspacePin, dsb.).
                 var backupEncrypted by remember { mutableStateOf(appPrefs.getBoolean(Constants.Prefs.BACKUP_ENCRYPTED, false)) }
+                // 3.7: toggle notifikasi chat real-time (default ON).
+                var chatNotificationsEnabled by remember {
+                    mutableStateOf(appPrefs.getBoolean(Constants.Prefs.CHAT_NOTIFICATIONS_ENABLED, true))
+                }
                 // Waktu backup Drive terakhir (item 9) — state lokal supaya baris
                 // "Backup terakhir" di Pengaturan langsung ter-update tanpa reopen.
                 var lastBackupMillis by remember { mutableLongStateOf(appPrefs.getLong(Constants.Prefs.LAST_AUTO_BACKUP, 0L)) }
@@ -307,6 +348,9 @@ driveController.getAutoPassphrase = {
                     geminiKey = null
                     openRouterKey = null
                     dialogs.showSettingsSheet = false
+                    // BUG-2 lanjutan (reviewer): draf yang di-hoist tidak boleh bocor
+                    // ke workspace berikutnya — dibersihkan saat logout.
+                    chatDraft = ""
                 }
 
                 // TASK-1.3.3: seluruh lifecycle glue (sync, API key, update check,
@@ -357,9 +401,7 @@ driveController.getAutoPassphrase = {
                                 }
                             }.isSuccess
                             showSnack(
-                                context.getString(
-                                    if (ok) R.string.export_csv_success else R.string.export_csv_failed
-                                ),
+                                if (ok) exportCsvSuccessLabel else exportCsvFailedLabel,
                                 null,
                                 null
                             )
@@ -381,6 +423,9 @@ driveController.getAutoPassphrase = {
                     workspacePin = pin
                     workspaceRole = role
                     userName = name
+                    // BUG-2 lanjutan (reviewer): ganti PIN/log-in workspace baru juga
+                    // membersihkan draf — isolasi antar-workspace.
+                    chatDraft = ""
                     viewModel.setSender(name)
                 }
 
@@ -399,7 +444,7 @@ driveController.getAutoPassphrase = {
                         onSetResetChatOnDialogClose = { dialogs.resetChatOnDialogClose = it },
                         onSetShowAddDialog = { dialogs.showAddDialog = it },
                         showSnack = showSnack,
-                        chatTransactionNotFoundMessage = context.getString(R.string.chat_transaction_not_found)
+                        chatTransactionNotFoundMessage = stringResource(R.string.chat_transaction_not_found)
                     )
                     val rekapCallbacks = buildRekapCallbacks(
                         viewModel = viewModel,
@@ -496,6 +541,9 @@ driveController.getAutoPassphrase = {
                                     when (tab) {
                                         0 -> ChatScreen(
                                             quickSuggestions = quickSuggestions,
+                                            // BUG-2: draf di-hoist ke MainActivity.
+                                            draftText = chatDraft,
+                                            onDraftChange = { chatDraft = it },
                                             resetChatInputTrigger = dialogs.chatResetTrigger,
                                             messages = messages,
                                             activeSender = activeSender,
@@ -520,7 +568,8 @@ driveController.getAutoPassphrase = {
                                             onAddTransactionClicked = rekapCallbacks::onAddTransactionClicked,
                                             onDeleteTransaction = rekapCallbacks::onDeleteTransaction,
                                             onEditTransaction = rekapCallbacks::onEditTransaction,
-                                            syncStatus = syncStatus
+                                            syncStatus = syncStatus,
+                                            lastSyncedAtMillis = lastSyncedAt
                                         )
                                     }
                                 }
@@ -553,6 +602,13 @@ driveController.getAutoPassphrase = {
                                 onToggleDarkMode = {
                                     isDarkMode = !isDarkMode
                                     appPrefs.edit().putBoolean(Constants.Prefs.IS_DARK_MODE, isDarkMode).apply()
+                                },
+                                chatNotificationsEnabled = chatNotificationsEnabled,
+                                onToggleChatNotifications = {
+                                    chatNotificationsEnabled = !chatNotificationsEnabled
+                                    appPrefs.edit()
+                                        .putBoolean(Constants.Prefs.CHAT_NOTIFICATIONS_ENABLED, chatNotificationsEnabled)
+                                        .apply()
                                 },
                                 onToggleBackupEncryption = {
                                     backupEncrypted = !backupEncrypted

@@ -58,6 +58,9 @@ fun MainAppDialogs(
     exportCsvLauncher: ManagedActivityResultLauncher<String, Uri?>,
     showSnack: (String, String?, (() -> Unit)?) -> Unit,
     onToggleDarkMode: () -> Unit,
+    // 3.7: toggle notifikasi chat (state di MainActivity).
+    chatNotificationsEnabled: Boolean,
+    onToggleChatNotifications: () -> Unit,
     onToggleBackupEncryption: () -> Unit,
     onGeminiKeySaved: (String) -> Unit,
     onOpenRouterKeySaved: (String) -> Unit,
@@ -102,6 +105,8 @@ fun MainAppDialogs(
             lastBackupEncrypted = lastBackupEncrypted,
             onDismiss = { dialogs.showSettingsSheet = false },
             onToggleDarkMode = onToggleDarkMode,
+            chatNotificationsEnabled = chatNotificationsEnabled,
+            onToggleChatNotifications = onToggleChatNotifications,
             onToggleBackupEncryption = onToggleBackupEncryption,
             onCheckUpdate = {
                 dialogs.showSettingsSheet = false

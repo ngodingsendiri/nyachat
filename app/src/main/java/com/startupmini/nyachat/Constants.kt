@@ -27,6 +27,10 @@ object Constants {
         // — passphrase yang dipakai user manual (dialog) TETAP dipakai untuk
         // backup manual; kunci ini khusus jalur silentBackup.
         const val BACKUP_AUTO_PASSPHRASE = "backup_auto_passphrase"
+        // 3.7: toggle notifikasi chat (default ON).
+        const val CHAT_NOTIFICATIONS_ENABLED = "chat_notifications_enabled"
+        // 3.7: penanda dialog izin notifikasi sudah pernah ditanya (jangan spam).
+        const val NOTIF_PERMISSION_ASKED = "notif_permission_asked"
     }
 
     // ===== Firestore collection names =====
@@ -66,6 +70,7 @@ object Constants {
         const val DESCRIPTION = "description"
         const val LOGGED_BY = "loggedBy"
         const val CHAT_MESSAGE_ID = "chatMessageId"
+        const val FCM_TOKEN = "fcmToken"
     }
 
     // ===== Peran workspace (wajib sama dengan rules) =====

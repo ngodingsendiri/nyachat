@@ -57,7 +57,12 @@ service cloud.firestore {
         && (isOwner(familyId)
             || (request.auth.uid == uid
                 && get(/databases/$(database)/documents/families/$(familyId)).data.ownerId == request.auth.uid));
-      allow update, delete: if signedInGoogle() && isOwner(familyId);
+      // 3.7: selain owner, setiap anggota boleh meng-update HANYA field fcmToken
+      // miliknya sendiri — sinkronisasi token FCM untuk notifikasi chat real-time.
+      allow update: if signedInGoogle() && (isOwner(familyId)
+        || (request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken'])));
+      allow delete: if signedInGoogle() && isOwner(familyId);
     }
 
     // Permintaan bergabung: pemohon boleh membuat/mengubah/mencabut permintaan

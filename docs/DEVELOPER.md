@@ -78,8 +78,8 @@ export KEY_PASSWORD=...
 Versi diambil dari **`gradle.properties`** (satu sumber kebenaran):
 
 ```properties
-appVersion=r1.1.3
-appVersionCode=25
+appVersion=r1.2.0
+appVersionCode=27
 ```
 
 Override tanpa edit file: `./gradlew -PappVersion=r2.0.0 -PappVersionCode=26 :app:assembleDebug`.
@@ -165,7 +165,8 @@ app/src/main/java/com/startupmini/nyachat/
 ├── Constants.kt             (satu sumber kebenaran konstanta/pref/field)
 ├── data/
 │   ├── local/               Room DB, DAO, SecureStorage, AvatarStore
-│   ├── remote/              Gemini, OpenRouter, FirestoreSync, Membership, UpdateChecker
+│   ├── remote/              Gemini, OpenRouter, FirestoreSync, Membership, UpdateChecker,
+│   │                        NetworkMonitor (ConnectivityManager.NetworkCallback → status sync jujur saat offline)
 │   ├── repository/          FinanceRepository (logika bisnis utama)
 │   ├── analytics/           FinancialInsights, MonthlyAnalytics, WeeklyInsights
 │   └── backup/              DataExporter, BackupCrypto, DriveBackup{Controller,Manager}
@@ -176,10 +177,14 @@ app/src/main/java/com/startupmini/nyachat/
     ├── MainDialogController.kt (TASK-1.3: state holder 16 dialog/overlay)
     ├── MainAppDialogs.kt    (TASK-1.3: dialog lapisan konten — transaksi, settings, API key, PIN, logout, AI report)
     ├── MainOverlays.kt      (TASK-1.3: overlay global — gate, kelola anggota, update, backup Drive, snackbar)
-    ├── screens/             ChatScreen, ChatBubbles, ChatInput, RekapScreen, RekapCharts, RekapList,
-    │                        RekapScreenState, AiReportCard, PinConnectScreen, SettingsSheet,
-    │                        ChatBubbles/ChatInput (TASK-1.1), MainDialogs/BackupDialogs/
-    │                        MainTopBar/MainNavigationBar/GlowingBackground (TASK-1.3), ...
+    ├── screens/
+    │   ├── ChatScreen.kt / ChatBubbles.kt / ChatInput.kt   (TASK-1.1 — bubble & input bar terpisah)
+    │   ├── RekapScreen.kt / RekapCharts.kt / RekapList.kt / RekapScreenState.kt / AiReportCard.kt
+    │   │                                                   (TASK-1.2 — orkestrasi ~330 baris + komponen)
+    │   ├── MainTopBar.kt / MainNavigationBar.kt / GlowingBackground.kt (TASK-1.3)
+    │   ├── PinConnectScreen.kt / SettingsSheet.kt / ManageMembersScreen.kt / MembershipGateScreen.kt
+    │   ├── AddTransactionDialog.kt / AiReportDialog.kt / PinAttemptLimiter.kt
+    │   └── ...
     ├── theme/               Color, Theme, Type, SemanticColors
     └── util/                AvatarImage, DateLabels
 ```
@@ -188,10 +193,17 @@ app/src/main/java/com/startupmini/nyachat/
 
 ## 🧱 Tech Stack
 
-- **Kotlin + Jetpack Compose (Material 3)**
-- Room, OKHttp, kotlinx.coroutines
-- Firebase (Auth, Firestore, Crashlytics)
-- Gradle 9.3.1 · AGP 9.1.1 · Kotlin 2.x
+- **Kotlin + Jetpack Compose (Material 3)** — compose-bom `2026.06.01`
+- Room `2.7.2` (seri 2.8.x sengaja ditunda — `MigrationTestHelper` Robolectric rusak,
+  lihat CHANGELOG r1.2.0) · OKHttp `5.4.0` · kotlinx.coroutines
+- Firebase (Auth, Firestore, Crashlytics) — firebase-bom `34.17.0`
+- Lifecycle `2.10.0` · activity-compose `1.13.0` (2.11/2.13 terbaru butuh compileSdk 37)
+- Gradle 9.3.1 · AGP 9.1.1 · Kotlin 2.2.x
+
+> ⚠️ **Lint & compose-bom baru**: sejak compose-bom 2026.06, rule
+> `LocalContextGetResourceValueCall` melarang query resource via `LocalContext`
+> di dalam fungsi non-composable. Pola baku proyek: hoist `stringResource(...)`
+> ke composable scope, template berargumen pakai `.format()`.
 
 ---
 
@@ -204,5 +216,9 @@ app/src/main/java/com/startupmini/nyachat/
 - [x] Badge provenance AI/heuristik + attachment namespace + Room v11
 - [x] CI rilis otomatis (APK debug + release + AAB)
 - [ ] Grafik bulanan & notifikasi pengingat
-- [x] Refactor MainActivity/ChatScreen/RekapScreen (T3) — MainActivity 572 baris, ChatScreen 566 baris, RekapScreen ~330 baris (semua selesai 2026-08-09; RekapScreen dipecah ke RekapScreenState.kt, RekapCharts.kt, RekapList.kt, AiReportCard.kt)
-- [ ] Upgrade dependensi ke versi stabil terbaru (M1)
+- [x] Refactor MainActivity/ChatScreen/RekapScreen (T3) — MainActivity 572 baris, ChatScreen 566 baris, RekapScreen ~330 baris (selesai 2026-08-09; RekapScreen → RekapScreenState.kt, RekapCharts.kt, RekapList.kt, AiReportCard.kt)
+- [x] Upgrade dependensi (M1) — compose-bom 2026.06.01, lifecycle 2.10.0, activity 1.13.0, firebase-bom 34.17.0, okhttp 5.4.0 (selesai 2026-08-09); Room 2.8 didefer (Robolectric migration test)
+- [x] Deteksi jaringan & indikator sync jujur (NetworkMonitor + BUG-06 lanjutan, 2026-08-09)
+- [x] Badge finansial hilang (BUG-1) & draf chat hilang antar-tab (BUG-2) — FIXED 2026-08-09
+- [x] Chips saran cepat tampil kembali (BUG-05) — regresi compose-bom 2026.06: `LazyRow`
+  tak me-layout item → `Row`+`horizontalScroll`; FIXED 2026-08-10

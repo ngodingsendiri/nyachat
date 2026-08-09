@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.EnhancedEncryption
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Settings
@@ -85,6 +86,9 @@ fun SettingsSheet(
     lastBackupEncrypted: Boolean,
     onDismiss: () -> Unit,
     onToggleDarkMode: () -> Unit,
+    // 3.7: toggle notifikasi chat real-time.
+    chatNotificationsEnabled: Boolean = true,
+    onToggleChatNotifications: () -> Unit = {},
     onToggleBackupEncryption: () -> Unit,
     onCheckUpdate: () -> Unit,
     onGeminiKey: () -> Unit,
@@ -157,6 +161,17 @@ fun SettingsSheet(
                 icon = if (isDarkMode) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
                 title = stringResource(if (isDarkMode) R.string.menu_mode_light else R.string.menu_mode_dark),
                 onClick = onToggleDarkMode
+            )
+            // 3.7: notifikasi chat real-time (FCM) — off hanya menyembunyikan
+            // tampilan di perangkat ini; cloud tetap mengirim (di-filter di app).
+            SettingRow(
+                icon = Icons.Rounded.Notifications,
+                title = stringResource(R.string.menu_chat_notifications),
+                subtitle = stringResource(R.string.menu_chat_notifications_desc),
+                onClick = onToggleChatNotifications,
+                trailing = {
+                    Switch(checked = chatNotificationsEnabled, onCheckedChange = { onToggleChatNotifications() })
+                }
             )
             SettingRow(
                 icon = Icons.Rounded.SystemUpdate,

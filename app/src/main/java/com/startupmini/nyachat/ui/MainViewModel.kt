@@ -135,9 +135,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         return@collect
                     }
                     val now = System.currentTimeMillis()
-                    if (now - lastSuggestionsAt < QUICK_SUGGESTIONS_COOLDOWN_MS) return@collect
+                    if (now - lastSuggestionsAt < QUICK_SUGGESTIONS_COOLDOWN_MS) {
+                        return@collect
+                    }
                     try {
-                        _quickSuggestions.value = repository.getFrequentTransactionSuggestions(list)
+                        val suggestions = repository.getFrequentTransactionSuggestions(list)
+                        _quickSuggestions.value = suggestions
                         lastSuggestionsAt = now
                     } catch (e: Exception) {
                         Log.w("MainViewModel", "Operasi gagal", e)

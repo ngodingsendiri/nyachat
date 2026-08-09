@@ -53,6 +53,7 @@ import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.remote.SyncStatus
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
+import com.startupmini.nyachat.ui.util.formatClockTime
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -64,7 +65,9 @@ fun BalanceBannerCard(
     totalIncome: Double,
     totalExpense: Double,
     balance: Double,
-    syncStatus: SyncStatus = SyncStatus.SYNCED
+    syncStatus: SyncStatus = SyncStatus.SYNCED,
+    // 3.8: waktu terakhir sinkron — ditampilkan "Tersinkron · HH:mm" saat SYNCED.
+    lastSyncedAtMillis: Long? = null
 ) {
     val semantic = LocalSemanticColors.current
     val currencyFormat = remember {
@@ -119,7 +122,7 @@ fun BalanceBannerCard(
                 // Indikator sinkronisasi JUJUR (P2-16): hijau = tersinkron, abu = offline,
                 // kuning = sinkronisasi sedang berjalan, merah = error. Menunjukkan status
                 // sebenarnya, bukan asumsi "selalu tersinkron".
-                SyncIndicator(syncStatus = syncStatus)
+                SyncIndicator(syncStatus = syncStatus, lastSyncedAtMillis = lastSyncedAtMillis)
             }
 
             // Main Balance Amount
@@ -198,15 +201,21 @@ fun BalanceBannerCard(
 }
 
 @Composable
-private fun SyncIndicator(syncStatus: SyncStatus) {
-    val label = stringResource(
-        when (syncStatus) {
-            SyncStatus.SYNCED -> R.string.sync_status_synced
-            SyncStatus.SYNCING -> R.string.sync_status_syncing
-            SyncStatus.OFFLINE -> R.string.sync_status_offline
-            SyncStatus.ERROR -> R.string.sync_status_error
-        }
-    )
+private fun SyncIndicator(syncStatus: SyncStatus, lastSyncedAtMillis: Long? = null) {
+    // 3.8: saat tersinkron & waktu terakhir diketahui, tampilkan detail jam
+    // ("Tersinkron · 14:32") — informatif tanpa menambah baris.
+    val label = if (syncStatus == SyncStatus.SYNCED && lastSyncedAtMillis != null) {
+        stringResource(R.string.sync_status_synced_at, formatClockTime(lastSyncedAtMillis))
+    } else {
+        stringResource(
+            when (syncStatus) {
+                SyncStatus.SYNCED -> R.string.sync_status_synced
+                SyncStatus.SYNCING -> R.string.sync_status_syncing
+                SyncStatus.OFFLINE -> R.string.sync_status_offline
+                SyncStatus.ERROR -> R.string.sync_status_error
+            }
+        )
+    }
     // Dot mode-aware (audit WCAG): light pakai warna gelap (>=4.7:1 di atas putih),
     // dark pakai warna cerah (>=3:1 di atas surface gelap).
     val semantic = LocalSemanticColors.current

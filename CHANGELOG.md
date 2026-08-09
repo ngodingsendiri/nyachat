@@ -5,9 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - r1.2.0 (FASE 3 - audit UX)
+## [Unreleased] - r1.2.0 (T3 dekomposisi + M1 upgrade + audit UX)
 
-### Fixed (BUG-06 & BUG-08 - audit live)
+### Added
+- **FASE 1 (T3)**: Dekomposisi 3 file raksasa tanpa mengubah behavior:
+  - `ChatScreen.kt` (566 baris) — bubble & input bar dipisah ke `ChatBubbles.kt`
+    & `ChatInput.kt`;
+  - `RekapScreen.kt` (1442 → ~330 baris) — chart, daftar, & AI card dipisah ke
+    `RekapCharts.kt`, `RekapList.kt`, `AiReportCard.kt` + state holder
+    `RekapScreenState.kt`;
+  - `MainActivity.kt` (1501 → 572 baris) — lifecycle glue ke `SyncLifecycle.kt`,
+    callback ke `MainCallbacks.kt`, dialog ke `MainAppDialogs.kt`/`MainOverlays.kt`,
+    state dialog ke `MainDialogController.kt`.
+  Semua test hijau + Roborazzi compare + smoke test live (bukti: `.artifact/live_shots/`).
+- **FASE 2 (M1)**: Upgrade dependensi ke versi stabil terbaru (verifikasi tiap langkah):
+  `compose-bom 2026.06.01`, `activity-compose 1.13.0`, `lifecycle 2.10.0` (2.11.0
+  butuh compileSdk 37), `firebase-bom 34.17.0`, `okhttp 5.4.0` (major bump —
+  audit API: semua pemakaian kompatibel; tervalidasi runtime via backup Drive
+  live). `room` ditahan di **2.7.2** — seri 2.8.x membuat `AppDatabaseMigrationTest`
+  Robolectric gagal (`SupportSQLiteDriver` menolak path DB yang di-redirect
+  Robolectric); migration test adalah coverage kritis (M12) sehingga upgrade
+  2.8 didefer.
+- **BUG-06 lanjutan (P0)**: Deteksi jaringan nyata via
+  `ConnectivityManager.NetworkCallback` (`NetworkMonitor` + izin
+  `ACCESS_NETWORK_STATE`) — indikator sync kini jujur saat offline MURNI
+  (sebelumnya "Tersinkron" walau jaringan mati, karena snapshot offline cache
+  memanggil `markSynced()`). Fungsi murni `resolveStatusOnNetworkChange`/
+  `resolveStatusOnSyncSuccess`/`resolveStatusOnDraining`; drain antrian pending
+  tidak lagi menimpa status OFFLINE. Terverifikasi live: offline → "Mode
+  offline", pulih → "Menyinkronkan…" → "Tersinkron", relaunch offline →
+  "Mode offline".
+- **3.9**: Label "· Terenkripsi" di Settings kini mencerminkan FILE backup
+  terakhir yang dibuat (bukan toggle saat ini) — label hanya berubah saat
+  backup baru dibuat.
+- **3.10**: Snackbar "Passphrase salah" saat restore terenkripsi gagal
+  (saluran `passphraseError` terpisah + durasi Long — sebelumnya tersembunyi
+  di balik modal progres).
+- **3.11**: Badge 🔒 "Terenkripsi" pada file terenkripsi di dialog Restore
+  (deteksi via penanda nama + probe isi untuk backup lama).
+- **3.8**: Indikator detail status sync — banner Rekap menampilkan
+  "Tersinkron · 14:32" (waktu terakhir sinkron berhasil, dari
+  `FirestoreSyncManager.lastSyncedAt`); status OFFLINE/SYNCING/ERROR tetap
+  seperti sebelumnya.
+
+### Fixed
+- **BUG-1 (P0)**: Badge finansial hilang dari bubble chat ~5-10 detik setelah
+  pesan tersinkron — `toObject(CloudMessage)` selalu memberi `isFinancial=false`
+  karena CustomClassMapper tidak membaca Kotlin metadata (getter `is*()` →
+  field "financial"). Fix `@get:PropertyName("isFinancial")` + test regresi
+  round-trip. Badge bertahan & self-healing dari cloud setelah fix.
+- **BUG-2 (P1)**: Draf chat hilang saat pindah tab Chat ⇄ Rekap —
+  `AnimatedContent` menghancurkan state ChatScreen. Draf di-hoist ke
+  MainActivity (`rememberSaveable`) via `draftText`/`onDraftChange`; reset saat
+  logout & ganti PIN (isolasi antar-workspace). Terverifikasi live 2× round-trip.
 - **BUG-06**: Indikator sinkronisasi tidak lagi menakut-nakuti saat offline.
   Klasifikasi kegagalan sync dipetakan dengan benar: koneksi putus di lapisan
   bawah (UNAVAILABLE, IOException termasuk nested cause, "Failed to resolve",
@@ -22,6 +72,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `resetChatInputTrigger` (LaunchedEffect di ChatScreen) saat dialog ditutup.
   Reset digate khusus dialog yang dibuka dari tab Chat (tap badge finansial);
   draf chat tidak hilang saat user kembali dari tab Rekap.
+- **BUG-05 (P1)**: Chips saran cepat tidak pernah tampil di runtime walau data
+  saran terisi & kondisi tampil terpenuhi (laporan perangkat nyata "hilang saat
+  keyboard terbuka" — ternyata tidak tampil sama sekali). Regresi upgrade
+  compose-bom 2026.06 (M1): `LazyRow` meng-komposisi item tapi TIDAK
+  me-layout-nya di runtime. Fix: `AnimatedVisibility` → `if` biasa dan
+  `LazyRow` → `Row` + `horizontalScroll` + `height(48.dp)` di
+  `QuickSuggestionRow`. Terverifikasi live: 3 chip tampil di atas input bar,
+  tap chip mengisi draf; golden `quick_suggestions` di-record ulang (411×72)
+  & PASS di verifyRoborazzi.
+- **Lint (M1)**: 16 error baru `LocalContextGetResourceValueCall` dari
+  compose-bom 2026.06 diperbaiki — query resource di-hoist ke composable scope
+  via `stringResource(...)` (MainActivity 4, PinConnectScreen 12). `lintDebug`
+  kembali 0 error.
+
+### Verifikasi live (2026-08-09)
+- Edit pesan lintas perangkat (2 emulator) — LWW via server timestamp terbukti
+  (editedAt + serverUpdatedAt terisi, transaksi ikut ter-update).
+- Backup/restore Drive akun nyata — backup plain & terenkripsi (M5), restore
+  ke perangkat kedua, passphrase salah ditolak tanpa merusak data.
+- Daftar model AI via API `/models` — 1 model OpenRouter retired diganti 2
+  model gratis terverifikasi; Gemini `gemini-3.5-flash` tetap valid.
+- Smoke setelah upgrade M1: session bertahan, sync "Tersinkron", backup Drive
+  sukses (bukti: `.artifact/live_shots/m1_upgrade_smoke.png`,
+  `m1_okhttp_drive_backup.png`).
+- BUG-05 chips saran cepat (2026-08-10): 3 chip tampil di atas input bar,
+  tap chip → draf terisi; golden `quick_suggestions` re-record (411×72) PASS;
+  unit test BUILD SUCCESSFUL; 0 log debug tersisa (bukti:
+  `.artifact/live_shots/b05_chips_fixed.png`).
 
 ## [r1.1.3] - 2026-08-08
 

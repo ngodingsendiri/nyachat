@@ -13,7 +13,8 @@
 | FASE 0 — Persiapan & baseline | Commit r1.1.3, re-record golden Roborazzi, baseline test | Rendah | 0.5 hari |
 | FASE 1 — T3: Refactor file raksasa | `MainActivity`/`ChatScreen`/`RekapScreen` → dekomposisi | **Tinggi** | 2-3 hari |
 > ✅ **FASE 1 SELESAI 2026-08-09** — TASK-1.1 (ChatScreen 566 baris), TASK-1.2 (RekapScreen ~330 baris), TASK-1.3 (MainActivity 572 baris) semua selesai dengan test hijau + Roborazzi + smoke test live.
-| FASE 2 — M1: Upgrade dependensi | compose-bom, lifecycle, activity, room, okhttp, firebase-bom | Sedang-tinggi | 1-2 hari |
+> ✅ **FASE 2 SELESAI 2026-08-09** — M1 upgrade dependensi (compose-bom 2026.06.01, lifecycle 2.10.0, activity 1.13.0, firebase-bom 34.17.0, okhttp 5.4.0; room ditahan di 2.7.2 — lihat catatan 2.3).
+| FASE 2 — M1: Upgrade dependensi | compose-bom, lifecycle, activity, room, okhttp, firebase-bom | Sedang-tinggi | 1-2 hari | ✅ SELESAI 2026-08-09 |
 | FASE 3 — Perbaikan UX & verifikasi lanjutan | quick suggestion, label sync, field chat, edit pesan, backup Drive, model AI | Rendah-sedang | 1-2 hari |
 | FASE 4 — Rilis r1.2.0 | CHANGELOG, docs, bump versi, CI, tag, Play Store | Rendah | 0.5-1 hari |
 
@@ -27,13 +28,21 @@
 
 | # | Sub-Task | Detail | Status |
 |---|----------|--------|--------|
-| 0.1 | Commit pekerjaan r1.1.3 | 6 file belum di-commit: `FirestoreSyncManager.kt`, `FirestoreSyncManagerConflictTest.kt`, `strings.xml`, `gradle.properties`, `build.gradle.kts`, `CHANGELOG.md` | ⏳ TODO |
-| 0.2 | **Re-record golden Roborazzi** | Tagline login berubah di r1.1.3 → `./gradlew :app:recordRoborazziDebug`, commit PNG baru. **WAJIB** agar CI `verifyRoborazziDebug` tidak gagal | ⏳ TODO |
-| 0.3 | Baseline test | `testDebugUnitTest` + `lintDebug` + `verifyRoborazziDebug` PASS di lokal | ⏳ TODO |
-| 0.4 | Buat branch `fix/r1.2.0` | Dari `main` (atau `fix/v1.1.0` yang sudah di-merge) | ⏳ TODO |
-| 0.5 | Tag & release r1.1.3 | Push tag `r1.1.3` → GitHub Release berisi APK r1.1.3/26 yang benar (mengoreksi tag lama yang berisi APK r1.1.2) | ⏳ TODO |
+| 0.1 | Commit pekerjaan r1.1.3 | 6 file (FirestoreSyncManager, ConflictTest, strings, gradle.properties, build.gradle.kts, CHANGELOG) | ✅ **SELESAI** — terverifikasi 2026-08-10: tidak ada sisa file r1.1.3 uncommitted |
+| 0.2 | **Re-record golden Roborazzi** | Tagline login berubah di r1.1.3 | ✅ **SELESAI** — golden TIDAK meng-cover layar login (8 PNG: balance_banner ×2, chat_bubble ×3, donut, quick_suggestions, rekap_transaction) → tagline tidak berpengaruh; golden terakhir di-re-record `f11504f` (balance_banner_offline) |
+| 0.3 | Baseline test | `testDebugUnitTest` + `lintDebug` + `verifyRoborazziDebug` | ✅ **SELESAI** — 189 test Roborazzi: 6 fail = persis false-positive font OS Windows yang dikenal (CI ubuntu PASS); 180+ unit test PASS; lint 0 error |
+| 0.4 | Buat branch `fix/r1.2.0` | Dari `fix/v1.1.0` | ✅ **SELESAI 2026-08-10** — branch dibuat; 21 file uncommitted (pekerjaan r1.2.0) terbawa |
+| 0.5 | Tag & release r1.1.3 | GitHub Release berisi APK r1.1.3/26 yang benar | ⏭️ **DEFERRED → FASE 4** (keputusan user 2026-08-10) — tag & release r1.1.3 SUDAH ada di GitHub TAPI berisi APK **versionCode 25 / r1.1.2 (salah!)**; APK benar (26/r1.1.3) sudah di-build lokal; koreksi digabung dengan rilis r1.2.0 (FASE 4.6b) karena butuh kredensial GitHub |
 
-**Pintu keluar (exit criteria):** unit test + lint + Roborazzi PASS; r1.1.3 ter-release benar.
+**Pintu keluar (exit criteria):** unit test + lint + Roborazzi PASS — ✅; r1.1.3 ter-release benar — ⏭️ didefer ke FASE 4.6b (keputusan user).
+
+### Catatan 0.5 — koreksi release r1.1.3
+- **Verifikasi 2026-08-10**: `aapt2 dump badging` pada APK `app-debug.apk` dari GitHub Release r1.1.3 → `versionCode='25' versionName='r1.1.2'` — SAMA dengan masalah yang dicatat plan (release berisi APK versi lama).
+- APK yang BENAR sudah dibangun lokal: `app/build/outputs/apk/debug/app-debug.apk` → `versionCode='26' versionName='r1.1.3'` ✅.
+- **Cara koreksi** (butuh kredensial GitHub — `gh` CLI tidak terpasang & `GITHUB_TOKEN` kosong di mesin ini):
+  1. `gh release upload r1.1.3 app/build/outputs/apk/debug/app-debug.apk --clobber` (ganti aset `app-debug.apk`), atau
+  2. `curl -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/octet-stream" --data-binary @app/build/outputs/apk/debug/app-debug.apk "https://uploads.github.com/repos/ngodingsendiri/nyachat/releases/<RELEASE_ID>/assets?name=app-debug.apk"`
+- `app-release.apk` & `app-release.aab` juga perlu dicek/diganti — build release butuh keystore secret CI (`KEYSTORE_BASE64`), jadi dikoreksi via re-run workflow CI di tag r1.1.3 (atau FASE 4).
 
 ---
 
@@ -98,30 +107,41 @@
 
 **Tujuan:** mengejar versi stabil terbaru (perbaikan bug/keamanan/performa). **Bertahap per modul**, verifikasi di tiap langkah; `okhttp 4→5` dipisah & diaudit.
 
-### Kondisi saat ini (terverifikasi dari `gradle/libs.versions.toml`)
-| Dependency | Terpasang | Target (perlu verifikasi versi stabil terbaru saat eksekusi) |
-|---|---|---|
-| `compose-bom` | 2024.09.00 | ~2026.xx terbaru (lihat catatan) |
-| `lifecycle-runtime-ktx/viewmodel-compose/runtime-compose` | 2.8.7 | 2.11.x |
-| `activity-compose` | 1.10.1 | 1.13.x |
-| `room` | 2.7.0 | 2.8.x |
-| `okhttp` | 4.10.0 | 5.x (major — audit breaking changes) |
-| `firebase-bom` | 34.15.0 | terbaru |
-| `robolectric` / `roborazzi` | 4.16.1 / 1.59.0 | sesuaikan bila diperlukan |
+### Kondisi akhir (terverifikasi dari `gradle/libs.versions.toml`, eksekusi 2026-08-09)
+| Dependency | Sebelum | **Sesudah** | Verifikasi |
+|---|---|---|---|
+| `compose-bom` | 2024.09.00 | **2026.06.01** | ✅ compile + unit test |
+| `lifecycle-runtime-ktx/viewmodel-compose/runtime-compose` | 2.8.7 | **2.10.0** (stable tertinggi utk compileSdk 36; 2.11.0 butuh compileSdk 37) | ✅ unit test |
+| `activity-compose` | 1.10.1 | **1.13.0** | ✅ compile + unit test |
+| `room` | 2.7.0 | **2.7.2** (2.8.x DITOLAK — lihat catatan 2.3) | ✅ migration test PASS |
+| `okhttp` | 4.10.0 | **5.4.0** (major, audit API selesai — semua pemakaian kompatibel) | ✅ unit test |
+| `firebase-bom` | 34.15.0 | **34.17.0** | ✅ unit test |
+| `robolectric` / `roborazzi` | 4.16.1 / 1.59.0 | tetap | — |
 
-> ⚠️ **Catatan**: versi target harus dicek ke repositori resmi (Maven/Google Maven) **saat eksekusi** — daftar di atas indikatif dari audit 2026-08-06.
-
-### Urutan & verifikasi
-| # | Sub-Task | Verifikasi |
+### Urutan & status
+| # | Sub-Task | Status |
 |---|----------|-----------|
-| 2.1 | Upgrade `compose-bom` + `activity-compose` (satu batch, paling sering berdampingan) | `build` + `testDebugUnitTest` + `verifyRoborazziDebug` (kemungkinan besar **perlu re-record golden** karena font/rendering berubah!) |
-| 2.2 | Upgrade `lifecycle` (3 artefak) | `build` + unit test |
-| 2.3 | Upgrade `room` 2.7.0 → 2.8.x | `build` + unit test + **migration test** (`AppDatabaseMigrationTest` — pastikan skema v11 tetap valid) |
-| 2.4 | Upgrade `firebase-bom` | `build` + unit test |
-| 2.5 | Upgrade `okhttp` 4→5 | Audit API berubah (ex: `RequestBody`, interceptor, timeout API). Jika perubahan besar: **defer ke r1.3.0** |
-| 2.6 | Regression penuh | `testDebugUnitTest` + `lintDebug` + `verifyRoborazziDebug` + smoke test live (chat, rekap, AI, backup) |
+| 2.1 | Upgrade `compose-bom` + `activity-compose` | ✅ **SELESAI** — 1 warning deprecation non-blokir (`confirmValueChange`) |
+| 2.2 | Upgrade `lifecycle` (3 artefak) | ✅ **SELESAI** — 2.11.0 butuh compileSdk 37 (SDK 37 tidak terpasang) → dipakai **2.10.0** (stable tertinggi kompatibel compileSdk 36) |
+| 2.3 | Upgrade `room` 2.7.0 → 2.8.x | ✅ **SELESAI (revert 2.7.2)** — lihat catatan |
+| 2.4 | Upgrade `firebase-bom` 34.15.0 → 34.17.0 | ✅ **SELESAI** |
+| 2.5 | Upgrade `okhttp` 4.10.0 → 5.4.0 | ✅ **SELESAI** — audit: semua pemakaian (DriveBackupManager, OpenRouterService, GitHubUpdateChecker, GeminiService) API stabil (`Builder`/`newCall().execute()`/`toMediaType`); minSdk 24 ≥ syarat 5.x (API 21); tidak ada error kompilasi |
+| 2.6 | Regression penuh | ✅ **SELESAI** — 16 lint error baru `LocalContextGetResourceValueCall` (aturan compose-bom 2026.06) di MainActivity (4) & PinConnectScreen (12) diperbaiki (hoist `stringResource` + `.format()`); lintDebug 0 error; unit test PASS; Roborazzi 6 golden FAILED = false-positive font OS yang SAMA dengan FASE 1 (CI ubuntu PASS); smoke live PASS |
 
-**Exit criteria:** semua test & lint hijau; tidak ada warning kompilasi baru; behavior app identik.
+### Catatan 2.3 — Room: keputusan tetap di 2.7.2
+- Upgrade ke **2.8.4** membuat **`AppDatabaseMigrationTest` gagal total (3/3)**: `IllegalArgumentException: This driver is configured to open a database named 'migration-test.db' but '…robolectric-…\databases\migration-test.db' was requested.`
+- Akar masalah: Room 2.8 menulis ulang `MigrationTestHelper` memakai `SupportSQLiteDriver` (androidx.sqlite) yang **menolak path DB yang di-redirect Robolectric** ke sandbox temp — konflik seri 2.8.x (2.8.0–2.8.4), tanpa workaround di sisi test (sudah pakai `FrameworkSQLiteOpenHelperFactory` + `InstrumentationRegistry`). Proyek juga belum punya `androidTest` untuk jalur instrumented.
+- **Keputusan**: revert ke **2.7.2** (patch final seri 2.7.x, tetap didukung) — migration test adalah coverage kritis (M12, jalur v8→v11) yang tidak boleh hilang; selaras prinsip plan "verifikasi tiap langkah, revert langkah yang gagal". Migrasi ke 2.8.x didefer, bisa dibuka lagi bila: (a) proyek punya `androidTest` instrumented, atau (b) Room memperbaiki kompatibilitas Robolectric.
+- **Verifikasi**: `AppDatabaseMigrationTest` 3/3 PASS (BUILD SUCCESSFUL) setelah revert.
+
+### Catatan 2.6 — lint fix `LocalContextGetResourceValueCall` (16 error)
+- Aturan lint BARU dari compose-bom 2026.06.01 menandai query resource via `LocalContext.current.getString(...)` di fungsi non-composable (LaunchedEffect/coroutine/callback). Baseline r1.1.3 lint PASS → semua 16 error adalah efek upgrade.
+- **Fix**: resolve di composable scope via `stringResource(...)` (import ditambah di MainActivity), template berargumen (`tx_recorded`, `google_err_sha1_hint`, `google_err_credential_provider`, `google_err_unknown`, `pin_rate_limited`) memakai `.format()`; `default_web_client_id` (PinConnectScreen) dipindah ke `runCatching { stringResource(...) }` (komentar keep.xml dipertahankan).
+- **Verifikasi**: `compileDebugKotlin` PASS · `lintDebug` **0 error** · unit test PASS · smoke live (install APK baru, session bertahan, sync "Tersinkron") PASS — bukti `.artifact/live_shots/m1_upgrade_smoke.png`.
+- **Roborazzi**: 6 golden gagal = subset false-positive font OS yang sudah didokumentasikan FASE 1 (balance_banner/chat_bubble/rekap_transaction; dirender langsung tanpa MainActivity) — bukan regresi layout; `verifyRoborazziDebug` PASS di CI ubuntu (konvensi proyek).
+- **Validasi runtime OkHttp 5.4 (tindak lanjut reviewer)**: indikator "Tersinkron" hanya membuktikan Firestore (gRPC — bukan OkHttp). Dilakukan **backup Drive live** (DriveBackupManager = OkHttp upload + token OAuth): dialog passphrase → backup terenkripsi sukses — label Settings "Backup terakhir: 9 Agu 2026 · 23:48 · Terenkripsi" (waktu BARU). **OkHttp 5.4 terbukti bekerja di runtime**. Bukti: `.artifact/live_shots/m1_okhttp_drive_backup.png`.
+
+**Exit criteria:** semua test & lint hijau; tidak ada warning kompilasi baru; behavior app identik. — ✅ TERPENUHI
 
 ---
 
@@ -129,23 +149,39 @@
 
 **Tujuan:** menutup sisa temuan minor + memverifikasi alur yang belum teruji live.
 
-### Progres (diperbarui 2026-08-09)
+### Progres (diperbarui 2026-08-10)
 
 | # | Sub-Task | Detail | Sumber | Status |
 |---|----------|--------|--------|--------|
-| 3.1 | Quick suggestion chips tetap terlihat saat keyboard terbuka | Pindah/sematkan chips di atas input bar (atau area scrollable) — BUG-05 laporan perangkat nyata | UX | ⏳ TODO |
+| 3.1 | **BUG-05 (P1): quick suggestion chips tidak tampil di runtime** | `LazyRow` compose-bom 2026.06 meng-komposisi tapi TIDAK me-layout item → `Row` + `horizontalScroll` di `QuickSuggestionRow` + `if` biasa (bukan `AnimatedVisibility`) | Bug | ✅ **SELESAI** (2026-08-10; terverifikasi live) |
 | 3.2 | Label indikator sync netral | "Gagal sinkron" → "Mode offline" (abu/kuning) saat offline — BUG-06 | UX | ✅ **SELESAI** (commit `f11504f`) |
 | 3.3 | Reset field chat setelah dialog tutup | Field tidak menyisakan "." / karakter sisa — BUG-08 laporan perangkat nyata | Bug | ✅ **SELESAI** (commit `f11504f`) |
 | 3.4 | **Uji alur edit pesan end-to-end** | Tap badge finansial → edit → simpan → verifikasi LWW sync (editedAt/serverUpdatedAt) di 2 perangkat emulator | Verifikasi | ✅ **SELESAI** (2 emulator; LWW terbukti) |
 | 3.5 | **Uji backup/restore Drive dengan akun nyata** | Backup manual + auto-backup terenkripsi (M5) + restore ke device kedua | Verifikasi | ✅ **SELESAI** (2026-08-09; Drive API diaktifkan; 3 backup sukses; restore 2 perangkat; M5 pass) |
 | 3.6 | **Verifikasi daftar model AI via API `/models`** | `GeminiService.MODEL_NAME` (`gemini-3.5-flash`) & daftar `OpenRouterService.FREE_MODELS` — pastikan tidak retired; tambah fallback dinamis bila perlu | Keandalan | ✅ **SELESAI** (2026-08-09; `ling-3.0-flash:free` retired → diganti 2 model gratis terverifikasi) |
-| 3.7 | (Opsional) Notifikasi pengingat & grafik bulanan | Fitur roadmap; jika dimasukkan ke r1.2.0, buka sub-plan terpisah | Roadmap | ⏳ TODO |
-| 3.8 | (Opsional) Indikator detail status sync | Tooltip/label "Menyinkronkan…/Terakhir sinkron 14.32" di Rekap | UX | ⏳ TODO |
+| 3.7 | (Opsional) Notifikasi pengingat & grafik bulanan | Fitur roadmap; jika dimasukkan ke r1.2.0, buka sub-plan terpisah (grafik bulanan sudah ada via MonthlyNav; inti item = notifikasi pengingat) | Roadmap | ⏳ TODO — keputusan user |
+| 3.8 | (Opsional) Indikator detail status sync | Label "Tersinkron · 14:32" di banner Rekap — waktu terakhir sinkron berhasil | UX | ✅ **SELESAI** (2026-08-10; terverifikasi live "Tersinkron · 01:38") |
 | 3.9 | Label "· Terenkripsi" mengikuti FILE backup aktual (temuan #1) | Indikator di Settings tidak boleh berubah karena toggle semata — harus mencerminkan enkripsi file backup terakhir | Bug | ✅ **SELESAI** (2026-08-09; terverifikasi live matriks toggle × backup) |
 | 3.10 | Snackbar "Passphrase salah" saat restore terenkripsi gagal (temuan #3) | Saluran `passphraseError` terpisah + tutup modal progres dulu + durasi Long — snackbar tak lagi tersembunyi di balik dialog | Bug | ✅ **SELESAI** (2026-08-09; terverifikasi live) |
 | 3.11 | Badge 🔒 file terenkripsi di picker restore (temuan #4) | `RestorePickerDialog` menampilkan badge 🔒 Terenkripsi (via penanda nama & probe isi untuk backup lama) | UX | ✅ **SELESAI** (2026-08-09; terverifikasi live) |
+| 3.12 | **BUG-1 (P0): badge finansial hilang dari bubble chat** | `toObject(CloudMessage)` kehilangan field `isFinancial` (getter Kotlin is-prefix vs CustomClassMapper) → fix `@get:PropertyName("isFinancial")` + test regresi | Bug | ✅ **SELESAI** (2026-08-09; terverifikasi live) |
+| 3.13 | **BUG-2 (P1): draf chat hilang saat pindah tab** | `AnimatedContent` menghancurkan state ChatScreen → hoist draf ke MainActivity (`rememberSaveable`) via `draftText`/`onDraftChange` + reset saat logout/ganti PIN | Bug | ✅ **SELESAI** (2026-08-09; terverifikasi live) |
+| 3.14 | **BUG-06 lanjutan (P0): deteksi jaringan** | `ConnectivityManager.NetworkCallback` (NetworkMonitor) → status jujur saat offline murni; `markSynced`/drain tak menimpa OFFLINE dari cache | Bug | ✅ **SELESAI** (2026-08-09; terverifikasi live) |
+| 3.15 | **Verifikasi notifikasi chat real-time (FCM) end-to-end** | Firestore → Cloud Function `notifyChatMessage` → FCM → notifikasi Android lintas perangkat (fitur "seperti WhatsApp" FASE 3 r1.1.x) | Verifikasi | ✅ **SELESAI** (2026-08-10; rantai penuh terbukti live) |
 
 ### Rincian yang sudah selesai
+
+**3.8 — indikator detail status sync ("Tersinkron · HH:mm")** · 2026-08-10
+- `FirestoreSyncManager.lastSyncedAt` (StateFlow `Long?`) — diset di `markSynced()` setiap snapshot sukses (sinkron aktif), di-reset `null` saat `stop()` (logout). Default null → golden lama tidak berubah.
+- Rantai param: MainActivity (collect) → `RekapScreen.lastSyncedAtMillis` → `BalanceBannerCard` → `SyncIndicator` — saat SYNCED + waktu diketahui tampil `sync_status_synced_at` = "Tersinkron · %1$s"; selain itu label lama (OFFLINE/SYNCING/ERROR tetap sama).
+- `DateLabels.formatClockTime` (HH:mm, Locale.getDefault) + unit test (+1 → total 190 test PASS).
+- **Verifikasi live**: label "Tersinkron · 01:38" tampil di banner Rekap (emulator-5556). Bukti: `.artifact/live_shots/t38_sync_label.png`.
+
+**3.1 (BUG-05) — quick suggestion chips tidak tampil** · 2026-08-10
+- Gejala: chips saran cepat TIDAK PERNAH tampil di runtime walau `quickSuggestions` terisi (log: 4 saran), kondisi `visible` terpenuhi, dan content dikomposisi — area 48dp kosong tanpa node aksesibilitas; golden Robolectric tetap PASS (render di env berbeda). Laporan perangkat nyata menyebut "hilang saat keyboard terbuka" — ternyata lebih parah (tidak tampil sama sekali, keyboard pun tertutup).
+- **Akar masalah**: regresi upgrade **compose-bom 2026.06.01 (M1)** — `LazyRow` di dalam `AnimatedVisibility`/`Column` meng-komposisi item tapi TIDAK me-layout-nya. Bukti live (verifikasi bertahap): (1) `AnimatedVisibility` → `if` tidak cukup; (2) `height(48.dp)` eksplisit → Row mengambil ruang tapi isi kosong; (3) `LazyRow` → `Row`+`horizontalScroll` → **chip tampil & bisa diketuk**.
+- **Fix** (`ChatScreen.kt` + `ChatInput.kt`): ganti `AnimatedVisibility` dengan `if` biasa; ganti `LazyRow` dengan `Row` + `horizontalScroll` + `height(48.dp)` — 4-5 saran pendek tidak butuh lazy, layout deterministik. Komentar BUG-05 dokumentatif dipertahankan (konvensi proyek).
+- **Verifikasi live**: 3 chip tampil di atas input bar (bounds y1833; "beli mie ayam 20000 20000", "beli nasi 30000 30000", "tes draf 9beli tempe…"); **tap chip → draft terisi di field**; golden `quick_suggestions` di-record ulang (**411×72** vs 155×64 lama) & **PASS** di verifyRoborazzi (189 test, hanya 6 false-positive font OS yang dikenal); **unit test BUILD SUCCESSFUL**; 0 log debug tersisa di source & runtime. Bukti: `.artifact/live_shots/b05_chips_fixed.png`.
 
 **3.2 (BUG-06) — label sync netral** · commit `f11504f`
 - `FirestoreSyncManager.onSyncFailure` → ekstrak **`classifySyncFailure`**: kode eksplisit (`PERMISSION_DENIED`/kuota/`UNAUTHENTICATED`) → ERROR; `UNAVAILABLE`/`DEADLINE_EXCEEDED`/IOException (termasuk nested cause) → OFFLINE.
@@ -177,6 +213,20 @@
 - **Fix**: `OpenRouterService.FREE_MODELS` diganti — hapus `ling-3.0-flash:free`, tambah `google/gemma-4-26b-a4b-it:free` (vision-ready, relevan untuk foto nota) + `inclusionai/ling-3.0-tiny:free` (keluarga sama). Keduanya terverifikasi `prompt=$0` di katalog (14 model `:free` total). Urutan diprioritaskan ke model terkuat (gemma 31b → gemma 26b → gpt-oss).
 - Compile `:app:compileDebugKotlin` PASS.
 
+**3.15 — verifikasi notifikasi chat real-time (FCM) end-to-end** · 2026-08-10
+- **Latar**: fitur notifikasi chat real-time (FASE 3 r1.1.x) — `ChatMessageFirebaseService` (FCM data message) + Cloud Function `notifyChatMessage` — belum pernah diverifikasi penuh. Live test awal gagal: tidak ada notifikasi di device B.
+- **Rantai yang diuji** (2 emulator + Firestore + Cloud Functions): kirim pesan dari A → tulis Firestore → trigger CF → FCM multicast → notifikasi tampil di B.
+- **Blocker yang ditemukan & diperbaiki (infra GCP, bukan kode app)**:
+  1. **Runtime SA Cloud Run tidak bisa baca Firestore** — `PERMISSION_DENIED` di `@google-cloud/firestore` → grant `roles/datastore.user` ke `340343053987-compute@developer.gserviceaccount.com` + redeploy → log fungsi bersih.
+  2. **Runtime SA tidak bisa kirim FCM** — `code=messaging/mismatched-credential, Permission 'cloudmessaging.messages.create' denied` (di project, bukan sender) → grant **`roles/firebase.sdkAdminServiceAgent`** (role resmi yang memuat permission kirim; `firebasemessaging.admin`/`firebaseadmin` tidak didukung) + redeploy → `FCM OK`.
+  3. **Token FCM tidak pernah tersimpan ke Firestore** — `FirebaseMessaging.getInstance().token` diam-diam gagal; setelah restart app + `ensureTokenSynced`, token 142 char tersimpan ke `families/{pin}/members/{uid}/fcmToken`.
+- **Bukti sukses end-to-end** (log Cloud Run + live device):
+  - Log fungsi: `Multicast total=1 gagal=0 sender=Ari Purnomo Aji` + `FCM OK uid=g6lkldwvI8` (t+1s setelah write).
+  - Notifikasi **"Ari Purnomo Aji / pesan-e2e-rest-987"** tampil di status bar device B (emulator-5556) — title = sender, text = body, channel `chat_messages`.
+  - Chat device B menampilkan SEMUA pesan test dari A (sync Firestore real-time: `notif-dari-a`, `rt-test-2`, `rt-final-3`, `rt-4-bar`, `pesan-e2e-rest-987`, …).
+- **Catatan penting (limitasi test setup)**: kedua emulator memakai akun Google SAMA (`ngampusendiri@gmail.com`) → `uid` FirebaseAuth sama → member doc yang sama → token B MENIMPA token A. Untuk verifikasi teknis rantai, member kedua dibuat via REST. Uji notifikasi dengan 2 identitas berbeda butuh akun Google kedua.
+- **Pembersihan**: `functions/index.js` sudah di-deploy (logging error FCM detail); log debug sementara dihapus; file test helper ada di `.artifact/` (`firecheck.py`, `check_tokens.py`, `send_test_message.py`, `setup_budi_member.py`).
+
 **3.9 (temuan #1) — label "· Terenkripsi" mencerminkan file backup aktual** · 2026-08-09
 - Sebelumnya label diambil dari *setting saat ini* (toggle enkripsi), bukan file — toggle OFF/ON langsung mengubah label padahal tidak ada backup baru dibuat.
 - Verifikasi live (device A, Drive API nyata, matriks toggle × backup):
@@ -201,9 +251,10 @@
 - Verifikasi live: kedua file di atas tampil dengan badge 🔒 di picker. Bukti: `.artifact/live_shots/restore_picker_badge_lock.png`.
 
 ### Temuan follow-up dari live test (masuk backlog r1.2.1 / perbaikan lanjutan)
-- **BUG-1 (P0)**: badge finansial hilang dari bubble chat setelah ~5-10 detik — Room lokal `isFinancial=0` untuk SEMUA pesan padahal cloud `isFinancial=1` (detectedAmount tetap tersimpan). Jalur penulis belum teridentifikasi; menghalangi opsi "Edit Transaksi" dari chat & test E2E BUG-08.
-- **BUG-2 (P1)**: draf chat hilang saat pindah tab Chat ⇄ Rekap (state input tidak dipertahankan) — perlu hoist draf ke `MainActivity`/`rememberSaveable`.
-- **BUG-06 lanjutan (P0)**: saat offline MURNI (airplane mode, network unreachable), indikator tetap "Tersinkron" — tidak ada deteksi jaringan (0 `ConnectivityManager`/`NetworkCallback`); `markSynced()` dari offline cache selalu menyetel SYNCED. Perlu `ConnectivityManager.NetworkCallback`.
+- **BUG-1 (P0) — ✅ FIXED 2026-08-09** (detail di FASE 3 item 3.12): badge finansial hilang dari bubble chat setelah ~5-10 detik — Room lokal `isFinancial=0` untuk SEMUA pesan padahal cloud `isFinancial=1` (detectedAmount tetap tersimpan). **Akar masalah**: `FirestoreCustomClassMapper` tidak membaca Kotlin metadata; getter JVM `isFinancial()` untuk Boolean berawalan "is" diturunkan jadi nama field "financial" → `toObject(CloudMessage)` selalu memberi false. **Fix**: `@get:PropertyName("isFinancial")` di `CloudMessage.isFinancial`. **Verifikasi**: round-trip CustomClassMapper PASS; live — badge bertahan t+13s (sebelumnya hilang ~7s), bertahan setelah restart, badge lama pulih (self-healing via re-merge dari cloud; catatan: perangkat offline-forever menahan isFinancial=0 lama sampai koneksi pulih).
+- **BUG-2 (P1) — ✅ FIXED 2026-08-09** (detail di FASE 3 item 3.13): draf chat hilang saat pindah tab Chat ⇄ Rekap. **Akar masalah**: `AnimatedContent` menghancurkan state `ChatScreen` saat tab berganti — `rememberSaveable` lokal tidak cukup (state dihapus dari komposisi). **Fix**: hoist `chatDraft` ke MainActivity (`rememberSaveable`, tidak pernah keluar komposisi) → `ChatScreen` menerima `draftText` + `onDraftChange`; semua jalur tulis (suggestion chip, Tanya AI, kirim, reset BUG-08) lewat callback; reset `chatDraft=""` saat logout & ganti PIN (isolasi antar-workspace). **Verifikasi live**: draf bertahan 2× round-trip Chat→Rekap→Chat, kirim membersihkan field.
+- **BUG-06 lanjutan (P0) — ✅ FIXED 2026-08-09** (detail di FASE 3 item 3.14): saat offline MURNI (airplane mode, network unreachable), indikator tetap "Tersinkron" — tidak ada deteksi jaringan (0 `ConnectivityManager`/`NetworkCallback`); `markSynced()` dari offline cache selalu menyetel SYNCED. **Fix**: `NetworkMonitor` (baru) + `ACCESS_NETWORK_STATE`; `FirestoreSyncManager.networkAvailable` (null/false/true) + fungsi murni `resolveStatusOnNetworkChange`/`resolveStatusOnSyncSuccess`/`resolveStatusOnDraining`; `markSynced` & drain tidak menimpa OFFLINE. **Verifikasi live**: offline → "Mode offline" ✓; pulih → "Menyinkronkan…" → "Tersinkron" ✓; force-stop + relaunch offline → "Mode offline" ✓ (kasus eksplisit laporan yang sebelumnya GAGAL). +7 unit test.
+- **BUG-05 (P1) — ✅ FIXED 2026-08-10** (detail di FASE 3 item 3.1): chips saran cepat tidak pernah tampil di runtime walau data terisi & kondisi visible terpenuhi. **Akar masalah**: regresi compose-bom 2026.06 (M1) — `LazyRow` meng-komposisi item tapi tidak me-layout-nya. **Fix**: `AnimatedVisibility` → `if` + `LazyRow` → `Row`+`horizontalScroll` di `QuickSuggestionRow`. **Verifikasi live**: 3 chip tampil di atas input, tap chip mengisi draft; golden `quick_suggestions` re-record (411×72) & PASS; unit test hijau.
 
 **Exit criteria:** semua item selesai sesuai cakupan yang disepakati; live test ulang di emulator lulus.
 
@@ -213,12 +264,13 @@
 
 | # | Sub-Task | Detail |
 |---|----------|--------|
-| 4.1 | CHANGELOG.md | Entri r1.2.0 (T3, M1, perbaikan UX, verifikasi) |
-| 4.2 | Dokumen | README (fitur baru/struktur baru), docs/DEVELOPER.md (struktur file setelah refactor), PRIVACY_POLICY (bila ada fitur baru) |
-| 4.3 | Bump versi | `gradle.properties`: `appVersion=r1.2.0`, `appVersionCode=27` |
+| 4.1 | CHANGELOG.md | Entri r1.2.0 (T3, M1, perbaikan UX, verifikasi) | 🟡 Draft 2026-08-09 (entri [Unreleased] lengkap; final menunggu rilis) |
+| 4.2 | Dokumen | README (fitur baru/struktur baru), docs/DEVELOPER.md (struktur file setelah refactor), PRIVACY_POLICY (bila ada fitur baru) | 🟡 Draft 2026-08-09 (DEVELOPER.md: struktur + versi + roadmap + tech stack) |
+| 4.3 | Bump versi | `gradle.properties`: `appVersion=r1.2.0`, `appVersionCode=27` | ⏳ TODO |
 | 4.4 | Golden Roborazzi | Re-record final (UI berubah karena refactor/upgrade) |
 | 4.5 | CI penuh | `testDebugUnitTest` + `lintDebug` + `verifyRoborazziDebug` + lint firestore rules |
 | 4.6 | Commit + tag | `fix: r1.2.0 ...` → push tag `r1.2.0` → GitHub Release |
+| 4.6b | **Koreksi release r1.1.3** (deferral FASE 0.5) | Upload APK r1.1.3/26 yang benar (`app/build/outputs/apk/debug/app-debug.apk`) ke release r1.1.3 — `gh release upload r1.1.3 <apk> --clobber` — bersamaan dengan rilis r1.2.0 |
 | 4.7 | Play Store checklist | Jalankan `docs/PLAY_STORE_CHECKLIST.md`; upload AAB release |
 
 ---

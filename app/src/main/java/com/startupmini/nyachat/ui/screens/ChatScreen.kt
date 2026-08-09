@@ -52,7 +52,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,12 +96,16 @@ fun ChatScreen(
     // M9: PIN workspace aktif — lampiran (foto nota/dokumen) disimpan di folder
     // khusus per-workspace supaya ganti workspace tidak merusak foto workspace lama.
     workspacePin: String? = null,
-    // BUG-08: sinyal reset field chat — dinaikkan MainActivity saat dialog
-    // transaksi manual ditutup supaya karakter sisa tidak menempel di input.
+    // BUG-2: draf chat DI-HOIST ke MainActivity (`rememberSaveable`) — AnimatedContent
+    // menghancurkan state ChatScreen saat pindah tab, sehingga rememberSaveable lokal
+    // di sini tidak cukup. Nilai + callback datang dari pemilik state.
+    draftText: String = "",
+    onDraftChange: (String) -> Unit = {},
+    // BUG-08: reset draf saat dialog transaksi manual (dari tab Chat) ditutup —
+    // diproses MainActivity (pemilik state), tidak lagi di sini.
     resetChatInputTrigger: Int = 0
 ) {
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    var inputText by rememberSaveable { mutableStateOf("") }
     var pendingDelete by remember { mutableStateOf<ChatMessage?>(null) }
     var pendingImagePath by remember { mutableStateOf<String?>(null) }
     var pendingFilePath by remember { mutableStateOf<String?>(null) }
@@ -119,10 +122,10 @@ fun ChatScreen(
     val inputFocusRequester = remember { FocusRequester() }
     val context = LocalContext.current
 
-    // BUG-08: reset field chat saat dialog transaksi manual ditutup — karakter
-    // sisa (mis. titik ribuan dari kolom nominal) tidak menempel di field chat.
+    // BUG-08: reset draf tetap diproses di sini (nulis ke state hoisted) —
+    // karakter sisa (mis. titik ribuan dari kolom nominal) tidak menempel.
     LaunchedEffect(resetChatInputTrigger) {
-        if (resetChatInputTrigger > 0) inputText = ""
+        if (resetChatInputTrigger > 0) onDraftChange("")
     }
     val takePictureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val uri = cameraTempUri
@@ -199,7 +202,7 @@ fun ChatScreen(
     }
 
     val sendMessage = {
-        val text = inputText.trim()
+        val text = draftText.trim()
         val image = pendingImagePath
         val file = pendingFilePath
         val fileName = pendingFileName
@@ -208,7 +211,7 @@ fun ChatScreen(
                 text, image, file, fileName,
                 replyTarget?.sender, replyTarget?.messageText
             )
-            inputText = ""
+            onDraftChange("")
             pendingImagePath = null
             pendingFilePath = null
             pendingFileName = null
@@ -354,14 +357,14 @@ fun ChatScreen(
             }
 
             // Quick Suggestion Chips (placed above input field)
-            AnimatedVisibility(
-                visible = inputText.isBlank() && quickSuggestions.isNotEmpty(),
-                enter = slideInVertically(initialOffsetY = { it / 3 }, animationSpec = tween(240)) + fadeIn(animationSpec = tween(240)),
-                exit = slideOutVertically(targetOffsetY = { it / 3 }, animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
-            ) {
+            // BUG-05 (r1.2.0): AnimatedVisibility dari compose-bom 2026.06 meng-komposisi
+            // content tapi TIDAK me-layout-nya (chips tak pernah terlihat di runtime walau
+            // kondisi visible terpenuhi — terverifikasi live). Dipakai if biasa; LazyRow di
+            // QuickSuggestionRow diganti Row + horizontalScroll karena juga tak me-layout item.
+            if (draftText.isBlank() && quickSuggestions.isNotEmpty()) {
                 QuickSuggestionRow(
                     suggestions = quickSuggestions,
-                    onSuggestionClicked = { inputText = it }
+                    onSuggestionClicked = { onDraftChange(it) }
                 )
             }
 
@@ -404,16 +407,16 @@ fun ChatScreen(
 
             // Chat Input Box — Telegram-style: Plus | TextField (auto-expand) | Send
             ChatInputBar(
-                value = inputText,
-                onValueChange = { inputText = it },
+                value = draftText,
+                onValueChange = { onDraftChange(it) },
                 isDark = isDark,
-                canSend = inputText.isNotBlank() || pendingImagePath != null || pendingFilePath != null,
+                canSend = draftText.isNotBlank() || pendingImagePath != null || pendingFilePath != null,
                 onAttachClick = { showAttachmentSheet = true },
                 onSend = { sendMessage() },
                 onAskAi = {
-                    if (inputText.isNotBlank()) {
-                        onAskAiClicked(inputText)
-                        inputText = ""
+                    if (draftText.isNotBlank()) {
+                        onAskAiClicked(draftText)
+                        onDraftChange("")
                     }
                 },
                 inputFocusRequester = inputFocusRequester
