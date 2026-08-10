@@ -783,9 +783,32 @@ object GeminiService {
         // pertama — lihat extractAmountFromText.
         val amount = extractAmountFromText(textLower)
 
-        val isIncome = textLower.contains("gaji") || textLower.contains("pemasukan") ||
-                textLower.contains("transfer masuk") || textLower.contains("dapat bonus") ||
-                textLower.contains("dapat komisi") || textLower.contains("uang jajan masuk")
+        // Income: frasa penerimaan dana yang lazim dipakai user Indonesia. Mencakup
+        // kombinasi verba menerima (terima/dapat/menerima/cair/masuk) + sumber dana
+        // (gaji, bonus, komisi, dividen, arisan, rejeki, hadiah, undian) DAN sumber
+        // yang praktis selalu "masuk" berdiri sendiri (gaji, dividen, rejeki,
+        // warisan, hibah, undian). Sebelumnya hanya 6 frasa — "dapat arisan 50jt",
+        // "terima dividen 3jt" dll. tidak terekap (laporan user 2026-08-10).
+        // Catatan: "arisan" sengaja TIDAK mandiri — "bayar/setor arisan" adalah
+        // pengeluaran; hanya "dapat/terima/menang/cair arisan" yang dianggap masuk.
+        val isIncome = listOf(
+            // gaji
+            "terima gaji", "dapat gaji", "menerima gaji", "gaji masuk", "gaji cair", "cair gaji", "gaji",
+            // bonus
+            "terima bonus", "dapat bonus", "menerima bonus", "bonus masuk", "bonus cair", "cair bonus",
+            // komisi
+            "terima komisi", "dapat komisi", "menerima komisi", "komisi masuk", "komisi cair", "cair komisi",
+            // dividen
+            "terima dividen", "dapat dividen", "menerima dividen", "dividen masuk", "dividen cair", "cair dividen", "dividen",
+            // arisan (hanya saat diterima)
+            "terima arisan", "dapat arisan", "menerima arisan", "arisan masuk", "arisan cair", "cair arisan", "menang arisan",
+            // rejeki / uang / hadiah / undian
+            "terima rejeki", "dapat rejeki", "menerima rejeki", "rejeki nomplok", "rejeki",
+            "terima uang", "dapat uang", "menerima uang", "uang masuk", "uang jajan masuk",
+            "terima hadiah", "dapat hadiah", "menerima hadiah", "menang undian", "dapat undian", "undian",
+            // umum
+            "transfer masuk", "pemasukan", "pencairan", "bagi hasil", "warisan", "hibah"
+        ).any { textLower.contains(it) }
 
         val isExpenseTrigger = amount != null && (
                 textLower.contains("beli") || textLower.contains("bayar") ||

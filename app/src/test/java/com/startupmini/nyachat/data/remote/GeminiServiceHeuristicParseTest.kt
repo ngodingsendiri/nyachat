@@ -40,6 +40,70 @@ class GeminiServiceHeuristicParseTest {
         assertEquals(5000000.0, r.amount!!, 0.001)
     }
 
+    // ---- Income dari konteks sosial-Indonesia: arisan, dividen, rejeki ----
+    // (laporan user 2026-08-10: "dapat arisan 50jt" & "terima dividen 3jt"
+    //  tidak terekap karena daftar kata kunci income heuristik terlalu sempit)
+
+    @Test
+    fun deteksiArisanSebagaiPemasukan() {
+        val r = GeminiService.offlineHeuristicParse("dapat arisan 50jt", "Istri")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals(50000000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiArisanRibuanSebagaiPemasukan() {
+        val r = GeminiService.offlineHeuristicParse("dapat arisan 50rb", "Istri")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals(50000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiDividenSebagaiPemasukan() {
+        val r = GeminiService.offlineHeuristicParse("terima dividen 3jt", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals(3000000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiDividenNominalBertitikPemasukan() {
+        // Kasus nyata dari DB emulator: "terima sdividen s3.500.000" (autocorrect
+        // menambahkan 's'); "dividen" tetap terdeteksi, nominal 3.500.000 benar.
+        val r = GeminiService.offlineHeuristicParse("terima sdividen s3.500.000", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals(3500000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiTerimaUangSebagaiPemasukan() {
+        val r = GeminiService.offlineHeuristicParse("terima uang dari ibu 200rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals(200000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun bayarArisanTetapPengeluaran() {
+        // Regresi penting: "bayar arisan" adalah PENGELUARAN, bukan pemasukan —
+        // "arisan" sengaja tidak dijadikan trigger income mandiri.
+        val r = GeminiService.offlineHeuristicParse("bayar arisan 500rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals(500000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun pertanyaanTentangArisanTanpaNominalBukanTransaksi() {
+        // "kok dapat arisan gak masuk pemasukan" = pertanyaan, bukan catatan —
+        // tanpa nominal tidak boleh tercatat sebagai transaksi.
+        val r = GeminiService.offlineHeuristicParse("kok dapat arisan gak masuk pemasukan", "Istri")
+        assertFalse(r.containsTransaction)
+    }
+
     @Test
     fun deteksiAngkaDesimalKoma() {
         // "2,5jt" → 2.5 juta
