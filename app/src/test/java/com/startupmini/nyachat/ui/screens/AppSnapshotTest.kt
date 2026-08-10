@@ -227,4 +227,28 @@ class AppSnapshotTest {
             )
         }
     }
+
+    @Test
+    fun `composer chat pill dengan reply quote`() {
+        // Quote balasan menempel DI DALAM pill (gaya Telegram): garis aksen kiri,
+        // nama pengirim tebal, snippet 1 baris, tombol ✕ — tombol Send tetap
+        // sejajar dengan baris input.
+        capture("chat_composer_reply_quote") {
+            ChatInputBar(
+                value = "Oke nanti sore",
+                onValueChange = {},
+                isDark = false,
+                canSend = true,
+                onAttachClick = {},
+                onSend = {},
+                onAskAi = {},
+                inputFocusRequester = remember { FocusRequester() },
+                replyTarget = ChatMessage(
+                    sender = "ISTRI",
+                    messageText = "Beli bakso 15.000 di pasar sore ini ya"
+                ),
+                onReplyDismiss = {}
+            )
+        }
+    }
 }

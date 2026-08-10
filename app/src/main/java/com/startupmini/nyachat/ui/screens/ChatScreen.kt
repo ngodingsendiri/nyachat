@@ -368,12 +368,6 @@ fun ChatScreen(
                 )
             }
 
-            // Bar balasan (reply) — muncul saat user membalas pesan via swipe/menu
-            ChatReplyBar(
-                replyTarget = replyTarget,
-                onDismiss = { replyTarget = null }
-            )
-
             // Pratinjau dokumen (PDF) sebelum dikirim
             ChatFilePreviewBar(
                 fileName = pendingFileName,
@@ -419,7 +413,10 @@ fun ChatScreen(
                         onDraftChange("")
                     }
                 },
-                inputFocusRequester = inputFocusRequester
+                inputFocusRequester = inputFocusRequester,
+                // Quote balasan menempel DI DALAM pill composer (gaya Telegram)
+                replyTarget = replyTarget,
+                onReplyDismiss = { replyTarget = null }
             )
 
             // ModalBottomSheet untuk pilihan lampiran (Telegram-style)

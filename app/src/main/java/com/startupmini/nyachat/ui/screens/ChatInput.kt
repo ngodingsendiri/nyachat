@@ -34,7 +34,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -156,72 +155,58 @@ fun QuickSuggestionRow(
     }
 }
 
-/** Bar balasan (reply) — muncul saat user membalas pesan via swipe/menu. */
+/**
+ * Quote pesan yang dibalas — GAYA TELEGRAM: menempel DI DALAM pill composer
+ * (di atas baris input), bukan card terpisah di atas composer. Punya garis
+ * aksen vertikal kiri, nama pengirim tebal berwarna, snippet 1 baris, dan
+ * tombol ✕ untuk membatalkan. Tinggi kompak (2 baris teks kecil).
+ */
 @Composable
-fun ChatReplyBar(
-    replyTarget: ChatMessage?,
+private fun ReplyQuoteRow(
+    target: ChatMessage,
     onDismiss: () -> Unit
 ) {
-    AnimatedVisibility(
-        visible = replyTarget != null,
-        enter = slideInVertically(initialOffsetY = { it / 3 }, animationSpec = tween(240)) + fadeIn(animationSpec = tween(240)),
-        exit = slideOutVertically(targetOffsetY = { it / 3 }, animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
+    val snippet = target.messageText.ifBlank {
+        target.fileName ?: target.imagePath?.let { "📷" } ?: ""
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        val target = replyTarget
-        if (target != null) {
-            val snippet = target.messageText.ifBlank {
-                target.fileName ?: target.imagePath?.let { "📷" } ?: ""
-            }
-            // Floating card (bukan surface full-width) — konsisten dengan composer
-            // pill: rounded, shadow halus, lebar terbatas supaya terasa mengambang.
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                shadowElevation = 2.dp,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-            ) {
-                // Tinggi seragam CHAT_BAR_HEIGHT (sejajar pill composer & tombol
-                // Send): isi bar min (CHAT_BAR_HEIGHT − 8dp margin) + margin 4dp × 2.
-                Row(
-                    modifier = Modifier
-                        .widthIn(max = CHAT_CARD_MAX_WIDTH)
-                        .heightIn(min = CHAT_BAR_HEIGHT - 8.dp)
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.Reply,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.chat_reply_label, target.sender),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = snippet,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.chat_reply_cancel),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
+        // Garis aksen vertikal (Telegram): 3dp, rounded, warna primary.
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(32.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.primary)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.chat_reply_label, target.sender),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = snippet,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.Rounded.Close,
+                contentDescription = stringResource(R.string.chat_reply_cancel),
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
@@ -342,10 +327,11 @@ fun ChatImagePreviewBar(
 }
 
 /**
- * Chat Input Box — WhatsApp-style: floating rounded pill `[ +  pesan  ✨ ]`
+ * Chat Input Box — Telegram-style: floating rounded pill `[ +  pesan  ✨ ]`
  * dengan tombol Send circular terpisah di kanan. TIDAK ada panel/container besar
  * yang membungkus area input — pill & Send berdiri sendiri di atas background halaman.
- * State di-hoist: nilai, focus, dan callback datang dari pemilik (ChatScreen).
+ * Quote balasan (reply) menempel DI DALAM pill di atas baris input (gaya Telegram),
+ * bukan card terpisah. State di-hoist: nilai, focus, dan callback datang dari pemilik (ChatScreen).
  */
 @Composable
 fun ChatInputBar(
@@ -357,6 +343,8 @@ fun ChatInputBar(
     onSend: () -> Unit,
     onAskAi: () -> Unit,
     inputFocusRequester: FocusRequester,
+    replyTarget: ChatMessage? = null,
+    onReplyDismiss: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val semantic = LocalSemanticColors.current
@@ -388,7 +376,10 @@ fun ChatInputBar(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .animateContentSize(),
-        verticalAlignment = Alignment.CenterVertically
+        // Bottom: saat reply aktif pill lebih tinggi (quote + input), tombol Send
+        // tetap sejajar dengan baris input — gaya Telegram. Tanpa reply, pill 52dp
+        // = Send 52dp sehingga keduanya sejajar sempurna.
+        verticalAlignment = Alignment.Bottom
     ) {
         // ── Floating pill input: [ +  Ketik pesan...  ✨ ] ──
         // TANPA shadow/tonalElevation: bayangan pill sebelumnya menghasilkan garis
@@ -404,12 +395,18 @@ fun ChatInputBar(
                 .weight(1f)
                 .heightIn(min = CHAT_BAR_HEIGHT)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 2.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // Telegram-style: quote pesan yang dibalas menempel DI DALAM pill
+            // (di atas baris input), bukan card terpisah di atas composer.
+            Column(modifier = Modifier.fillMaxWidth()) {
+                replyTarget?.let { target ->
+                    ReplyQuoteRow(target = target, onDismiss = onReplyDismiss)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 2.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                 // Tombol Plus (+) — BAGIAN DARI pill, di sisi kiri, pusat lampiran.
                 // 48dp = touch target minimum (konsisten audit P2-4).
                 IconButton(
@@ -482,6 +479,7 @@ fun ChatInputBar(
                         contentDescription = stringResource(R.string.chat_ask_ai_desc),
                         tint = askAiTint
                     )
+                    }
                 }
             }
         }
