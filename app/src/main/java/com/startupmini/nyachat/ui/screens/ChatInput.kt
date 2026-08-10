@@ -17,7 +17,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -31,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -49,8 +49,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,7 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -85,6 +83,16 @@ internal const val MAX_MESSAGE_LENGTH = 2000
  * composer pill (~327dp) supaya ketiga elemen terasa satu keluarga.
  */
 private val CHAT_CARD_MAX_WIDTH = 320.dp
+
+/**
+ * Tinggi seragam baris composer (pill, tombol Send, bar balas, pratinjau) —
+ * 52dp = ukuran tombol Send. Semua elemen di area input memakai nilai ini
+ * supaya tidak ada yang lebih tinggi/rendah dari yang lain.
+ */
+private val CHAT_BAR_HEIGHT = 52.dp
+
+/** Tinggi minimum kolom input (48dp) = pill 52dp dikurangi padding row 2dp×2. */
+private val CHAT_FIELD_MIN_HEIGHT = CHAT_BAR_HEIGHT - 4.dp
 
 @Composable
 fun QuickSuggestionRow(
@@ -172,10 +180,13 @@ fun ChatReplyBar(
                 shadowElevation = 2.dp,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
+                // Tinggi seragam CHAT_BAR_HEIGHT (sejajar pill composer & tombol
+                // Send): isi bar min (CHAT_BAR_HEIGHT − 8dp margin) + margin 4dp × 2.
                 Row(
                     modifier = Modifier
                         .widthIn(max = CHAT_CARD_MAX_WIDTH)
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                        .heightIn(min = CHAT_BAR_HEIGHT - 8.dp)
+                        .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -202,7 +213,7 @@ fun ChatReplyBar(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
                             contentDescription = stringResource(R.string.chat_reply_cancel),
@@ -228,6 +239,7 @@ fun ChatFilePreviewBar(
         exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(150))
     ) {
         // Floating card (bukan surface full-width) — konsisten dengan composer pill.
+        // Tinggi seragam 52dp (isi min 44dp + margin 4dp × 2).
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
@@ -237,7 +249,8 @@ fun ChatFilePreviewBar(
             Row(
                 modifier = Modifier
                     .widthIn(max = CHAT_CARD_MAX_WIDTH)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .heightIn(min = CHAT_BAR_HEIGHT - 8.dp)
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -255,7 +268,7 @@ fun ChatFilePreviewBar(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = onRemove) {
+                IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.chat_image_remove)
@@ -286,6 +299,7 @@ fun ChatImagePreviewBar(
         exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(150))
     ) {
         // Floating card (bukan surface full-width) — konsisten dengan composer pill.
+        // Tinggi seragam 52dp; thumbnail 44dp supaya tidak mendorong kartu lebih tinggi.
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
@@ -295,7 +309,8 @@ fun ChatImagePreviewBar(
             Row(
                 modifier = Modifier
                     .widthIn(max = CHAT_CARD_MAX_WIDTH)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .heightIn(min = CHAT_BAR_HEIGHT - 8.dp)
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 previewBitmap?.let {
@@ -303,7 +318,7 @@ fun ChatImagePreviewBar(
                         bitmap = it.asImageBitmap(),
                         contentDescription = stringResource(R.string.chat_image_desc),
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(44.dp)
                             .clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop
                     )
@@ -315,7 +330,7 @@ fun ChatImagePreviewBar(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = onRemove) {
+                IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.chat_image_remove)
@@ -378,17 +393,21 @@ fun ChatInputBar(
         // ── Floating pill input: [ +  Ketik pesan...  ✨ ] ──
         // TANPA shadow/tonalElevation: bayangan pill sebelumnya menghasilkan garis
         // lunak di atas navbar sehingga composer terlihat "ditempel di panel lain".
+        // Tinggi default pill = 52dp, SEIMBANG dengan tombol Send (52dp):
+        // isi row = tombol + 48dp, padding vertikal 2dp × 2 → 52dp. Field diberi
+        // contentPadding ramping (single-line ≈44dp) agar tidak mendorong pill
+        // lebih tinggi (sebelumnya field 56dp → pill 64dp, tidak seimbang).
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.9f else 0.55f),
             modifier = Modifier
                 .weight(1f)
-                .heightIn(min = 52.dp)
+                .heightIn(min = CHAT_BAR_HEIGHT)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 2.dp, vertical = 4.dp),
+                    .padding(horizontal = 2.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Tombol Plus (+) — BAGIAN DARI pill, di sisi kiri, pusat lampiran.
@@ -405,43 +424,65 @@ fun ChatInputBar(
                     )
                 }
 
-                // Kolom input teks — transparan (warna datang dari pill),
-                // auto-grow hingga 6 baris, lalu scrollable
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { if (it.length <= MAX_MESSAGE_LENGTH) onValueChange(it) },
-                    placeholder = {
-                        Text(stringResource(R.string.chat_input_placeholder))
-                    },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { onSend() }),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("chat_input_field")
-                        .focusRequester(inputFocusRequester),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent
-                    ),
-                    maxLines = 6,
-                    minLines = 1,
-                    trailingIcon = {
-                        IconButton(
-                            enabled = value.isNotBlank(),
-                            onClick = { onAskAi() },
-                            modifier = Modifier.testTag("ask_ai_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.AutoAwesome,
-                                contentDescription = stringResource(R.string.chat_ask_ai_desc),
-                                tint = askAiTint
-                            )
-                        }
+                // Kolom input teks — BasicTextField polos (tanpa container sendiri;
+                // warna datang dari pill). Catatan M3 1.4.0: param contentPadding
+                // DIHAPUS dari OutlinedTextField (API TextField di-refactor), jadi
+                // dipakai BasicTextField yang memberi kontrol tinggi penuh: single-line
+                // 48dp → pill total 52dp, SEIMBANG dengan tombol Send. Auto-grow per
+                // baris (maxLines 6) saat paragraf panjang, lalu scrollable.
+                //
+                // PENTING: JANGAN pakai fillMaxSize di sini — BasicTextField + weight(1f)
+                // tanpa batas tinggi akan MELAR mencuri seluruh sisa tinggi Column
+                // (terverifikasi live: pill membentang 1650px). fillMaxWidth + heightIn
+                // di BasicTextField-nya langsung, sehingga tinggi mengikuti isi saja.
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (value.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.chat_input_placeholder),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                )
+                    BasicTextField(
+                        value = value,
+                        onValueChange = { if (it.length <= MAX_MESSAGE_LENGTH) onValueChange(it) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = CHAT_FIELD_MIN_HEIGHT)
+                            .padding(vertical = 12.dp)
+                            .testTag("chat_input_field")
+                            .focusRequester(inputFocusRequester),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { onSend() }),
+                        maxLines = 6,
+                        minLines = 1
+                    )
+                }
+
+                // Tombol ✨ (Tanya AI) — elemen Row langsung di dalam pill
+                // (BasicTextField tidak punya trailingIcon bawaan).
+                IconButton(
+                    enabled = value.isNotBlank(),
+                    onClick = { onAskAi() },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .testTag("ask_ai_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = stringResource(R.string.chat_ask_ai_desc),
+                        tint = askAiTint
+                    )
+                }
             }
         }
 
@@ -452,7 +493,7 @@ fun ChatInputBar(
             enabled = canSend,
             onClick = onSend,
             modifier = Modifier
-                .size(52.dp)
+                .size(CHAT_BAR_HEIGHT)
                 .clip(CircleShape)
                 .background(sendBgColor)
                 .testTag("send_button")
