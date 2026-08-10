@@ -20,7 +20,7 @@ val AiBlueText = Color(0xFF0B57D0)  // Biru lebih gelap utk TEKS AI di atas tint
 
 val IncomeGreen = Color(0xFF256B45) // Muted forest green (digenapkan utk kontras teks chip 5.42:1)
 val IncomeGreenLight = Color(0xFFDEF0E6) // Soft mint
-val IncomeGreenDark = Color(0xFF69EFC4)  // Primary dark - eye-friendly
+val IncomeGreenDark = Color(0xFF8FC6AD)  // Dark: hijau sage lembut (selaras dengan ExpenseRedDark F2A096 — sebelumnya 69EFC4 terlalu terang/jenuh di dark mode)
 
 val ExpenseRed = Color(0xFFC0392B) // Slightly desaturated red
 val ExpenseRedLight = Color(0xFFFAE8E7) // Very soft blush

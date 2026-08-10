@@ -121,9 +121,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     alpha 0.3/0.5);
   - Badge finansial lebih **ringkas**: indikator sumber heuristik dari
     teks "heuristik" (9 huruf) menjadi **ikon ⚡** kecil 12dp
-    (contentDescription aksesibel), padding ramping 8/4; warna
-    `ExpenseRedDark` dark mode dilembutkan `#FF8A80` → **`#F2A096`**
-    (pastel, kontras tetap terjaga);
+    (contentDescription aksesibel), padding ramping 8/4; warna dark mode
+    dilembutkan agar seimbang & tidak "menyala" (income sebelumnya paling
+    terang: L=0.69 vs expense 0.46): expense `#FF8A80` → **`#F2A096`** dan
+    income `#69EFC4` → **`#8FC6AD`** (sage lembut, kontras tetap ≥ 5:1);
   - **Snackbar pindah ke ATAS layar**: dari `BottomCenter` + `imePadding`
     (muncul tepat di atas keyboard & menutupi composer saat ketik cepat)
     → `TopCenter` + insets status bar, compact pill radius 28dp +
