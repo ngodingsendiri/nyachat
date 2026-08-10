@@ -1,6 +1,13 @@
 package com.startupmini.nyachat.ui
 
 import android.content.Context
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -12,14 +19,26 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.math.abs
+import kotlin.math.max
 import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
@@ -200,8 +219,8 @@ fun BoxScope.MainOverlays(
     // Snackbar overlay (audit P1.1): tampil di semua layar. Sejak 2026-08-10
     // dipindah ke ATAS layar — sebelumnya di BottomCenter + imePadding justru
     // muncul TEPAT di atas keyboard, menutupi kolom pengetikan & mengganggu
-    // ketik cepat (keluhan user). Sekarang: atas, compact (pill), dan Material3
-    // SnackbarHost mendukung swipe-dismiss bawaan (geser kiri/kanan/atas).
+    // ketik cepat (keluhan user). Sekarang: atas, compact (pill), dan bisa
+    // di-dismiss cepat dengan swipe kanan/kiri/atas (DismissibleSnackbar).
     SnackbarHost(
         hostState = snackbarHostState,
         modifier = Modifier
@@ -211,13 +230,96 @@ fun BoxScope.MainOverlays(
         snackbar = { data ->
             // Compact pill — batasi lebar (bukan full-width) supaya terasa
             // minimalis & konsisten dengan bahasa floating-card aplikasi.
-            Snackbar(
+            DismissibleSnackbar(
                 snackbarData = data,
-                shape = RoundedCornerShape(28.dp),
-                containerColor = MaterialTheme.colorScheme.inverseSurface,
-                contentColor = MaterialTheme.colorScheme.inverseOnSurface,
                 modifier = Modifier.widthIn(max = 480.dp)
             )
         }
     )
+}
+
+/**
+ * Snackbar compact yang bisa di-dismiss dengan swipe (kiri/kanan/atas).
+ *
+ * Catatan: material3 1.3.x TIDAK menyediakan swipe-to-dismiss bawaan (hanya
+ * tombol dismissAction + aksesibilitas dismiss), jadi gesture diimplementasi
+ * manual: drag bebas 2 sumbu (horizontal & vertikal) via pointerInput,
+ * disertai fade-out proporsional. Saat dilepas: di atas ambang (jarak 72dp
+ * atau kecepatan >= 2000px/s) -> dismiss; di bawah ambang -> animasi kembali
+ * ke posisi semula (spring lembut). Tap pada tombol aksi (mis. "Urungkan")
+ * tetap berfungsi karena drag hanya aktif setelah melewati touch slop.
+ */
+@Composable
+private fun DismissibleSnackbar(
+    snackbarData: SnackbarData,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val dismissThreshold = with(density) { 72.dp.toPx() }
+    var dragOffset by remember(snackbarData) { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                translationX = dragOffset.x
+                translationY = dragOffset.y
+                val maxAbs = max(abs(dragOffset.x), abs(dragOffset.y))
+                alpha = (1f - maxAbs / (dismissThreshold * 2)).coerceIn(0.3f, 1f)
+            }
+            .pointerInput(snackbarData) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val pointerId = down.id
+                    var dragStarted = false
+                    var accX = 0f
+                    var accY = 0f
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == pointerId }
+                        if (change == null) break
+                        if (!dragStarted) {
+                            if (!change.isConsumed) {
+                                accX += change.positionChange().x
+                                accY += change.positionChange().y
+                            }
+                            val slop = viewConfiguration.touchSlop
+                            if (abs(accX) > slop || abs(accY) > slop) {
+                                // Mulai drag dari posisi akumulasi pra-slop agar
+                                // tidak ada lompatan saat jari mulai bergerak.
+                                dragStarted = true
+                                dragOffset = Offset(accX, accY)
+                                change.consume()
+                            }
+                        } else {
+                            dragOffset += change.positionChange()
+                            change.consume()
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    if (dragStarted) {
+                        val distance = dragOffset.getDistance()
+                        if (distance >= dismissThreshold) {
+                            snackbarData.dismiss()
+                        } else {
+                            val start = dragOffset
+                            scope.launch {
+                                Animatable(start, Offset.VectorConverter)
+                                    .animateTo(
+                                        Offset.Zero,
+                                        tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                                    ) { dragOffset = value }
+                            }
+                        }
+                    }
+                }
+            }
+    ) {
+        Snackbar(
+            snackbarData = snackbarData,
+            shape = RoundedCornerShape(28.dp),
+            containerColor = MaterialTheme.colorScheme.inverseSurface,
+            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+        )
+    }
 }
