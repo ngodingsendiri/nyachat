@@ -356,6 +356,31 @@ fun ChatScreen(
                 }
             }
 
+            // Tombol lompat ke pesan terbaru (muncul saat scroll ke atas).
+            // DILETAKKAN di atas area composer (bukan overlay BottomEnd) supaya
+            // tidak pernah menutupi tombol Send — sebelumnya FAB di pojok kanan
+            // bawah menimpa Send saat pill tinggi (reply quote + teks panjang).
+            AnimatedVisibility(
+                visible = shouldShowJumpButton,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(end = 12.dp, top = 8.dp),
+                enter = fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(200)),
+                exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it / 2 }, animationSpec = tween(150))
+            ) {
+                FloatingActionButton(
+                    onClick = { coroutineScope.launch { listState.animateScrollToItem(rows.size - 1) } },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("jump_to_bottom")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = stringResource(R.string.chat_jump_bottom_desc)
+                    )
+                }
+            }
+
             // Quick Suggestion Chips (placed above input field)
             // BUG-05 (r1.2.0): AnimatedVisibility dari compose-bom 2026.06 meng-komposisi
             // content tapi TIDAK me-layout-nya (chips tak pernah terlihat di runtime walau
@@ -442,28 +467,6 @@ fun ChatScreen(
                 )
             } // end ModalBottomSheet if-block
         } // end Column
-
-        // Tombol lompat ke pesan terbaru (muncul saat scroll ke atas)
-        AnimatedVisibility(
-            visible = shouldShowJumpButton,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 12.dp),
-            enter = fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(200)),
-            exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it / 2 }, animationSpec = tween(150))
-        ) {
-            FloatingActionButton(
-                onClick = { coroutineScope.launch { listState.animateScrollToItem(rows.size - 1) } },
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.testTag("jump_to_bottom")
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = stringResource(R.string.chat_jump_bottom_desc)
-                )
-            }
-        }
 
         // Konfirmasi hapus pesan
         pendingDelete?.let { msg ->

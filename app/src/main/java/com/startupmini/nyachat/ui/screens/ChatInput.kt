@@ -4,9 +4,11 @@ import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -374,11 +376,15 @@ fun ChatInputBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .animateContentSize(),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         // Bottom: saat reply aktif pill lebih tinggi (quote + input), tombol Send
         // tetap sejajar dengan baris input — gaya Telegram. Tanpa reply, pill 52dp
         // = Send 52dp sehingga keduanya sejajar sempurna.
+        //
+        // CATATAN ANIMASI: JANGAN pasang animateContentSize di Row ini — akan
+        // dobel-animasi dengan expandVertically quote (rubber-band). Auto-grow
+        // field (paragraf panjang) di-animasi oleh animateContentSize pada Box
+        // field; quote di-animasi expandVertically-nya sendiri.
         verticalAlignment = Alignment.Bottom
     ) {
         // ── Floating pill input: [ +  Ketik pesan...  ✨ ] ──
@@ -398,8 +404,23 @@ fun ChatInputBar(
             // Telegram-style: quote pesan yang dibalas menempel DI DALAM pill
             // (di atas baris input), bukan card terpisah di atas composer.
             Column(modifier = Modifier.fillMaxWidth()) {
-                replyTarget?.let { target ->
-                    ReplyQuoteRow(target = target, onDismiss = onReplyDismiss)
+                // Quote balasan muncul LEMBUT (expand dari atas + fade) — bukan
+                // pop instan. shrinkVertically saat dibatalkan. Ini juga membuat
+                // pill tumbuh halus tanpa kesan gap/jumping.
+                AnimatedVisibility(
+                    visible = replyTarget != null,
+                    enter = expandVertically(
+                        expandFrom = Alignment.Top,
+                        animationSpec = tween(220)
+                    ) + fadeIn(animationSpec = tween(220)),
+                    exit = shrinkVertically(
+                        shrinkTowards = Alignment.Top,
+                        animationSpec = tween(160)
+                    ) + fadeOut(animationSpec = tween(160))
+                ) {
+                    replyTarget?.let { target ->
+                        ReplyQuoteRow(target = target, onDismiss = onReplyDismiss)
+                    }
                 }
                 Row(
                     modifier = Modifier
@@ -433,7 +454,9 @@ fun ChatInputBar(
                 // (terverifikasi live: pill membentang 1650px). fillMaxWidth + heightIn
                 // di BasicTextField-nya langsung, sehingga tinggi mengikuti isi saja.
                 Box(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .animateContentSize(),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (value.isEmpty()) {
