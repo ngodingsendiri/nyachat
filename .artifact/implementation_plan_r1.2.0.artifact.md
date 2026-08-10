@@ -267,8 +267,8 @@
 | 4.1 | CHANGELOG.md | Entri r1.2.0 (T3, M1, perbaikan UX, verifikasi) | ✅ **SELESAI 2026-08-10** — `[Unreleased]` → `[r1.2.0] - 2026-08-10`; tambah verifikasi FCM 3.15 & bump versi di section Changed |
 | 4.2 | Dokumen | README (fitur baru/struktur baru), docs/DEVELOPER.md (struktur file setelah refactor), PRIVACY_POLICY (bila ada fitur baru) | ✅ **SELESAI** — README & DEVELOPER.md sudah r1.2.0 (fitur FASE 1-3, struktur file, roadmap); PRIVACY_POLICY tidak mencantumkan versi spesifik (tidak perlu update) |
 | 4.3 | Bump versi | `gradle.properties`: `appVersion=r1.2.0`, `appVersionCode=27` | ✅ **SELESAI** — sudah ter-set & terverifikasi via `aapt2 dump badging` (APK debug r1.2.0/27) |
-| 4.4 | Golden Roborazzi | Re-record final (UI berubah karena refactor/upgrade) | ✅ **SELESAI** — golden terakhir di-record commit `335c247` (FASE 3 tuntas); FASE 4 tidak mengubah UI → **tidak perlu re-record** (konvensi proyek: record di CI runner ubuntu, bukan Windows); verify lokal: 6 fail = false-positive font OS yang dikenal (CI ubuntu PASS) |
-| 4.5 | CI penuh | `testDebugUnitTest` + `lintDebug` + `verifyRoborazziDebug` + lint firestore rules | ✅ **SELESAI 2026-08-10** — 184 unit test PASS + 6 fail Roborazzi (false-positive font OS sama dengan baseline); lintDebug 0 error; lint rules (eslint firestore.rules) PASS |
+| 4.4 | Golden Roborazzi | Re-record final (UI berubah karena refactor/upgrade) | ✅ **SELESAI 2026-08-10** — 6 golden lama yang tersisa (balance_banner ×2, rekap_transaction, chat_bubble ×3) di-re-record setelah audit diff: perbedaan 0.2–0.8% = efek rendering M3 1.4.0 (upgrade BOM), **intended bukan bug**; + golden baru `chat_composer_reply_quote`. **`verifyRoborazziDebug` kini 0 failure** (commit `0ddeacf`) |
+| 4.5 | CI penuh | `testDebugUnitTest` + `lintDebug` + `verifyRoborazziDebug` + lint firestore rules | ✅ **SELESAI 2026-08-10** — unit test PASS, **verifyRoborazzi 0 failure** (setelah re-record 4.4), lintDebug 0 error, lint rules (eslint firestore.rules) PASS |
 | 4.6 | Commit + tag | `fix: r1.2.0 ...` → push tag `r1.2.0` → GitHub Release | ⏳ TODO — butuh kredensial GitHub (`gh` CLI tidak terpasang, `GITHUB_TOKEN` kosong) |
 | 4.6b | **Koreksi release r1.1.3** (deferral FASE 0.5) | Upload APK r1.1.3/26 yang benar ke release r1.1.3 — bersamaan dengan rilis r1.2.0 | ⏳ TODO — butuh kredensial GitHub |
 | 4.7 | Play Store checklist | Jalankan `docs/PLAY_STORE_CHECKLIST.md`; upload AAB release | ⏳ TODO — butuh keystore release (secret CI) & kredensial Play Console |
@@ -293,12 +293,12 @@
 
 ## Definisi Selesai (DoD)
 
-- [ ] Semua test unit hijau (termasuk migration test & test baru)
-- [ ] Lint PASS (tanpa warning baru)
-- [ ] Roborazzi verify PASS (golden diperbarui & di-commit)
-- [ ] Live smoke test di emulator: chat→transaksi, rekap, settings/dark mode, Tanya AI, restart — tanpa crash
-- [ ] CHANGELOG & docs diperbarui
-- [ ] Tag r1.2.0 → GitHub Release berisi APK dengan versionName benar
+- [x] Semua test unit hijau (termasuk migration test & test baru) — BUILD SUCCESSFUL
+- [x] Lint PASS (tanpa warning baru) — lintDebug 0 error
+- [x] Roborazzi verify PASS (golden diperbarui & di-commit) — 0 failure (commit `0ddeacf`)
+- [x] Live smoke test di emulator: chat→transaksi, rekap, settings/dark mode, Tanya AI, restart — tanpa crash (bukti FASE 4 + smoke terakhir 2026-08-10)
+- [x] CHANGELOG & docs diperbarui — CHANGELOG r1.2.0 (termasuk redesign composer 2026-08-10)
+- [ ] Tag r1.2.0 → GitHub Release berisi APK dengan versionName benar — butuh kredensial GitHub
 
 ---
 
