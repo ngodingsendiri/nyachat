@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.automirrored.rounded.Reply
@@ -39,6 +41,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -57,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -226,14 +230,16 @@ fun ChatScreen(
             .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Chat Message List
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 24.dp)
-            ) {
+            // Daftar chat + tombol lompat ke bawah sebagai OVERLAY transparan
+            // frame-only di pojok kanan-bawah daftar (bukan di flow composer):
+            // chat dapat scroll penuh di belakang frame (tanpa ruang layout
+            // terbuang), dan FAB tidak pernah menutupi composer/tombol Send.
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 24.dp)
+                ) {
                 if (messages.isEmpty() && !isAiThinking) {
                     item {
                         Column(
@@ -356,23 +362,42 @@ fun ChatScreen(
                 }
             }
 
-            // Tombol lompat ke pesan terbaru (muncul saat scroll ke atas).
-            // DILETAKKAN di atas area composer (bukan overlay BottomEnd) supaya
-            // tidak pernah menutupi tombol Send — sebelumnya FAB di pojok kanan
-            // bawah menimpa Send saat pill tinggi (reply quote + teks panjang).
-            AnimatedVisibility(
+            // Tombol lompat ke pesan terbaru (muncul saat scroll ke atas) —
+            // OVERLAY di pojok kanan-bawah daftar chat (dalam Box yang sama dgn
+            // LazyColumn), BUKAN di flow composer: chat scroll penuh di belakang
+            // frame transparan; tanpa mengambil ruang layout; dan karena overlay
+            // hanya seluas daftar, tidak pernah menimpa tombol Send (beda dari
+            // overlay layar-penuh lama yang menimpa Send saat pill tinggi).
+            // Catatan: pakai nama lengkap (bukan import) untuk memaksa overload
+            // generik tanpa receiver — di dalam Box, resolver Kotlin justru memilih
+            // ColumnScope.AnimatedVisibility dari receiver Column di luar dan gagal
+            // ("cannot be called in this context with an implicit receiver").
+            androidx.compose.animation.AnimatedVisibility(
                 visible = shouldShowJumpButton,
                 modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(end = 12.dp, top = 8.dp),
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 12.dp, bottom = 8.dp),
                 enter = fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(200)),
                 exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it / 2 }, animationSpec = tween(150))
             ) {
+                // FAB frame-only (2026-08-10): container TRANSPARAN + border
+                // outline + elevasi 0 — konsisten dengan chip saran ("cukup frame
+                // dari tombol aja"). Sebelumnya containerColor=surface (lingkaran
+                // solid + shadow) terlihat seperti area/panel yang menutupi chat
+                // saat di-scroll ke atas.
                 FloatingActionButton(
                     onClick = { coroutineScope.launch { listState.animateScrollToItem(rows.size - 1) } },
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.testTag("jump_to_bottom")
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = 0.dp,
+                        pressedElevation = 0.dp,
+                        focusedElevation = 0.dp,
+                        hoveredElevation = 0.dp
+                    ),
+                    modifier = Modifier
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                        .testTag("jump_to_bottom")
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.KeyboardArrowDown,
@@ -380,6 +405,7 @@ fun ChatScreen(
                     )
                 }
             }
+            } // end Box (daftar chat + FAB overlay)
 
             // Quick Suggestion Chips (placed above input field)
             // BUG-05 (r1.2.0): AnimatedVisibility dari compose-bom 2026.06 meng-komposisi

@@ -137,8 +137,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     balik `tween 240ms` + fade-out proporsional; tap tombol aksi
     "Urungkan" tetap berfungsi;
   - **Animasi reply quote lembut**: `expandVertically` + fade (hapus
-    double-animation ke Box field); FAB jump-to-bottom dipindah ke atas
-    composer agar tidak menutupi tombol Send saat pill tinggi.
+    double-animation ke Box field);
+  - **FAB jump-to-bottom jadi overlay frame-only di pojok kanan-bawah
+    daftar chat** (bukan di flow composer): lingkaran TRANSPARAN + border
+    1dp outline + elevasi 0 ("cukup frame dari tombol aja", konsisten
+    dengan chip saran); duduk di dalam `Box` pembungkus `LazyColumn`
+    (`align(BottomEnd)`) sehingga chat scroll penuh di belakangnya dan
+    TIDAK pernah menutupi tombol Send saat pill tinggi/keyboard terbuka
+    — sebelumnya FAB di flow composer menimpa Send saat pesan panjang.
+    Catatan teknis: di dalam Box, resolver Kotlin memilih
+    `ColumnScope.AnimatedVisibility` dari receiver Column di luar dan
+    gagal, jadi dipanggil dengan nama lengkap
+    `androidx.compose.animation.AnimatedVisibility` (overload generik
+    tanpa receiver, aman untuk scope apa pun).
 
 ### Verifikasi live
 - **Notifikasi chat real-time (FCM) end-to-end (2026-08-10)**: rantai penuh
@@ -169,6 +180,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (jauh di bawah timeout `SnackbarDuration.Long` 10 s; pill score pixel
   2870 → 150); tap tombol aksi "Urungkan" tetap berfungsi (bukan
   timeout). APK terbaru terpasang di emulator.
+- FAB jump-to-bottom overlay (2026-08-10): terverifikasi live di
+  emulator-5554 — saat scroll ke atas FAB frame-only tampil di
+  pojok kanan-bawah daftar chat (icon "Ke pesan terbaru" y1064–1127,
+  frame border y1022–1168), **jauh di atas composer** (tombol Send
+  y1399–1457) → tidak ada overlap; scroll ke dasar 87 pesan → FAB
+  hilang (hide path `AnimatedVisibility` bekerja); scroll balik ke atas
+  → FAB muncul lagi. APK terbaru terpasang di emulator-5554 & -5556.
 
 ## [r1.1.3] - 2026-08-08
 
