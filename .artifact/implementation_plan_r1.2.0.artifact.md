@@ -262,16 +262,20 @@
 
 ## FASE 4 — Rilis r1.2.0 🚀
 
-| # | Sub-Task | Detail |
-|---|----------|--------|
-| 4.1 | CHANGELOG.md | Entri r1.2.0 (T3, M1, perbaikan UX, verifikasi) | 🟡 Draft 2026-08-09 (entri [Unreleased] lengkap; final menunggu rilis) |
-| 4.2 | Dokumen | README (fitur baru/struktur baru), docs/DEVELOPER.md (struktur file setelah refactor), PRIVACY_POLICY (bila ada fitur baru) | 🟡 Draft 2026-08-09 (DEVELOPER.md: struktur + versi + roadmap + tech stack) |
-| 4.3 | Bump versi | `gradle.properties`: `appVersion=r1.2.0`, `appVersionCode=27` | ⏳ TODO |
-| 4.4 | Golden Roborazzi | Re-record final (UI berubah karena refactor/upgrade) |
-| 4.5 | CI penuh | `testDebugUnitTest` + `lintDebug` + `verifyRoborazziDebug` + lint firestore rules |
-| 4.6 | Commit + tag | `fix: r1.2.0 ...` → push tag `r1.2.0` → GitHub Release |
-| 4.6b | **Koreksi release r1.1.3** (deferral FASE 0.5) | Upload APK r1.1.3/26 yang benar (`app/build/outputs/apk/debug/app-debug.apk`) ke release r1.1.3 — `gh release upload r1.1.3 <apk> --clobber` — bersamaan dengan rilis r1.2.0 |
-| 4.7 | Play Store checklist | Jalankan `docs/PLAY_STORE_CHECKLIST.md`; upload AAB release |
+| # | Sub-Task | Detail | Status |
+|---|----------|--------|--------|
+| 4.1 | CHANGELOG.md | Entri r1.2.0 (T3, M1, perbaikan UX, verifikasi) | ✅ **SELESAI 2026-08-10** — `[Unreleased]` → `[r1.2.0] - 2026-08-10`; tambah verifikasi FCM 3.15 & bump versi di section Changed |
+| 4.2 | Dokumen | README (fitur baru/struktur baru), docs/DEVELOPER.md (struktur file setelah refactor), PRIVACY_POLICY (bila ada fitur baru) | ✅ **SELESAI** — README & DEVELOPER.md sudah r1.2.0 (fitur FASE 1-3, struktur file, roadmap); PRIVACY_POLICY tidak mencantumkan versi spesifik (tidak perlu update) |
+| 4.3 | Bump versi | `gradle.properties`: `appVersion=r1.2.0`, `appVersionCode=27` | ✅ **SELESAI** — sudah ter-set & terverifikasi via `aapt2 dump badging` (APK debug r1.2.0/27) |
+| 4.4 | Golden Roborazzi | Re-record final (UI berubah karena refactor/upgrade) | ✅ **SELESAI** — golden terakhir di-record commit `335c247` (FASE 3 tuntas); FASE 4 tidak mengubah UI → **tidak perlu re-record** (konvensi proyek: record di CI runner ubuntu, bukan Windows); verify lokal: 6 fail = false-positive font OS yang dikenal (CI ubuntu PASS) |
+| 4.5 | CI penuh | `testDebugUnitTest` + `lintDebug` + `verifyRoborazziDebug` + lint firestore rules | ✅ **SELESAI 2026-08-10** — 184 unit test PASS + 6 fail Roborazzi (false-positive font OS sama dengan baseline); lintDebug 0 error; lint rules (eslint firestore.rules) PASS |
+| 4.6 | Commit + tag | `fix: r1.2.0 ...` → push tag `r1.2.0` → GitHub Release | ⏳ TODO — butuh kredensial GitHub (`gh` CLI tidak terpasang, `GITHUB_TOKEN` kosong) |
+| 4.6b | **Koreksi release r1.1.3** (deferral FASE 0.5) | Upload APK r1.1.3/26 yang benar ke release r1.1.3 — bersamaan dengan rilis r1.2.0 | ⏳ TODO — butuh kredensial GitHub |
+| 4.7 | Play Store checklist | Jalankan `docs/PLAY_STORE_CHECKLIST.md`; upload AAB release | ⏳ TODO — butuh keystore release (secret CI) & kredensial Play Console |
+
+### Verifikasi tambahan FASE 4 (2026-08-10)
+- **Verifikasi notifikasi 2 identitas berbeda (HP fisik + emulator)**: rantai FCM end-to-end dengan 2 uid BERBEDA terbukti — log CF `Multicast total=2 gagal=0 sender=Ari Purnomo Aji` + `FCM OK uid=kUFKMEfL7t` (HP fisik/Budi) + `FCM OK uid=g6lkldwvI8` (emulator/Ari). Menuntaskan limitasi FASE 3.15 (2 emulator ber-akun sama).
+- **Smoke test DoD FASE 4 (2 emulator r1.2.0)**: chat → transaksi finansial ("beli bakso 15000" → snackbar "Tercatat: - Rp15.000"), Rekap (+Rp15.000 pengeluaran), sync lintas perangkat (5556 Budi tampil Rp4.131.401 identik), restart app sesi bertahan, Settings "Versi r1.2.0" — **tanpa crash baru** (17 crash dropbox = lama, r1.0.3/07-08 migration test historis).
 
 ---
 

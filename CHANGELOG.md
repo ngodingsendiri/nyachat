@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - r1.2.0 (T3 dekomposisi + M1 upgrade + audit UX)
+## [r1.2.0] - 2026-08-10 (T3 dekomposisi + M1 upgrade + audit UX)
 
 ### Added
 - **FASE 1 (T3)**: Dekomposisi 3 file raksasa tanpa mengubah behavior:
@@ -86,8 +86,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   via `stringResource(...)` (MainActivity 4, PinConnectScreen 12). `lintDebug`
   kembali 0 error.
 
-### Verifikasi live (2026-08-09)
-- Edit pesan lintas perangkat (2 emulator) — LWW via server timestamp terbukti
+### Changed
+- Bump `gradle.properties` ke **r1.2.0 (versionCode 27)** — satu sumber
+  kebenaran versi (L11); README & DEVELOPER.md diselaraskan.
+
+### Verifikasi live
+- **Notifikasi chat real-time (FCM) end-to-end (2026-08-10)**: rantai penuh
+  Firestore → Cloud Function `notifyChatMessage` → FCM → notifikasi Android
+  terbukti live (2 emulator). Blocker infra GCP yang diperbaiki: runtime SA Cloud
+  Run diberi `roles/datastore.user` (baca Firestore) & `roles/firebase.sdkAdminServiceAgent`
+  (kirim FCM — `cloudmessaging.messages.create`), token FCM kini tersimpan ke
+  `families/{pin}/members/{uid}/fcmToken` (`ensureTokenSynced`). Bukti: log fungsi
+  `Multicast total=1 gagal=0 sender=Ari Purnomo Aji` + notifikasi
+  "Ari Purnomo Aji / pesan-e2e-rest-987" tampil di status bar device B.
+  Catatan: uji 2 identitas berbeda butuh akun Google kedua di emulator (lihat FASE 4 rilis).
+- Edit pesan lintas perangkat (2 emulator, 2026-08-09) — LWW via server timestamp terbukti
   (editedAt + serverUpdatedAt terisi, transaksi ikut ter-update).
 - Backup/restore Drive akun nyata — backup plain & terenkripsi (M5), restore
   ke perangkat kedua, passphrase salah ditolak tanpa merusak data.
