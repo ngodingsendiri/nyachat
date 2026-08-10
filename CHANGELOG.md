@@ -89,6 +89,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Bump `gradle.properties` ke **r1.2.0 (versionCode 27)** — satu sumber
   kebenaran versi (L11); README & DEVELOPER.md diselaraskan.
+- **Redesign composer chat (2026-08-10)**: struktur layout dirapikan dari akar
+  (pixel-verified, bukan asumsi):
+  - Chip saran cepat jadi **outlined floating** (fill tipis mode-aware +
+    `BorderStroke`, cap lebar 180dp) — bukan bar solid full-width;
+  - Composer pill **tanpa shadow** (bayangan lama tampil sebagai garis di atas
+    navbar) & bottom nav **menyatu** (`tonalElevation 0` + `surface`);
+  - Tinggi pill **52dp = tombol Send** (ganti `OutlinedTextField` →
+    `BasicTextField` karena M3 1.4.0 menghapus `contentPadding`; konstanta
+    `CHAT_BAR_HEIGHT` dipakai di pill, Send, bar pratinjau); auto-grow tetap
+    (maxLines 6) — fix pill melar 1650px akibat `fillMaxSize`+`weight`;
+  - **Reply quote gaya Telegram**: quote pesan yang dibalas menempel DI DALAM
+    pill di atas baris input (garis aksen vertikal kiri + nama tebal + snippet
+    1 baris + ✕) — `ChatReplyBar` (card terpisah) dihapus, garis pemisah di
+    tengah composer hilang; tombol Send bottom-aligned sejajar baris input.
+  Golden baru `chat_composer_reply_quote` + 6 golden lama (banner ×2,
+  rekap_transaction, chat_bubble ×3 — diff rendering M3 1.4.0) di-re-record;
+  `verifyRoborazziDebug` kini **0 failure**.
 
 ### Verifikasi live
 - **Notifikasi chat real-time (FCM) end-to-end (2026-08-10)**: rantai penuh
