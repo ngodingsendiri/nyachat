@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -77,6 +78,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal const val MAX_MESSAGE_LENGTH = 2000
+
+/**
+ * Lebar maksimum kartu floating (reply/preview) — disamakan dengan lebar
+ * composer pill (~327dp) supaya ketiga elemen terasa satu keluarga.
+ */
+private val CHAT_CARD_MAX_WIDTH = 320.dp
 
 @Composable
 fun QuickSuggestionRow(
@@ -150,11 +157,18 @@ fun ChatReplyBar(
             val snippet = target.messageText.ifBlank {
                 target.fileName ?: target.imagePath?.let { "📷" } ?: ""
             }
-            Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)) {
+            // Floating card (bukan surface full-width) — konsisten dengan composer
+            // pill: rounded, shadow halus, lebar terbatas supaya terasa mengambang.
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                shadowElevation = 2.dp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .widthIn(max = CHAT_CARD_MAX_WIDTH)
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -169,7 +183,9 @@ fun ChatReplyBar(
                             text = stringResource(R.string.chat_reply_label, target.sender),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = snippet,
@@ -204,11 +220,17 @@ fun ChatFilePreviewBar(
         enter = fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)),
         exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(150))
     ) {
-        Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
+        // Floating card (bukan surface full-width) — konsisten dengan composer pill.
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            shadowElevation = 2.dp,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        ) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .widthIn(max = CHAT_CARD_MAX_WIDTH)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -256,11 +278,17 @@ fun ChatImagePreviewBar(
         enter = fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)),
         exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(150))
     ) {
-        Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
+        // Floating card (bukan surface full-width) — konsisten dengan composer pill.
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            shadowElevation = 2.dp,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        ) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .widthIn(max = CHAT_CARD_MAX_WIDTH)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 previewBitmap?.let {
