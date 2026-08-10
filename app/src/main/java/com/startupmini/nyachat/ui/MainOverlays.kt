@@ -4,10 +4,14 @@ import android.content.Context
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -193,16 +197,27 @@ fun BoxScope.MainOverlays(
         )
     }
 
-    // Snackbar overlay (audit P1.1): tampil di semua layar. Offset
-    // adaptif: windowInsetsPadding(ime) mengangkat host di atas
-    // keyboard saat IME terbuka (navbar otomatis tersembunyi & konten
-    // melebar ke bawah); tanpa IME cukup 16dp di atas NavigationBar —
-    // menggantikan angka 96dp hardcoded.
+    // Snackbar overlay (audit P1.1): tampil di semua layar. Sejak 2026-08-10
+    // dipindah ke ATAS layar — sebelumnya di BottomCenter + imePadding justru
+    // muncul TEPAT di atas keyboard, menutupi kolom pengetikan & mengganggu
+    // ketik cepat (keluhan user). Sekarang: atas, compact (pill), dan Material3
+    // SnackbarHost mendukung swipe-dismiss bawaan (geser kiri/kanan/atas).
     SnackbarHost(
         hostState = snackbarHostState,
         modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .windowInsetsPadding(WindowInsets.ime.only(WindowInsetsSides.Bottom))
-            .padding(bottom = 16.dp)
+            .align(Alignment.TopCenter)
+            .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
+            .padding(top = 8.dp, start = 20.dp, end = 20.dp),
+        snackbar = { data ->
+            // Compact pill — batasi lebar (bukan full-width) supaya terasa
+            // minimalis & konsisten dengan bahasa floating-card aplikasi.
+            Snackbar(
+                snackbarData = data,
+                shape = RoundedCornerShape(28.dp),
+                containerColor = MaterialTheme.colorScheme.inverseSurface,
+                contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                modifier = Modifier.widthIn(max = 480.dp)
+            )
+        }
     )
 }

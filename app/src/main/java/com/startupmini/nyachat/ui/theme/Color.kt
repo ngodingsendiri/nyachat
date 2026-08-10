@@ -24,7 +24,7 @@ val IncomeGreenDark = Color(0xFF69EFC4)  // Primary dark - eye-friendly
 
 val ExpenseRed = Color(0xFFC0392B) // Slightly desaturated red
 val ExpenseRedLight = Color(0xFFFAE8E7) // Very soft blush
-val ExpenseRedDark = Color(0xFFFF8A80)   // Lebih lembut untuk dark mode
+val ExpenseRedDark = Color(0xFFF2A096)   // Dark: merah pastel lembut (tidak "keras" seperti FF8A80)
 
 // Financial tag badge - warna khusus yang tidak terlalu mencolok
 val MoneyTagIncomeBg   = Color(0xFFF0FAF4) // Soft green tint (light) — lebih terang utk kontras badge income 4.72:1

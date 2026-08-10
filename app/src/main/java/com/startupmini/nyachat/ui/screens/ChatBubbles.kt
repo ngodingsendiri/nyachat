@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.OfflineBolt
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Receipt
 import androidx.compose.material3.CircularProgressIndicator
@@ -432,51 +433,55 @@ fun ChatMessageBubble(
                     } else Modifier
 
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        // Badge ringkas (2026-08-10): padding ramping + indikator sumber
+                        // jadi ikon kecil (AI teks 2 huruf / ⚡ heuristik) — sebelumnya
+                        // teks "heuristik" (9 huruf) bikin badge memanjang & memakan tempat.
+                        shape = RoundedCornerShape(8.dp),
                         color = tagBg,
                         modifier = badgeClickModifier.testTag("financial_badge_${message.id}")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = if (isIncome) Icons.Rounded.CheckCircle else Icons.Rounded.Receipt,
                                 contentDescription = null,
                                 tint = tagColor,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(12.dp)
                             )
-                            Spacer(modifier = Modifier.width(5.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "${if (isIncome) "+" else "-"} $formatRp · ${message.detectedCategory}",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Medium,
                                 color = tagColor
                             )
-                            // M7: indikator kantor SUMBER deteksi (AI vs heuristik offline).
-                            // Transparansi: user tahu nilai di badge diproses AI atau
-                            // mesin aturan lokal (mis. tanpa kunci API / offline).
+                            // M7: indikator sumber deteksi (AI vs heuristik offline).
+                            // Ringkas: "AI" = teks pendek; heuristik = ikon ⚡ (OfflineBolt).
                             message.detectedBy?.let { source ->
                                 if (source.equals("HEURISTIK", ignoreCase = true) ||
                                     source.equals("AI", ignoreCase = true)
                                 ) {
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(5.dp))
                                     val isAi = source.equals("AI", ignoreCase = true)
-                                    val indicatorText = stringResource(
-                                        if (isAi) R.string.badge_detected_ai
-                                        else R.string.badge_detected_heuristic
-                                    )
-                                    val indicatorDesc = stringResource(
-                                        if (isAi) R.string.badge_detected_ai_desc
-                                        else R.string.badge_detected_heuristic_desc
-                                    )
-                                    Text(
-                                        text = indicatorText,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Medium,
-                                        color = tagColor.copy(alpha = 0.7f),
-                                        modifier = Modifier.semantics { contentDescription = indicatorDesc }
-                                    )
+                                    if (isAi) {
+                                        val indicatorDesc = stringResource(R.string.badge_detected_ai_desc)
+                                        Text(
+                                            text = stringResource(R.string.badge_detected_ai),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = tagColor.copy(alpha = 0.7f),
+                                            modifier = Modifier.semantics { contentDescription = indicatorDesc }
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Rounded.OfflineBolt,
+                                            contentDescription = stringResource(R.string.badge_detected_heuristic_desc),
+                                            tint = tagColor.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

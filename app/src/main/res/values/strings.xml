@@ -63,7 +63,6 @@
     <string name="chat_ai_thinking">AI sedang memproses...</string>
     <!-- M7: indikator asal deteksi transaksi di badge finansial pesan -->
     <string name="badge_detected_ai">AI</string>
-    <string name="badge_detected_heuristic">heuristik</string>
     <string name="badge_detected_ai_desc">Transaksi dikenali oleh AI</string>
     <string name="badge_detected_heuristic_desc">Transaksi dikenali secara otomatis di perangkat tanpa AI</string>
     <string name="sender_bendahara">Bendahara</string>

@@ -60,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -100,7 +101,6 @@ fun QuickSuggestionRow(
     suggestions: List<String>,
     onSuggestionClicked: (String) -> Unit
 ) {
-    val semantic = LocalSemanticColors.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -122,15 +122,14 @@ fun QuickSuggestionRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             suggestions.forEach { text ->
-                // Chip FLOATING (bukan bar/panel): fill surfaceVariant TIPIS + border
-                // outline — sebelumnya surfaceVariant SOLID membuat 3-4 chip lebar
-                // nyaris memenuhi layar dan tampak sebagai container/bar kontinu
-                // dengan garis tegas di atas-bawahnya. Lebar dibatasi (180dp) agar
-                // chip tampil sebagai pill kompak yang jelas mengambang, bukan slab
-                // lebar. Alpha mode-aware (dark lebih pekat, pola sama dgn pill).
+                // Chip FLOATING frame-only (2026-08-10): fill TRANSPARAN, cukup
+                // border outline — sebelumnya fill surfaceVariant (alpha 0.3/0.5)
+                // membuat 3-4 chip tampak sebagai area/panel yang menutupi chat di
+                // atas keyboard ("teks chat ketutup separuh layar"). Sekarang hanya
+                // frame tombol yang terlihat, latar halaman tetap transparan.
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (semantic.isDark) 0.5f else 0.3f),
+                    color = Color.Transparent,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     // P2-4 (audit touch target): tinggi chip minimal 40dp — sebelumnya
                     // hanya ~28dp, di bawah rekomendasi Android (48dp).
