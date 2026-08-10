@@ -81,6 +81,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `QuickSuggestionRow`. Terverifikasi live: 3 chip tampil di atas input bar,
   tap chip mengisi draf; golden `quick_suggestions` di-record ulang (411×72)
   & PASS di verifyRoborazzi.
+
+- **Saran cepat (quick suggestions)**: angka nominal DOBEL di chip
+  rekomendasi di atas keyboard dihilangkan (laporan live) — deskripsi saran
+  dibersihkan dari nominal ("Beli sayur", bukan "Beli sayur 10.000"),
+  nominal diformat titik ribuan id-ID (`formatSuggestionAmount`), hanya
+  transaksi PENGELUARAN yang ditampilkan; output AI disanitasi;
+  +10 unit test.
 - **Lint (M1)**: 16 error baru `LocalContextGetResourceValueCall` dari
   compose-bom 2026.06 diperbaiki — query resource di-hoist ke composable scope
   via `stringResource(...)` (MainActivity 4, PinConnectScreen 12). `lintDebug`
@@ -107,6 +114,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rekap_transaction, chat_bubble ×3 — diff rendering M3 1.4.0) di-re-record;
   `verifyRoborazziDebug` kini **0 failure**.
 
+- **Polish UI lanjutan (2026-08-10, setelah finalisasi rilis)**:
+  - Chip saran cepat menjadi **frame-only transparan** (fill
+    `Color.Transparent`, hanya border outline) — area di atas keyboard
+    tidak lagi menutupi chat (sebelumnya fill surfaceVariant
+    alpha 0.3/0.5);
+  - Badge finansial lebih **ringkas**: indikator sumber heuristik dari
+    teks "heuristik" (9 huruf) menjadi **ikon ⚡** kecil 12dp
+    (contentDescription aksesibel), padding ramping 8/4; warna
+    `ExpenseRedDark` dark mode dilembutkan `#FF8A80` → **`#F2A096`**
+    (pastel, kontras tetap terjaga);
+  - **Snackbar pindah ke ATAS layar**: dari `BottomCenter` + `imePadding`
+    (muncul tepat di atas keyboard & menutupi composer saat ketik cepat)
+    → `TopCenter` + insets status bar, compact pill radius 28dp +
+    `widthIn(max 480dp)`;
+  - **Swipe-to-dismiss snackbar 3 arah (kiri/kanan/atas)**: material3
+    1.3.0 tidak punya swipe bawaan (hanya dismissAction + aksesibilitas),
+    jadi diimplementasi manual `DismissibleSnackbar` — drag 2 sumbu via
+    `pointerInput` (akumulasi setelah touch slop + seed offset pra-slop
+    anti-lompat), lepas ≥ 72dp → dismiss, di bawah ambang → animasi
+    balik `tween 240ms` + fade-out proporsional; tap tombol aksi
+    "Urungkan" tetap berfungsi;
+  - **Animasi reply quote lembut**: `expandVertically` + fade (hapus
+    double-animation ke Box field); FAB jump-to-bottom dipindah ke atas
+    composer agar tidak menutupi tombol Send saat pill tinggi.
+
 ### Verifikasi live
 - **Notifikasi chat real-time (FCM) end-to-end (2026-08-10)**: rantai penuh
   Firestore → Cloud Function `notifyChatMessage` → FCM → notifikasi Android
@@ -130,6 +162,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tap chip → draf terisi; golden `quick_suggestions` re-record (411×72) PASS;
   unit test BUILD SUCCESSFUL; 0 log debug tersisa (bukti:
   `.artifact/live_shots/b05_chips_fixed.png`).
+
+- Swipe-dismiss snackbar (2026-08-10): 3 arah diverifikasi live di
+  emulator (dark mode) — snackbar hilang **0.92–0.96 s** setelah swipe
+  (jauh di bawah timeout `SnackbarDuration.Long` 10 s; pill score pixel
+  2870 → 150); tap tombol aksi "Urungkan" tetap berfungsi (bukan
+  timeout). APK terbaru terpasang di emulator.
 
 ## [r1.1.3] - 2026-08-08
 
