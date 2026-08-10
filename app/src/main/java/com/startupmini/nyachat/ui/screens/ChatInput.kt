@@ -292,7 +292,9 @@ fun ChatImagePreviewBar(
 }
 
 /**
- * Chat Input Box — Telegram-style: Plus | TextField (auto-expand) | Send.
+ * Chat Input Box — WhatsApp-style: floating rounded pill `[ +  pesan  ✨ ]`
+ * dengan tombol Send circular terpisah di kanan. TIDAK ada panel/container besar
+ * yang membungkus area input — pill & Send berdiri sendiri di atas background halaman.
  * State di-hoist: nilai, focus, dan callback datang dari pemilik (ChatScreen).
  */
 @Composable
@@ -329,89 +331,103 @@ fun ChatInputBar(
         label = "askAiTint"
     )
 
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp,
-        modifier = modifier.fillMaxWidth()
+    // Dua elemen floating yang berdiri sendiri: pill input + tombol Send circular.
+    // Tanpa Surface pembungkus → background halaman tetap terlihat di antara/sekitar.
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .animateContentSize(),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        // ── Floating pill input: [ +  Ketik pesan...  ✨ ] ──
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.9f else 0.55f),
+            tonalElevation = 1.dp,
+            shadowElevation = 1.dp,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp)
-                .animateContentSize(),
-            verticalAlignment = Alignment.Bottom
+                .weight(1f)
+                .heightIn(min = 52.dp)
         ) {
-            // Tombol Plus (+) — pusat semua lampiran
-            IconButton(
-                onClick = onAttachClick,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Add,
-                    contentDescription = stringResource(R.string.chat_attach_desc),
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            // Kolom input teks — auto-grow hingga 6 baris, lalu scrollable
-            OutlinedTextField(
-                value = value,
-                onValueChange = { if (it.length <= MAX_MESSAGE_LENGTH) onValueChange(it) },
-                placeholder = {
-                    Text(stringResource(R.string.chat_input_placeholder))
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { onSend() }),
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .testTag("chat_input_field")
-                    .focusRequester(inputFocusRequester),
-                shape = RoundedCornerShape(24.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.8f else 0.5f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.8f else 0.5f)
-                ),
-                maxLines = 6,
-                minLines = 1,
-                trailingIcon = {
-                    IconButton(
-                        enabled = value.isNotBlank(),
-                        onClick = { onAskAi() },
-                        modifier = Modifier.testTag("ask_ai_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.AutoAwesome,
-                            contentDescription = stringResource(R.string.chat_ask_ai_desc),
-                            tint = askAiTint
-                        )
-                    }
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Tombol Plus (+) — BAGIAN DARI pill, di sisi kiri, pusat lampiran.
+                // 48dp = touch target minimum (konsisten audit P2-4).
+                IconButton(
+                    onClick = onAttachClick,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = stringResource(R.string.chat_attach_desc),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
-            )
 
-            Spacer(modifier = Modifier.width(4.dp))
-
-            // Tombol Kirim — selalu rata bawah meskipun input memanjang
-            IconButton(
-                enabled = canSend,
-                onClick = onSend,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(sendBgColor)
-                    .testTag("send_button")
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.Send,
-                    contentDescription = stringResource(R.string.chat_send_desc),
-                    tint = sendTintColor,
-                    modifier = Modifier.size(20.dp)
+                // Kolom input teks — transparan (warna datang dari pill),
+                // auto-grow hingga 6 baris, lalu scrollable
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { if (it.length <= MAX_MESSAGE_LENGTH) onValueChange(it) },
+                    placeholder = {
+                        Text(stringResource(R.string.chat_input_placeholder))
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { onSend() }),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("chat_input_field")
+                        .focusRequester(inputFocusRequester),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
+                    maxLines = 6,
+                    minLines = 1,
+                    trailingIcon = {
+                        IconButton(
+                            enabled = value.isNotBlank(),
+                            onClick = { onAskAi() },
+                            modifier = Modifier.testTag("ask_ai_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoAwesome,
+                                contentDescription = stringResource(R.string.chat_ask_ai_desc),
+                                tint = askAiTint
+                            )
+                        }
+                    }
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // ── Tombol Kirim — circular floating, vertikal tengah dengan pill ──
+        IconButton(
+            enabled = canSend,
+            onClick = onSend,
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(sendBgColor)
+                .testTag("send_button")
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Send,
+                contentDescription = stringResource(R.string.chat_send_desc),
+                tint = sendTintColor,
+                modifier = Modifier.size(22.dp)
+            )
         }
     }
 }
