@@ -1,5 +1,6 @@
 package com.startupmini.nyachat.data.remote
 
+import com.startupmini.nyachat.data.local.FinancialTransaction
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -146,6 +147,135 @@ class GeminiServiceHeuristicParseTest {
     }
 
     // ---- Sprint-1/2 fix B6: wrapper timeout menyelubungi kaskade AI ----
+
+    // ---- Saran cepat (quick-add chips): deskripsi bersih, tanpa angka dobel ----
+
+    private fun tx(description: String, amount: Double) = FinancialTransaction(
+        type = "PENGELUARAN",
+        category = "Lain-lain",
+        amount = amount,
+        description = description,
+        loggedBy = "Suami"
+    )
+
+    @Test
+    fun cleanSuggestionDescriptionMembuangAngkaMentah() {
+        // Description dari parse chat menyimpan teks asli "beli mie ayam 20000"
+        // — angka harus dibuang supaya saran tidak dobel ("20000 20000").
+        assertEquals("Beli mie ayam", GeminiService.cleanSuggestionDescription("beli mie ayam 20000"))
+        assertEquals("Bensin", GeminiService.cleanSuggestionDescription("bensin 20rb"))
+        assertEquals("Beli kopi", GeminiService.cleanSuggestionDescription("beli kopi 2,5jt"))
+        assertEquals("Makan siang", GeminiService.cleanSuggestionDescription("makan siang 25000"))
+    }
+
+    @Test
+    fun cleanSuggestionDescriptionTitikRibuanJugaDibuang() {
+        assertEquals("Beli mie ayam", GeminiService.cleanSuggestionDescription("beli mie ayam 20.000"))
+        assertEquals("Bayar listrik", GeminiService.cleanSuggestionDescription("bayar listrik 250.000"))
+    }
+
+    @Test
+    fun cleanSuggestionDescriptionTanpaAngkaTetap() {
+        assertEquals("Beli sayur", GeminiService.cleanSuggestionDescription("beli sayur"))
+    }
+
+    @Test
+    fun cleanSuggestionDescriptionKosongTetapKosong() {
+        assertEquals("", GeminiService.cleanSuggestionDescription("20000"))
+        assertEquals("", GeminiService.cleanSuggestionDescription(""))
+    }
+
+    @Test
+    fun formatSuggestionAmountPakaiTitikRibuan() {
+        assertEquals("20.000", GeminiService.formatSuggestionAmount(20000.0))
+        assertEquals("25.000", GeminiService.formatSuggestionAmount(25000.0))
+        assertEquals("5.000.000", GeminiService.formatSuggestionAmount(5000000.0))
+        assertEquals("500", GeminiService.formatSuggestionAmount(500.0))
+    }
+
+    @Test
+    fun buildOfflineSuggestionsTanpaAngkaDobel() {
+        val transactions = listOf(
+            tx("beli mie ayam 20000", 20000.0),
+            tx("beli nasi 30000", 30000.0),
+            tx("beli kopi 2,5jt", 2500000.0),
+        )
+        val suggestions = GeminiService.buildOfflineSuggestions(transactions)
+        assertEquals(3, suggestions.size)
+        // Tidak boleh ada angka dobel seperti "beli mie ayam 20000 20000".
+        assertEquals("Beli mie ayam 20.000", suggestions[0])
+        assertEquals("Beli nasi 30.000", suggestions[1])
+        assertEquals("Beli kopi 2.500.000", suggestions[2])
+        suggestions.forEach { s ->
+            // Nominal bertitik ("20.000") dianggap SATU angka — regex menangkap
+            // digit + titik ribuan sebagai satu token; angka dobel ("20000 20000")
+            // akan menghasilkan 2 token.
+            val numbers = Regex("\\d[\\d.]*").findAll(s).toList()
+            assertTrue("Saran tidak boleh angka dobel: $s", numbers.size <= 1)
+        }
+    }
+
+    @Test
+    fun buildOfflineSuggestionsDedupDanBatasEmpat() {
+        val transactions = listOf(
+            tx("beli mie ayam 20000", 20000.0),
+            tx("beli mie ayam 20000", 20000.0), // duplikat
+            tx("beli nasi 30000", 30000.0),
+            tx("bensin 20000", 20000.0),
+            tx("bensin 20000", 20000.0), // duplikat
+            tx("bayar listrik 100000", 100000.0),
+            tx("beli sayur 50000", 50000.0),
+        )
+        val suggestions = GeminiService.buildOfflineSuggestions(transactions)
+        assertEquals(4, suggestions.size)
+        assertEquals(suggestions.size, suggestions.distinct().size)
+        assertTrue(suggestions.contains("Beli mie ayam 20.000"))
+        assertTrue(suggestions.contains("Beli nasi 30.000"))
+        assertTrue(suggestions.contains("Bensin 20.000"))
+    }
+
+    @Test
+    fun buildOfflineSuggestionsKosongFallbackDefault() {
+        assertEquals(
+            GeminiService.DEFAULT_SUGGESTIONS,
+            GeminiService.buildOfflineSuggestions(emptyList())
+        )
+    }
+
+    @Test
+    fun buildOfflineSuggestionsHanyaPengeluaran() {
+        // Saran pengeluaran tidak boleh memakai transaksi PEMASUKAN (gaji).
+        val transactions = listOf(
+            tx("beli mie ayam 20000", 20000.0),
+            FinancialTransaction(
+                type = "PEMASUKAN",
+                category = "Gaji & Pemasukan",
+                amount = 5000000.0,
+                description = "gaji masuk 5 juta",
+                loggedBy = "Suami"
+            ),
+        )
+        val suggestions = GeminiService.buildOfflineSuggestions(transactions)
+        assertTrue(suggestions.contains("Beli mie ayam 20.000"))
+        assertFalse(suggestions.any { it.contains("gaji") || it.contains("5.000.000") })
+    }
+
+    @Test
+    fun sanitizeSuggestionPerbaikiAngkaDobelDariAI() {
+        // Jaring pengaman: kalau AI mengembalikan angka dobel, tetap dirapikan.
+        assertEquals(
+            "Beli mie ayam 20.000",
+            GeminiService.sanitizeSuggestion("Beli mie ayam 20000 20000")
+        )
+        assertEquals(
+            "Bensin 20.000",
+            GeminiService.sanitizeSuggestion("Bensin 20.000")
+        )
+        // Saran kreatif tanpa angka dibiarkan.
+        assertEquals("Bayar tagihan bulan ini", GeminiService.sanitizeSuggestion("Bayar tagihan bulan ini"))
+        // Kosong tetap kosong.
+        assertEquals("", GeminiService.sanitizeSuggestion(""))
+    }
 
     @Test
     fun parseChatMessageTanpaKeyJatuhKeHeuristikLewatWrapperTimeout() = runBlocking {

@@ -13,6 +13,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
@@ -56,6 +57,68 @@ object GeminiService {
     /** L6: saran cepat statis (fallback saat tanpa key AI / riwayat kosong). */
     internal val DEFAULT_SUGGESTIONS =
         listOf("Makan siang 25.000", "Bensin 20.000", "Beli token listrik 50.000")
+
+    /**
+     * Rapikan deskripsi transaksi untuk saran cepat: buang nominal/angka mentah
+     * yang menempel pada deskripsi (hasil parse chat menyimpan teks asli seperti
+     * "beli mie ayam 20000" sehingga fallback lama menghasilkan
+     * "beli mie ayam 20000 20000" — angka dobel), lalu kapitalisasi awal.
+     */
+    internal fun cleanSuggestionDescription(raw: String): String {
+        // NUMBER_UNIT_PATTERN adalah java.util.regex.Pattern — pakai matcher.
+        val cleaned = NUMBER_UNIT_PATTERN.matcher(raw)
+            .replaceAll(" ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return if (cleaned.isEmpty()) {
+            cleaned
+        } else {
+            cleaned.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+        }
+    }
+
+    /** Format nominal untuk saran cepat: 20000.0 → "20.000" (titik ribuan id-ID). */
+    internal fun formatSuggestionAmount(amount: Double): String =
+        String.format(Locale("id", "ID"), "%,d", amount.toLong())
+
+    /**
+     * Fallback offline berbasis riwayat transaksi PENGELUARAN — deskripsi
+     * dibersihkan dari angka & nominal diformat rapi (L6). Hasil dideduplikasi
+     * & dibatasi 4. Pemasukan tidak dijadikan saran pengeluaran (selaras dengan
+     * prompt AI & DEFAULT_SUGGESTIONS yang semuanya pengeluaran).
+     */
+    internal fun buildOfflineSuggestions(transactions: List<FinancialTransaction>): List<String> {
+        val expense = transactions.filter {
+            it.type == Constants.TransactionTypes.EXPENSE
+        }
+        val cleaned = expense
+            .map { trans ->
+                val desc = cleanSuggestionDescription(trans.description)
+                val amount = formatSuggestionAmount(trans.amount)
+                if (desc.isEmpty()) amount else "$desc $amount"
+            }
+            .distinct()
+            .take(4)
+        return cleaned.ifEmpty { DEFAULT_SUGGESTIONS }
+    }
+
+    /**
+     * Sanitasi saran hasil AI: jamin format rapi walau model mengembalikan
+     * angka dobel ("Beli mie ayam 20000 20000") — angka diekstrak ulang,
+     * deskripsi dibersihkan, nominal diformat titik ribuan. Saran tanpa angka
+     * (kreatif) dibiarkan apa adanya.
+     */
+    internal fun sanitizeSuggestion(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return trimmed
+        val amount = extractAmountFromText(trimmed.lowercase())
+        val desc = cleanSuggestionDescription(trimmed)
+        return when {
+            amount != null && desc.isNotEmpty() -> "$desc ${formatSuggestionAmount(amount)}"
+            amount != null -> formatSuggestionAmount(amount)
+            else -> trimmed
+        }
+    }
 
     suspend fun parseChatMessage(
         messageText: String,
@@ -125,11 +188,16 @@ object GeminiService {
         // fallback offline berbasis riwayat transaksi (personal tetap terjaga),
         // bukan statis kaku. Jalur AI tetap dilewati → hemat kuota & delay.
         if (!isAiAvailable()) {
-            val fallback = transactions.take(4).map { "${it.description} ${it.amount.toLong()}" }
-            return@withContext fallback.ifEmpty { DEFAULT_SUGGESTIONS }
+            return@withContext buildOfflineSuggestions(transactions)
         }
 
-        val transSummary = transactions.take(30).joinToString("\n") {
+        // Hanya PENGELUARAN yang jadi bahan saran (selaras dengan permintaan
+        // user: rekomendasi pengeluaran dari data rekap). Pemasukan dikecualikan.
+        val expense = transactions.filter { it.type == Constants.TransactionTypes.EXPENSE }
+        if (expense.isEmpty()) {
+            return@withContext DEFAULT_SUGGESTIONS
+        }
+        val transSummary = expense.take(30).joinToString("\n") {
             "- [${it.type}] ${it.description} (Rp ${it.amount.toLong()})"
         }
 
@@ -140,13 +208,14 @@ object GeminiService {
             $transSummary
 
             Tugasmu adalah menganalisis kebiasaan transaksi mereka (yang paling berulang/rutin) lalu menghasilkan 4 sampai 5 teks prompt singkat (rekomendasi chat quick-add) yang bisa mereka klik untuk menginput pengeluaran atau pemasukan dengan cepat berdasarkan pola mereka.
+            Tulis saran dalam Bahasa Indonesia yang NATURAL & RAPI: awali dengan huruf kapital, satu nominal di akhir dengan TITIK ribuan (mis. 20000 ditulis 20.000), JANGAN mengulang angka dua kali.
             Contoh output yang diharapkan (sesuaikan dengan isi riwayat transaksi pengguna):
             "Beli bensin 25.000"
             "Makan siang 20.000"
             "Bayar listrik 100.000"
             "Belanja sayur 50.000"
 
-            KEMBALIKAN OUTPUTMU SEBAGAI JSON ARRAY STRING SAJA. Contoh: ["Makan 20k", "Bensin 15k"].
+            KEMBALIKAN OUTPUTMU SEBAGAI JSON ARRAY STRING SAJA. Contoh: ["Makan siang 20.000", "Bensin 15.000"].
             Jangan tambahkan penjelasan apa pun di luar JSON Array.
         """.trimIndent()
 
@@ -162,7 +231,7 @@ object GeminiService {
                         val jsonArray = JSONArray(cleanedText)
                         val suggestions = mutableListOf<String>()
                         for (i in 0 until jsonArray.length()) {
-                            suggestions.add(jsonArray.getString(i))
+                            suggestions.add(sanitizeSuggestion(jsonArray.getString(i)))
                         }
                         if (suggestions.isNotEmpty()) return@withTimeoutOrNull suggestions
                     }
@@ -181,7 +250,7 @@ object GeminiService {
                         val jsonArray = JSONArray(cleanedText)
                         val suggestions = mutableListOf<String>()
                         for (i in 0 until jsonArray.length()) {
-                            suggestions.add(jsonArray.getString(i))
+                            suggestions.add(sanitizeSuggestion(jsonArray.getString(i)))
                         }
                         if (suggestions.isNotEmpty()) return@withTimeoutOrNull suggestions
                     }
@@ -193,9 +262,9 @@ object GeminiService {
         }
         if (aiSuggestions != null) return@withContext aiSuggestions
 
-        // 3) Fallback offline heuristic (L6: fallback statis konsisten DEFAULT_SUGGESTIONS)
-        val fallback = transactions.take(4).map { "${it.description} ${it.amount.toLong()}" }
-        return@withContext fallback.ifEmpty { DEFAULT_SUGGESTIONS }
+        // 3) Fallback offline heuristic (L6): deskripsi dibersihkan dari angka
+        //    & nominal diformat rapi — tidak ada lagi "beli mie ayam 20000 20000".
+        return@withContext buildOfflineSuggestions(transactions)
     }
 
     suspend fun generateFinancialAuditReport(
