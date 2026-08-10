@@ -151,6 +151,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `androidx.compose.animation.AnimatedVisibility` (overload generik
     tanpa receiver, aman untuk scope apa pun).
 
+  - **FAB tidak lagi menutupi bubble chat terakhir saat scroll
+    (2026-08-10, follow-up)**: baris saran (chips) dipindah KE DALAM
+    `Box` daftar chat (di bawah `LazyColumn` yang jadi
+    `weight(1f)`), sehingga FAB overlay (`align(BottomEnd)`) melayang
+    TEPAT DI ATAS baris chips — pesan berhenti di tepi atas chips dan
+    tidak pernah lewat di bawah FAB (sebelumnya overlap terukur
+    110×16px: ujung bawah pesan kanan masuk ke frame FAB). Chips diberi
+    `endPadding` 64dp saat FAB tampil (diterapkan SEBELUM
+    `horizontalScroll`) agar chip terakhir tidak tersembunyi di balik
+    FAB; FAB juga disembunyikan saat draf terisi (mengetik — saat
+    chips tersembunyi, FAB tak boleh melayang di atas daftar pesan
+    lagi). Terverifikasi live: FAB frame y1801–1948 tepat di atas
+    baris chips y1854–1896, tidak ada node teks pesan/chip yang
+    tumpang-tindih, FAB bottom 1948 < tombol Send 2009, sembunyi saat
+    mengetik, muncul lagi setelah draf dihapus, hilang di dasar daftar
+    setelah tap (lompat ke pesan terbaru).
+
 ### Verifikasi live
 - **Notifikasi chat real-time (FCM) end-to-end (2026-08-10)**: rantai penuh
   Firestore → Cloud Function `notifyChatMessage` → FCM → notifikasi Android
@@ -187,6 +204,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   y1399–1457) → tidak ada overlap; scroll ke dasar 87 pesan → FAB
   hilang (hide path `AnimatedVisibility` bekerja); scroll balik ke atas
   → FAB muncul lagi. APK terbaru terpasang di emulator-5554 & -5556.
+- FAB tidak menutupi bubble terakhir (2026-08-10, follow-up):
+  terverifikasi live di emulator-5554 — FAB kini melayang DI ATAS
+  baris chips saran (frame x901–1048 y1801–1948, persis menutupi
+  band chips y1802–1948) sehingga tidak ada pesan yang lewat di
+  bawahnya saat scroll; chips berhenti sebelum FAB (endPadding 64dp,
+  chip ke-3 tidak tersembunyi di balik frame); FAB sembunyi saat
+  mengetik dan muncul lagi setelah draf dihapus; tap FAB → lompat ke
+  pesan terbaru → FAB hilang; FAB bottom 1948 < tombol Send 2009
+  (tidak pernah menutupi Send). APK terbaru terpasang di emulator-5554.
 
 ## [r1.1.3] - 2026-08-08
 

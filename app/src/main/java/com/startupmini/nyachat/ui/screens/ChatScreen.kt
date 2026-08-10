@@ -235,9 +235,14 @@ fun ChatScreen(
             // chat dapat scroll penuh di belakang frame (tanpa ruang layout
             // terbuang), dan FAB tidak pernah menutupi composer/tombol Send.
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // Kolom dalam Box: daftar pesan (weight 1f) + baris saran chips di
+                // bawahnya. Tombol lompat (FAB) adalah overlay Box di pojok kanan-
+                // bawah — tepat DI ATAS baris chips — sehingga pesan (yang berhenti
+                // di tepi atas chips) TIDAK PERNAH tertutup FAB saat scroll.
+                Column(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 24.dp)
                 ) {
                 if (messages.isEmpty() && !isAiThinking) {
@@ -360,23 +365,43 @@ fun ChatScreen(
                         )
                     }
                 }
-            }
+                }
+
+                // Chips saran cepat — dipindah KE DALAM Box daftar (di bawah list)
+                // agar FAB bisa melayang di atas baris chips, bukan di atas pesan
+                // (2026-08-10: FAB yang menutupi bubble terakhir saat scroll).
+                // BUG-05 (r1.2.0): AnimatedVisibility dari compose-bom 2026.06
+                // meng-komposisi content tapi TIDAK me-layout-nya — dipakai if biasa.
+                if (draftText.isBlank() && quickSuggestions.isNotEmpty()) {
+                    QuickSuggestionRow(
+                        suggestions = quickSuggestions,
+                        onSuggestionClicked = { onDraftChange(it) },
+                        // Chip berhenti 64dp sebelum tepi kanan saat FAB tampil —
+                        // chip terakhir tidak pernah tersembunyi di balik FAB.
+                        endPadding = if (shouldShowJumpButton) 64.dp else 0.dp
+                    )
+                }
+            } // end Column dalam Box (list + chips)
 
             // Tombol lompat ke pesan terbaru (muncul saat scroll ke atas) —
-            // OVERLAY di pojok kanan-bawah daftar chat (dalam Box yang sama dgn
-            // LazyColumn), BUKAN di flow composer: chat scroll penuh di belakang
-            // frame transparan; tanpa mengambil ruang layout; dan karena overlay
-            // hanya seluas daftar, tidak pernah menimpa tombol Send (beda dari
-            // overlay layar-penuh lama yang menimpa Send saat pill tinggi).
+            // OVERLAY frame-only di pojok kanan-bawah Box. Karena baris chips ada
+            // DI DALAM Box (di bawah list), FAB melayang DI ATAS baris chips —
+            // pesan berhenti di tepi atas chips, jadi FAB tidak pernah menutupi
+            // bubble chat (yang terakhir sekalipun) saat scroll; dan tetap tidak
+            // menimpa tombol Send (overlay hanya seluas area chat + chips).
             // Catatan: pakai nama lengkap (bukan import) untuk memaksa overload
             // generik tanpa receiver — di dalam Box, resolver Kotlin justru memilih
             // ColumnScope.AnimatedVisibility dari receiver Column di luar dan gagal
             // ("cannot be called in this context with an implicit receiver").
             androidx.compose.animation.AnimatedVisibility(
-                visible = shouldShowJumpButton,
+                // Sembunyikan juga saat mengetik: baris chips tersembunyi saat draf
+                // terisi, sehingga jika FAB tetap tampil ia akan melayang DI ATAS
+                // daftar pesan lagi (menutupi bubble). Saat mengetik FAB tak perlu
+                // tampil — user sedang menulis, bukan menavigasi riwayat.
+                visible = shouldShowJumpButton && draftText.isBlank(),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 12.dp, bottom = 8.dp),
+                    .padding(end = 12.dp),
                 enter = fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(200)),
                 exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it / 2 }, animationSpec = tween(150))
             ) {
@@ -406,18 +431,6 @@ fun ChatScreen(
                 }
             }
             } // end Box (daftar chat + FAB overlay)
-
-            // Quick Suggestion Chips (placed above input field)
-            // BUG-05 (r1.2.0): AnimatedVisibility dari compose-bom 2026.06 meng-komposisi
-            // content tapi TIDAK me-layout-nya (chips tak pernah terlihat di runtime walau
-            // kondisi visible terpenuhi — terverifikasi live). Dipakai if biasa; LazyRow di
-            // QuickSuggestionRow diganti Row + horizontalScroll karena juga tak me-layout item.
-            if (draftText.isBlank() && quickSuggestions.isNotEmpty()) {
-                QuickSuggestionRow(
-                    suggestions = quickSuggestions,
-                    onSuggestionClicked = { onDraftChange(it) }
-                )
-            }
 
             // Pratinjau dokumen (PDF) sebelum dikirim
             ChatFilePreviewBar(
