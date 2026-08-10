@@ -14,11 +14,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.startupmini.nyachat.R
 
 /**
  * NavigationBar tab Chat/Rekap. Ekstraksi dari MainActivity (TASK-1.3) —
  * tanpa perubahan behavior. Keyboard disembunyikan saat pindah tab (BUG-02).
+ *
+ * Struktur MENYATU dengan halaman: containerColor = surface (== background)
+ * dan tonalElevation 0 — tanpa warna bar sendiri / garis elevasi di tepi atas,
+ * sehingga area chat → saran → composer → navbar terasa satu permukaan, bukan
+ * lapisan terpisah. Indikator tab aktif tetap terlihat (pill secondaryContainer).
  */
 @Composable
 fun MainNavigationBar(
@@ -26,7 +32,10 @@ fun MainNavigationBar(
     onTabSelected: (Int) -> Unit
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)) {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
         NavigationBarItem(
             selected = selectedTab == 0,
             onClick = {

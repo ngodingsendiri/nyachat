@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -90,6 +91,7 @@ fun QuickSuggestionRow(
     suggestions: List<String>,
     onSuggestionClicked: (String) -> Unit
 ) {
+    val semantic = LocalSemanticColors.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -111,26 +113,31 @@ fun QuickSuggestionRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             suggestions.forEach { text ->
+                // Chip FLOATING (bukan bar/panel): fill surfaceVariant TIPIS + border
+                // outline — sebelumnya surfaceVariant SOLID membuat 3-4 chip lebar
+                // nyaris memenuhi layar dan tampak sebagai container/bar kontinu
+                // dengan garis tegas di atas-bawahnya. Lebar dibatasi (180dp) agar
+                // chip tampil sebagai pill kompak yang jelas mengambang, bukan slab
+                // lebar. Alpha mode-aware (dark lebih pekat, pola sama dgn pill).
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (semantic.isDark) 0.5f else 0.3f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     // P2-4 (audit touch target): tinggi chip minimal 40dp — sebelumnya
                     // hanya ~28dp, di bawah rekomendasi Android (48dp).
                     modifier = Modifier
                         .heightIn(min = 40.dp)
+                        .widthIn(max = 180.dp)
                         .clickable { onSuggestionClicked(text) }
                 ) {
                     Box(
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = text,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            // Reviewer (BUG-05): saran dari riwayat transaksi bisa panjang
-                            // (mis. "beli mie ayam 20000 20000") — jangan wrap ke 2 baris
-                            // yang terpotong row 48dp; ellipsis kalau kepanjangan.
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -369,11 +376,11 @@ fun ChatInputBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // ── Floating pill input: [ +  Ketik pesan...  ✨ ] ──
+        // TANPA shadow/tonalElevation: bayangan pill sebelumnya menghasilkan garis
+        // lunak di atas navbar sehingga composer terlihat "ditempel di panel lain".
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.9f else 0.55f),
-            tonalElevation = 1.dp,
-            shadowElevation = 1.dp,
             modifier = Modifier
                 .weight(1f)
                 .heightIn(min = 52.dp)
