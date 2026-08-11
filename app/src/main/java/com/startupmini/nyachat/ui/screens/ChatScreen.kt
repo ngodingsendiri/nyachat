@@ -88,6 +88,13 @@ private sealed interface ChatRow {
     data class MessageRow(val message: ChatMessage, val showSenderHeader: Boolean) : ChatRow
 }
 
+/**
+ * Kekakuan spring FAB jump-to-bottom & geser chips (r1.2.0) — dipakai bersama
+ * supaya kemunculan FAB dan pergeseran chips selalu sinkron. 600f ≈ settle ±1
+ * detik: lebih lambat & lembut dari StiffnessMedium (500ms) sesuai masukan user.
+ */
+private const val FAB_SPRING_STIFFNESS = 600f
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(
@@ -382,12 +389,12 @@ fun ChatScreen(
                 // sehingga FAB dan chips saling memberi ruang tanpa menimpa.
                 val chipShift by animateDpAsState(
                     targetValue = if (shouldShowJumpButton) 64.dp else 0.dp,
-                    // r1.2.0 (masukan user): geser chips LEBIH LEMBUT & LAMBAT —
-                    // LowBouncy + stiffness 600f (±1 detik) sinkron dengan
-                    // slide-in FAB yang juga di-perlambat di bawah.
+                                    // r1.2.0 (masukan user): geser chips LEBIH LEMBUT & LAMBAT —
+                    // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±1 detik)
+                    // sinkron dengan slide-in FAB yang juga di-perlambat.
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = 600f
+                        stiffness = FAB_SPRING_STIFFNESS
                     ),
                     label = "chipShiftForFab"
                 )
@@ -432,14 +439,14 @@ fun ChatScreen(
                 // tepi kiri layar (initialOffsetX = -width) + fade — bukan muncul
                 // dari bawah. Keluar juga ke kiri.
                 // r1.2.0 (masukan user #3): kemunculan LEBIH SOFT — spring
-                // LowBouncy + stiffness 600f (±1 detik) menggantikan
-                // MediumBouncy/StiffnessMedium yang terasa terlalu cepat.
+                // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±1 detik)
+                // menggantikan MediumBouncy/StiffnessMedium yang terasa cepat.
                 enter = fadeIn(animationSpec = tween(300)) +
                     slideInHorizontally(
                         initialOffsetX = { -it },
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = 600f
+                            stiffness = FAB_SPRING_STIFFNESS
                         )
                     ),
                 exit = fadeOut(animationSpec = tween(220)) +
