@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [r1.2.0] - 2026-08-10 (T3 dekomposisi + M1 upgrade + audit UX)
 
 ### Added
+- **FASE 4 (relay AI server — key milik server)**: Cloud Function `aiComplete`
+  baru di `functions/index.js` yang memegang kunci AI MILIK SERVER (Firebase
+  Functions secrets `OPENROUTER_API_KEY`/`GEMINI_API_KEY` — TIDAK pernah
+  dikompilasi ke APK). User yang tidak mengisi kunci sendiri (BYOK) tetap
+  mendapat deteksi AI: kaskade jadi 4 lapis OpenRouter(BYOK) → Gemini(BYOK) →
+  **relay server** → heuristik offline. App memanggil via `RelayAiService`
+  (Firebase Functions SDK — auth ID token otomatis, `request.auth` diverifikasi
+  server; null-safe saat FirebaseApp belum aktif). Relay dipasang di 5 titik:
+  parse transaksi, saran cepat, laporan audit, analisis bulanan, tanya AI.
+  Catatan: model "opencode zen" tidak ada di katalog OpenRouter (400 model
+  dicek per 2026-08-10) — daftar model gratis terverifikasi + Gemini dipakai.
+  +5 unit test `RelayAiServiceTest`; panduan deploy di docs/DEVELOPER.md.
+  Anti-regresi latensi offline (review): relay diberi timeout internal 15 s
+  (bukan mewarisi 60 s kaskade) & di-skip saat NetworkMonitor melaporkan
+  offline (`setNetworkOnline` — sinyal yang sama dengan indikator sync),
+  sehingga user tanpa key yang sedang offline tetap langsung ke heuristik.
 - **FASE 1 (T3)**: Dekomposisi 3 file raksasa tanpa mengubah behavior:
   - `ChatScreen.kt` (566 baris) — bubble & input bar dipisah ke `ChatBubbles.kt`
     & `ChatInput.kt`;

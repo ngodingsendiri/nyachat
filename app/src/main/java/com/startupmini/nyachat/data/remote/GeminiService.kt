@@ -161,20 +161,45 @@ object GeminiService {
                     Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
                 }
             }
+
+            // 3) Relay server (FASE 4): key AI milik server — dipakai saat user
+            //    belum mengisi kunci sendiri ATAU kunci BYOK-nya gagal. Auth Firebase
+            //    otomatis dilampirkan SDK; server memverifikasi & memanggil AI.
+            val relayText = relayComplete(prompt, imagePath)
+            if (relayText != null) {
+                val parsed = parseJsonResponse(wrapOpenAiText(relayText), messageText, sender)
+                if (parsed != null) {
+                    return@withTimeoutOrNull parsed
+                }
+            }
             null
         }
 
-        // 3) Fallback: teks biasa pakai mesin offline; foto nota tanpa AI hanya tersimpan
+        // 4) Fallback: teks biasa pakai mesin offline; foto nota tanpa AI hanya tersimpan
         //    (tidak bisa dibaca tanpa kunci AI vision). Juga dipakai saat habis waktu.
         return@withContext aiParsed ?: offlineHeuristicParse(messageText, sender)
     }
 
 
-    /** L6: true kalau setidaknya satu jalur AI tersedia (OpenRouter atau Gemini BYOK). */
+    /** L6: true kalau setidaknya satu jalur AI tersedia (OpenRouter/Gemini BYOK
+     *  atau relay server yang belum terbukti mati). */
     fun isAiAvailable(): Boolean {
         val key = getApiKey()
         return OpenRouterService.activeApiKey() != null ||
-            key.isNotBlank() && key != "MY_GEMINI_API_KEY"
+            key.isNotBlank() && key != "MY_GEMINI_API_KEY" ||
+            RelayAiService.isAvailable()
+    }
+
+    /** Jalur relay server (FASE 4) — dipakai setelah OpenRouter & Gemini BYOK gagal. */
+    private suspend fun relayComplete(prompt: String, imagePath: String? = null): String? {
+        if (!RelayAiService.isAvailable()) return null
+        return try {
+            val imageBase64 = imagePath?.let { ImageFileUtil.encodeBase64(it) }
+            RelayAiService.completeChat(prompt, imageBase64)
+        } catch (e: Exception) {
+            Log.w("GeminiService", "Relay gagal, lanjut jalur berikutnya", e)
+            null
+        }
     }
 
     suspend fun generateFrequentTransactionSuggestions(
@@ -258,11 +283,27 @@ object GeminiService {
                     Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
                 }
             }
+
+            // 3) Relay server (FASE 4) — saran cepat via key milik server.
+            val relayText = relayComplete(prompt)
+            if (!relayText.isNullOrBlank()) {
+                try {
+                    val cleanedText = relayText.replace("```json", "").replace("```", "").trim()
+                    val jsonArray = JSONArray(cleanedText)
+                    val suggestions = mutableListOf<String>()
+                    for (i in 0 until jsonArray.length()) {
+                        suggestions.add(sanitizeSuggestion(jsonArray.getString(i)))
+                    }
+                    if (suggestions.isNotEmpty()) return@withTimeoutOrNull suggestions
+                } catch (e: Exception) {
+                    Log.w("GeminiService", "Relay/parsing saran gagal", e)
+                }
+            }
             null
         }
         if (aiSuggestions != null) return@withContext aiSuggestions
 
-        // 3) Fallback offline heuristic (L6): deskripsi dibersihkan dari angka
+        // 4) Fallback offline heuristic (L6): deskripsi dibersihkan dari angka
         //    & nominal diformat rapi — tidak ada lagi "beli mie ayam 20000 20000".
         return@withContext buildOfflineSuggestions(transactions)
     }
@@ -341,11 +382,15 @@ object GeminiService {
                     Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
                 }
             }
+
+            // 3) Relay server (FASE 4) — laporan audit via key milik server.
+            val relayText = relayComplete(prompt)
+            if (!relayText.isNullOrBlank()) return@withTimeoutOrNull relayText
             null
         }
         if (aiReport != null) return@withContext aiReport
 
-        // 3) Offline Fallback Report — berbasis data nyata (bukan template kaku).
+        // 4) Offline Fallback Report — berbasis data nyata (bukan template kaku).
         return@withContext buildOfflineAuditReport(insights, balance)
     }
 
@@ -445,11 +490,15 @@ object GeminiService {
                     Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
                 }
             }
+
+            // 3) Relay server (FASE 4) — analisis bulanan via key milik server.
+            val relayText = relayComplete(prompt)
+            if (!relayText.isNullOrBlank()) return@withTimeoutOrNull relayText
             null
         }
         if (aiReport != null) return@withContext aiReport
 
-        // 3) Laporan offline (tanpa internet / tanpa key / habis waktu) — tetap informatif.
+        // 4) Laporan offline (tanpa internet / tanpa key / habis waktu) — tetap informatif.
         return@withContext buildOfflineMonthlyReport(monthly, transactions)
     }
 
@@ -520,10 +569,14 @@ object GeminiService {
                     Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
                 }
             }
+
+            // 3) Relay server (FASE 4) — jawaban AI via key milik server.
+            val relayText = relayComplete(chatPrompt)
+            if (!relayText.isNullOrBlank()) return@withTimeoutOrNull relayText
             null
         }
 
-        // 3) Balasan offline (tanpa internet / tanpa key / habis waktu)
+        // 4) Balasan offline (tanpa internet / tanpa key / habis waktu)
         return@withContext aiReply ?: offlineChatReply(prompt)
     }
 

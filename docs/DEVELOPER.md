@@ -86,6 +86,64 @@ Override tanpa edit file: `./gradlew -PappVersion=r2.0.0 -PappVersionCode=26 :ap
 
 ---
 
+## ☁️ Relay AI Server (FASE 4 — key AI milik server)
+
+Aplikasi murni **BYOK** (user mengisi kunci Gemini/OpenRouter sendiri). Untuk
+user yang **tidak mengisi kunci**, disediakan **relay AI server**: Cloud Function
+`aiComplete` yang memegang **kunci milik server** (Firebase Functions secrets —
+tidak pernah dikompilasi ke APK). App yang sudah login memanggil fungsi ini;
+auth Firebase diverifikasi otomatis oleh protokol callable (`request.auth`).
+
+### Alur kaskade AI (setelah fitur ini)
+
+```
+1. OpenRouter (BYOK user)  → key user di Pengaturan
+2. Gemini (BYOK user)      → key user di Pengaturan
+3. Relay server (FASE 4)   → key server di Cloud Function (tanpa key user)
+4. Heuristik offline       → mesin aturan lokal (tanpa internet / gagal semua)
+```
+
+### Setup sekali jalan (dilakukan admin repo)
+
+```bash
+cd functions
+npm install
+
+# Set secret AI (sekali saja; tersimpan di Google Cloud Secret Manager)
+firebase functions:secrets:set OPENROUTER_API_KEY
+firebase functions:secrets:set GEMINI_API_KEY
+
+# Deploy fungsi relay (+ notifikasi chat yang sudah ada)
+firebase deploy --only functions
+```
+
+> ⚠️ Firebase Functions butuh paket **Blaze** (bayar per pemakaian; kuota gratis
+> bulanan tetap ada). Tanpa deploy, app tetap berfungsi penuh via BYOK + heuristik
+> offline — relay hanyalah lapisan tambahan.
+
+### Implementasi
+
+- `functions/index.js` → `exports.aiComplete` (onCall): OpenRouter gratis (rotasi
+  7 model) → Gemini; mengembalikan `{ text }` atau `{ text: null }`.
+- `app/.../data/remote/RelayAiService.kt` → memanggil callable via Firebase
+  Functions SDK (auth otomatis); null-safe saat FirebaseApp belum aktif.
+- `GeminiService.kt` → relay disisipkan setelah OpenRouter/Gemini BYOK gagal,
+  sebelum heuristik offline (parse, saran cepat, audit, bulanan, tanya AI).
+- Model "opencode zen" yang sempat diminta tidak ditemukan di katalog OpenRouter
+  (400 model, per 2026-08-10) — daftar model gratis terverifikasi dipakai.
+
+### Secrets yang dipakai di CI
+
+| Secret | Fungsi |
+|---|---|
+| `OPENROUTER_API_KEY` | Key OpenRouter milik server (relay) |
+| `GEMINI_API_KEY` | Key Gemini milik server (relay) |
+
+> Key ini dipakai di **Cloud Function** (server-side), BUKAN di APK. Aman dari
+> ekstraksi APK.
+
+---
+
 ## 🤖 GitHub Actions (CI)
 
 Workflow **Build APK** (`.github/workflows/build-apk.yml`) jalan saat push ke
@@ -149,8 +207,8 @@ npm ci && npm run lint:rules
 - **Tanpa server sendiri** — semua berjalan di perangkat + cloud AI pihak ketiga
 - **MVVM + Repository**: `MainViewModel` (StateFlow) ↔ `FinanceRepository`
   (persist lokal + sync cloud + AI via `FinanceAiService`)
-- **AI 3 lapis**: OpenRouter (rotasi model gratis) → Gemini → mesin heuristik
-  offline; semua BYOK
+- **AI 4 lapis**: OpenRouter (BYOK) → Gemini (BYOK) → relay server (FASE 4,
+  key milik server) → mesin heuristik offline
 - **Sync cloud**: `FirestoreSyncManager` — last-writer-wins deterministik pakai
   `FieldValue.serverTimestamp()` (immune clock-skew), listener realtime,
   antrian offline (`PendingOp`) dengan exponential backoff

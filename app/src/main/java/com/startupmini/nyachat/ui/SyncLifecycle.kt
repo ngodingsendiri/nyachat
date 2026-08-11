@@ -19,6 +19,7 @@ import com.startupmini.nyachat.data.remote.MembershipManager
 import com.startupmini.nyachat.data.remote.MembershipStatus
 import com.startupmini.nyachat.data.remote.NetworkMonitor
 import com.startupmini.nyachat.data.remote.OpenRouterService
+import com.startupmini.nyachat.data.remote.RelayAiService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -62,11 +63,16 @@ fun SyncLifecycleGlue(
     DisposableEffect(Unit) {
         val monitor = NetworkMonitor(context) { online ->
             FirestoreSyncManager.setNetworkAvailable(online)
+            // Relay AI (FASE 4): saat jaringan jelas mati, jangan coba panggil
+            // Cloud Function — langsung heuristik offline (hindari timeout).
+            RelayAiService.setNetworkOnline(online)
         }
         monitor.start()
         // Kirim status awal sekali — callback tidak selalu langsung menembak
         // (mis. jaringan stabil) dan status lama bisa saja "menggantung".
-        FirestoreSyncManager.setNetworkAvailable(monitor.isOnlineNow)
+        val onlineNow = monitor.isOnlineNow
+        FirestoreSyncManager.setNetworkAvailable(onlineNow)
+        RelayAiService.setNetworkOnline(onlineNow)
         onDispose {
             monitor.stop()
         }

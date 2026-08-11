@@ -125,6 +125,9 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   // implementation(libs.androidx.security.crypto)  // REMOVED: migrasi ke SecureStorage (Android Keystore)
   implementation(libs.firebase.firestore)
+  // Relay AI server (FASE 4): memanggil Cloud Function aiComplete — SDK ini
+  // otomatis melampirkan Firebase Auth ID token (user login) ke callable.
+  implementation(libs.firebase.functions)
   implementation(libs.firebase.auth)
   implementation(libs.firebase.crashlytics)
   // 3.7: notifikasi chat real-time — FCM data message ditampilkan
