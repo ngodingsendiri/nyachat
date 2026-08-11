@@ -5,6 +5,113 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-08-12 (polish UI chat, Profil & Akun, tuning AI, audit keanggotaan)
+
+> Perubahan setelah r1.2.0 (belum dirilis — versi tetap r1.2.0/27).
+
+### Added
+- **Sistem Profil & Akun (2026-08-11)**: kartu profil teratas di Settings
+  kini clickable membuka halaman profil (foto, nama, email, status akun).
+  Foto profil default dari akun Google, bisa diganti foto custom
+  (Galeri/Kamera), di-reset kembali ke Google; pilihan persistent (tidak
+  kembali ke Google saat app dibuka ulang). Nama user bisa diubah — tidak
+  kosong, langsung berlaku di seluruh aplikasi, persistent, dan tidak lagi
+  ditimpa otomatis oleh nama Google (Google hanya nama awal).
+- **+9 kategori transaksi (2026-08-11)**: 5 pemasukan & 4 pengeluaran baru —
+  pemasukan tidak lagi hanya 'Gaji & Pemasukan'.
+- **Sinkronisasi avatar antar perangkat + warna unik per anggota (P0+P1)**:
+  `AvatarStore` — mesin kompresi avatar (lokal 256px/85, cloud 128px/72
+  ≈3-10KB) + cache avatar per uid+version; `FamilyMember.avatarVersion`,
+  `uploadMyAvatar` (Blob ke Firestore, `FieldValue.delete` untuk reset),
+  map nama→path foto; I/O di `Dispatchers.IO` (anti-jank) + guard versi
+  untuk race snapshot.
+- **Background grid halus di area chat (2026-08-11)**: tekstur kotak-kotak
+  subtle 32dp (garis 0.5dp, alpha sangat rendah) — area chat tidak polos,
+  tapi grid tidak mencolok; tetap di belakang semua elemen. Dark mode
+  memakai `surfaceVariant` (hue menyatu dengan palet gelap, bukan White
+  murni yang nyaris seterang surface saat di-blend).
+
+### Fixed
+- **Audit ketahanan (2026-08-11)**: `isAiThinking` dipakai counter (race
+  saat 2 kiriman bersamaan) + hilangkan `!!` NPE di jalur snapshot.
+- **Audit r1.2.4 (2026-08-11) — 4 bug chat/AI/heuristik**:
+  - "bayar gaji/potong gaji" tidak lagi salah dikenali PEMASUKAN
+    (`incomeBlocker` diperluas);
+  - "3.5jt" (titik desimal) dibaca **3,5 juta**, bukan 35 juta (`toRupiah`);
+  - hapus 1 transaksi dari pesan MULTI → badge dihitung ulang dari sisa,
+    tidak hilang total;
+  - pertanyaan finansial: timeout/balasan generik AI diganti jawaban
+    berbasis data DB. +6 unit test regresi.
+- **Audit keanggotaan (2026-08-11, commit `ce6a192`)**:
+  - **P1-1**: role owner/member kini SINKRON saat resume & realtime —
+    owner yang di-demote dari perangkat lain langsung kehilangan UI owner
+    tanpa restart (MainActivity memantau snapshot members → update role +
+    prefs + listener joinRequests);
+  - **P2-1**: spam re-request setelah DITOLAK diblokir — tombol "Coba
+    Lagi" disembunyikan pada kondisi terminal (REJECTED/PIN_OWNED);
+  - **P2-2**: pending op tidak di-retry selamanya saat member di-kick —
+    op dibuang saat `PERMISSION_DENIED` (drain berhenti membuang kuota);
+  - **Keamanan**: kick ≠ logout total — `performKickedCleanup` kembali ke
+    layar PIN tanpa sign-out Google & tanpa hapus API key BYOK/avatar;
+  - **Identitas**: nama disinkronkan ke member doc (sekali via pref
+    `NAME_SYNCED`), label ikut tersinkron hanya bila masih default;
+  - P3: dedup `ensureSelfMemberDoc`, hapus `FAMILY_NOT_FOUND` (dead),
+    `addedAt` pakai serverTimestamp, filter digit PIN, empty-state owner.
+- **Relay aiComplete (server)**: fix crash import logger (`const
+  { logger }` → require langsung) + log debug "Relay OK" (model, panjang,
+  cuplikan) untuk observability — ditemukan live test HP (cashback shopee
+  200 ribu → PEMASUKAN via relay, model gemma-4-26b-a4b-it:free auto-rotate
+  saat 429).
+- **FAB jump-to-bottom (r1.2.0 lanjutan)**: solid penuh `surfaceVariant`
+  (tanpa cincin border) + fix crash 'Padding must be non-negative'
+  (clamp `startPadding` dari spring overshoot); kemudian diseragamkan
+  dengan chip rekomendasi — outline transparan, pusat sejajar baris chips,
+  animasi lebih soft (spring LowBouncy 600f); konstanta
+  `FAB_SPRING_STIFFNESS` diekstrak agar FAB & chipShift selalu sinkron;
+  reserve tinggi baris chips (56dp) saat FAB tampil tanpa saran cepat —
+  FAB tidak lagi menimpa pesan terakhir.
+
+### Changed
+- **Audit & rapikan SEMUA animasi (2026-08-11)**: satu motion language
+  terpusat di `ui/theme/Motion.kt` — QUICK 150ms (dismiss), FAST 200ms
+  (composer/toggle), BASE 250ms (chip/navbar/snackbar), NAV 300ms
+  (navigasi tab); semua tween memakai FastOutSlowIn (ringan, natural,
+  tanpa bounce di elemen layout). Spring hanya untuk gesture: FAB &
+  geser chips (LowBouncy 600f) dan swipe-reply bubble.
+- **Tuning AI pencatatan keuangan r1.2.4 (2026-08-11)**: schema AI baru
+  `transactions[]` (1 pesan bisa N transaksi) + `date` eksplisit; format
+  lama tetap diterima (backward compat); kategori AI dipaksa ke daftar
+  valid (`normalizeCategory`); heuristik offline: parse multi-segment aman
+  (split koma/dan/sama + fallback), guard reminder/rencana; AI menjawab
+  pertanyaan finansial BERDASARKAN data DB (bukan mengarang).
+- **Layout pesan media gaya WhatsApp/Telegram (2026-08-11)**: gambar jadi
+  bubble edge-to-edge (tanpa "frame di dalam frame" / padding besar);
+  `AttachedFileCard` diekstrak (DRY, dipakai jalur teks & media), guard
+  aspectRatio rasio ekstrem, quote media pakai aksen garis kiri, hapus
+  blok gambar dead-code di jalur teks.
+- **Polish composer & area chat (2026-08-12)**:
+  - Chip rekomendasi & FAB diberi **fill** (satu keluarga dengan pill
+    composer) + animasi masuk **kereta dari kanan** (slide + fade,
+    stagger 45ms/chip);
+  - **Batas scroll chat turun ke kolom input** (Telegram-style): daftar
+    pesan full-height, chips & FAB jadi OVERLAY melayang di atas pesan
+    dengan fill **memudar** (`CHIP_FILL_ALPHA` 0.75 dark / 0.45 light)
+    sehingga pesan yang lewat di belakangnya tetap samar terbaca;
+    contentPadding bottom dinamis & di-animasi (`CHIP_ROW_HEIGHT + 8dp`
+    saat draf kosong / 16dp saat mengetik) — tanpa layout jump.
+  - Audit kecil: `isDark` via token semantik (single source), shadow
+    preview dihapus (konsistensi tanpa shadow), `NumberFormat` di-remember;
+    urutan import ASCII; aksen bar quote media pakai
+    `IntrinsicSize.Min` mengikuti tinggi konten.
+
+### CI / Infra
+- `deploy-functions.yml`: tambah `--force` agar cleanup policy artifact
+  diset otomatis (tanpa ini deploy berakhir non-zero walau fungsi sukses),
+  catatan WIF (resource wajib di proyek `nyachat-in`, bukan
+  `ngodingsendiri-note`) + trigger deploy ulang.
+
+---
+
 ## [r1.2.0] - 2026-08-10 (T3 dekomposisi + M1 upgrade + audit UX)
 
 ### Added
