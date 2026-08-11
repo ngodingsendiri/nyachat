@@ -12,7 +12,11 @@
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
-const { logger } = require('firebase-functions/logger');
+// CATATAN: firebase-functions/logger mengekspor objek logger LANGSUNG, BUKAN
+// properti bernama `logger` — `const { logger } = require(...)` menghasilkan
+// undefined dan membuat logger.warn/error crash di runtime (bug FASE 4
+// ditemukan saat live test: TypeError reading 'warn').
+const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
 
 admin.initializeApp();
