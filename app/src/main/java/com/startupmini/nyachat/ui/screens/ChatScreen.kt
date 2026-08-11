@@ -15,6 +15,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
@@ -60,7 +61,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -382,9 +382,12 @@ fun ChatScreen(
                 // sehingga FAB dan chips saling memberi ruang tanpa menimpa.
                 val chipShift by animateDpAsState(
                     targetValue = if (shouldShowJumpButton) 64.dp else 0.dp,
+                    // r1.2.0 (masukan user): geser chips LEBIH LEMBUT & LAMBAT —
+                    // LowBouncy + stiffness 600f (±1 detik) sinkron dengan
+                    // slide-in FAB yang juga di-perlambat di bawah.
                     animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = 600f
                     ),
                     label = "chipShiftForFab"
                 )
@@ -404,11 +407,11 @@ fun ChatScreen(
             // pernah menutupi bubble chat saat scroll; chips bergeser ke kanan
             // (startPadding animasi) memberi ruang, jadi tidak saling menimpa.
             //
-            // Desain (2026-08-11, masukan user): FAB SOLID surface (mode-aware,
-            // bukan transparan) dengan shape lingkaran EKSPLISIT supaya ripple/
-            // hover ikut lingkaran (bukan kotak rounded bawaan M3), ukuran ~44dp
-            // seimbang dengan chip saran (~40dp), dan posisi kiri karena chips
-            // mengalir dari kiri ke kanan — FAB tidak "memaksa" di ujung kanan.
+            // Desain (2026-08-11, masukan user): FAB di ujung KIRI baris chips,
+            // GAYA SERAGAM dengan chip rekomendasi — transparan + border outline
+            // 1dp, ukuran 40dp (= tinggi chip), pusat SEJAJAR baris chips (bukan
+            // lebih rendah). Posisi kiri karena chips mengalir dari kiri ke kanan
+            // — FAB tidak "memaksa" di ujung kanan.
             // Catatan: pakai nama lengkap (bukan import) untuk memaksa overload
             // generik tanpa receiver — di dalam Box, resolver Kotlin justru memilih
             // ColumnScope.AnimatedVisibility dari receiver Column di luar dan gagal
@@ -421,45 +424,43 @@ fun ChatScreen(
                 visible = shouldShowJumpButton && draftText.isBlank(),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 12.dp),
+                    // bottom 8dp: baris chips total 56dp (pad 4 + row 48 + pad 4),
+                    // FAB 40dp bottom-aligned → pusat FAB 8dp lebih rendah dari
+                    // pusat chips; padding bottom menyamakan pusat keduanya.
+                    .padding(start = 12.dp, bottom = 8.dp),
                 // MASUK DARI KIRI (2026-08-11, masukan user): FAB slide dari luar
                 // tepi kiri layar (initialOffsetX = -width) + fade — bukan muncul
-                // dari bawah. Keluar juga ke kiri. Spring ringan biar elastis.
-                enter = fadeIn(animationSpec = tween(180)) +
+                // dari bawah. Keluar juga ke kiri.
+                // r1.2.0 (masukan user #3): kemunculan LEBIH SOFT — spring
+                // LowBouncy + stiffness 600f (±1 detik) menggantikan
+                // MediumBouncy/StiffnessMedium yang terasa terlalu cepat.
+                enter = fadeIn(animationSpec = tween(300)) +
                     slideInHorizontally(
                         initialOffsetX = { -it },
                         animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = 600f
                         )
                     ),
-                exit = fadeOut(animationSpec = tween(140)) +
+                exit = fadeOut(animationSpec = tween(220)) +
                     slideOutHorizontally(
                         targetOffsetX = { -it },
-                        animationSpec = tween(180)
+                        animationSpec = tween(280)
                     )
             ) {
-                // FAB SOLID PENUH (2026-08-11, masukan user #2): FloatingActionButton
-                // M3 diganti Box custom — FAB bawaan punya ukuran minimum internal
-                // (48dp) + shadow default sehingga di 40dp tampil 'lingkaran garis di
-                // luar, isi kecil di dalam' (fill terasa tidak penuh). Box custom:
-                // lingkaran 40dp SOLID penuh + shadow halus 3dp + TANPA border
-                // (border 1dp sebelumnya menciptakan kesan cincin).
-                //
-                // PENTING — fill pakai surfaceVariant, BUKAN surface: di theme ini
-                // background == surface (#FBFDF9 light / hampir sama gelap di dark),
-                // sehingga FAB isi surface INVISIBLE (putih di atas putih) — yang
-                // terlihat hanya garis/shadow + ikon = kesan 'fill gak penuh'.
-                // surfaceVariant (#DBE5E0 light / #2C3331 dark) jelas kontras di
-                // kedua mode, selaras dengan keluarga warna composer pill.
-                // Ripple ter-clip lingkaran sempurna karena clip sebelum clickable.
+                // FAB OUTLINE TRANSPARAN (2026-08-11, masukan user #3): gaya
+                // DISERAGAMKAN dengan chip rekomendasi — transparan + border
+                // outlineVariant 1dp (bukan fill solid, BUKAN shadow). Alasan
+                // user: FAB berada di area yang sama dengan baris chips, jadi
+                // wajib gaya/ukuran/tinggi yang sama (40dp). Ikon panah primary
+                // tetap menjadi penanda tombol. Ripple ter-clip lingkaran
+                // (clip sebelum clickable); border digambar di atas ripple.
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .shadow(3.dp, CircleShape)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clickable { coroutineScope.launch { listState.animateScrollToItem(rows.size - 1) } }
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                         .testTag("jump_to_bottom"),
                     contentAlignment = Alignment.Center
                 ) {
