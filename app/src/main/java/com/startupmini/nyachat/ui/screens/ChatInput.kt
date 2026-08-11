@@ -98,6 +98,14 @@ private val CHAT_BAR_HEIGHT = 52.dp
 /** Tinggi minimum kolom input (48dp) = pill 52dp dikurangi padding row 2dp×2. */
 private val CHAT_FIELD_MIN_HEIGHT = CHAT_BAR_HEIGHT - 4.dp
 
+/**
+ * Tinggi total baris saran cepat (pad atas 4dp + row 48dp + pad bawah 4dp =
+ * 56dp) — dipakai ChatScreen untuk MERESERVE ruang yang sama saat baris saran
+ * tidak tampil (quickSuggestions kosong) tetapi FAB jump-to-bottom tampil,
+ * supaya FAB overlay tidak menimpa pesan terakhir yang masih terbaca.
+ */
+internal val QUICK_SUGGESTION_ROW_HEIGHT = 56.dp
+
 @Composable
 fun QuickSuggestionRow(
     suggestions: List<String>,

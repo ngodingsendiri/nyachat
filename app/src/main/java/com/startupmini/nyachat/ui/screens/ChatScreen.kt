@@ -404,6 +404,14 @@ fun ChatScreen(
                         onSuggestionClicked = { onDraftChange(it) },
                         startPadding = chipShift
                     )
+                } else if (shouldShowJumpButton && draftText.isBlank()) {
+                    // FAB tampil TANPA baris saran (quickSuggestions kosong):
+                    // reserve tinggi baris chips (56dp) supaya FAB overlay di
+                    // ujung kiri-bawah TIDAK menimpa pesan terakhir yang masih
+                    // terbaca saat scroll (masukan user 2026-08-11). Tanpa ini,
+                    // LazyColumn memanjang sampai dasar Box dan FAB menutupi
+                    // bubble terakhir di area kiri-bawah.
+                    Spacer(modifier = Modifier.height(QUICK_SUGGESTION_ROW_HEIGHT))
                 }
             } // end Column dalam Box (list + chips)
 
