@@ -73,10 +73,17 @@ class FirestoreSyncManagerConflictTest {
             store.values.firstOrNull { it.cloudId == cloudId }
         override suspend fun getByChatMessageId(chatMessageId: Long): FinancialTransaction? =
             store.values.firstOrNull { it.chatMessageId == chatMessageId }
+        // r1.2.4 (tuning AI): multi-transaksi per pesan.
+        override suspend fun getAllByChatMessageId(chatMessageId: Long): List<FinancialTransaction> =
+            store.values.filter { it.chatMessageId == chatMessageId }
         override suspend fun getBySourceMessageCloudId(sourceMessageCloudId: String): FinancialTransaction? =
             store.values.firstOrNull { it.sourceMessageCloudId == sourceMessageCloudId }
         override suspend fun deleteByCloudId(cloudId: String) {
             store.values.removeAll { it.cloudId == cloudId }
+        }
+        // r1.2.4: hapus semua transaksi milik satu pesan.
+        override suspend fun deleteByChatMessageId(chatMessageId: Long) {
+            store.values.removeAll { it.chatMessageId == chatMessageId }
         }
         override suspend fun deleteAllTransactions() { store.clear() }
     }

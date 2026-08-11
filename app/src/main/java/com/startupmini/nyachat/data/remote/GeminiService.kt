@@ -17,6 +17,23 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
+/**
+ * SATU transaksi hasil parse (r1.2.4 — tuning AI). Pesan bisa memuat BANYAK
+ * transaksi ("beli bakso 15rb, bensin 30rb sama rokok 20rb") sehingga hasil
+ * parse memakai [AiChatParseResult.transactions]; field tunggal pada
+ * [AiChatParseResult] (type/category/amount/description) tetap diisi dengan
+ * ringkasan (transaksi pertama + total nominal) untuk kompatibilitas UI lama.
+ */
+data class AiTransaction(
+    val type: String, // "PENGELUARAN" or "PEMASUKAN"
+    val category: String,
+    val amount: Double,
+    val description: String,
+    // Timestamp eksplisit (tuning AI): diisi saat pesan menyebut waktu transaksi
+    // ("kemarin", "minggu lalu", tanggal tertentu). null → pakai waktu pesan.
+    val timestamp: Long? = null
+)
+
 data class AiChatParseResult(
     val containsTransaction: Boolean,
     val type: String? = null, // "PENGELUARAN" or "PEMASUKAN"
@@ -26,8 +43,31 @@ data class AiChatParseResult(
     val aiReply: String,
     // M7: asal deteksi — "AI" (Gemini/OpenRouter) atau "HEURISTIK" (fallback
     // offline). Disimpan di ChatMessage.detectedBy untuk indikator badge UI.
-    val detectedBy: String? = null
-)
+    val detectedBy: String? = null,
+    // r1.2.4: daftar transaksi lengkap (bisa > 1). Kosong → hanya field tunggal.
+    val transactions: List<AiTransaction> = emptyList()
+) {
+    /**
+     * Semua transaksi hasil parse — sumber kebenaran untuk penyimpanan.
+     * Format lama (field tunggal) dipetakan ke list 1 item bila list kosong.
+     */
+    val all: List<AiTransaction>
+        get() = if (transactions.isNotEmpty()) {
+            transactions
+        } else if (containsTransaction && amount != null && amount > 0) {
+            listOf(
+                AiTransaction(
+                    type = type ?: Constants.TransactionTypes.EXPENSE,
+                    category = category ?: Constants.Categories.MISC,
+                    amount = amount,
+                    description = description ?: "",
+                    timestamp = null
+                )
+            )
+        } else {
+            emptyList()
+        }
+}
 
 object GeminiService {
 
@@ -594,49 +634,51 @@ object GeminiService {
         }
     }
 
-    /** Prompt khusus untuk foto nota/bukti belanja — AI diminta membaca isi foto
-     *  lalu mengeluarkan JSON transaksi yang sama dengan parser teks. */
+    /**
+     * Daftar kategori valid dinamis dari Constants (tuning AI r1.2.4) — satu
+     * sumber kebenaran, tidak boleh diverge dari daftar yang dipakai UI Rekap.
+     */
+    private fun categoryListForPrompt(): String {
+        val expense = Constants.Categories.EXPENSE_ALL.joinToString("\n- ")
+        val income = Constants.Categories.INCOME_ALL.joinToString("\n- ")
+        return "PENGELUARAN:\n- $expense\n\nPEMASUKAN:\n- $income"
+    }
+
+    /**
+     * Prompt khusus untuk foto nota/bukti belanja — AI diminta membaca isi foto
+     * lalu mengeluarkan JSON transaksi (format array, tuning AI r1.2.4).
+     */
     private fun buildReceiptPrompt(messageText: String, sender: String, recentContext: List<ChatMessage>): String {
         val contextBlock = contextBlock(recentContext)
         return """
             Kamu adalah 'Asisten Nyachat' yang bertugas membaca FOTO NOTA / BUKTI BELANJA / STRUK dari $sender.
-            
+
             Konteks obrolan terbaru (untuk mencocokkan kategori/deskripsi yang konsisten):
             ${contextBlock.ifEmpty { "— (riwayat kosong)" }}
-            
+
             Foto yang kamu terima adalah nota belanja. Analisis foto tersebut dan catat TOTAL pengeluarannya.
             Keterangan tambahan dari pengirim: "$messageText"
-            
-            PILIHAN KATEGORI VALID:
-            - Groceries & Sembako
-            - Makanan & Minuman
-            - Tagihan & Utilitas
-            - Kebutuhan Anak
-            - Transportasi
-            - Kesehatan & Skincare
-            - Hiburan & Belanja
-            - Cicilan & Pinjaman
-            - Pendidikan
-            - Sosial & Donasi
-            - Asuransi & Pajak
-            - Lain-lain
-            - Gaji & Pemasukan
-            - Bonus & Komisi
-            - Usaha & Jualan
-            - Investasi & Dividen
-            - Hadiah & Arisan
-            - Cashback & Refund
-            
-            Keluarkan jawaban HANYA berupa JSON valid dalam format persis seperti ini:
+
+            KATEGORI VALID (hanya dari daftar ini, sesuaikan jenis barang di nota):
+            ${categoryListForPrompt()}
+
+            Nominal dalam RUPIAH PENUH tanpa desimal (contoh: 150000 untuk Rp 150.000).
+
+            Keluarkan jawaban HANYA berupa JSON valid:
             {
               "containsTransaction": true,
-              "type": "PENGELUARAN",
-              "category": "Groceries & Sembako",
-              "amount": 150000,
-              "description": "Nota belanja [nama toko di nota]",
+              "transactions": [
+                {
+                  "type": "PENGELUARAN",
+                  "category": "Groceries & Sembako",
+                  "amount": 150000,
+                  "description": "Nota belanja [nama toko di nota]",
+                  "date": ""
+                }
+              ],
               "aiReply": "Nota belanja dicatat: Rp 150.000 (Groceries & Sembako)."
             }
-            
+
             Jika foto bukan nota / tidak terbaca dengan jelas, kirimkan:
             {
               "containsTransaction": false,
@@ -645,52 +687,60 @@ object GeminiService {
         """.trimIndent()
     }
 
+    /**
+     * Prompt parser transaksi (tuning AI r1.2.4): instruksi eksplisit untuk
+     * konteks lanjutan, multi-transaksi, koreksi/pembatalan, ambiguitas, dan
+     * larangan mencatat non-transaksi — sesuai prinsip utama "lebih baik tidak
+     * mencatat daripada mencatat yang salah".
+     */
     private fun buildParsePrompt(messageText: String, sender: String, recentContext: List<ChatMessage>): String {
         val contextBlock = contextBlock(recentContext)
         return """
             Kamu adalah 'Asisten Nyachat' yang bertugas memantau obrolan transaksi finansial pada grup, lembaga, atau rumah tangga.
-            
+
             Konteks obrolan terbaru (untuk mencocokkan kategori/deskripsi yang konsisten):
             ${contextBlock.ifEmpty { "— (riwayat kosong)" }}
-            
+
             Pesan masuk dari $sender: "$messageText"
-            
-            Analisis apakah pesan di atas mengandung catatan transaksi, pengeluaran, iuran, tagihan, atau pemasukan dana.
-            
-            PILIHAN KATEGORI VALID:
-            - Groceries & Sembako
-            - Makanan & Minuman
-            - Tagihan & Utilitas
-            - Kebutuhan Anak
-            - Transportasi
-            - Kesehatan & Skincare
-            - Hiburan & Belanja
-            - Cicilan & Pinjaman
-            - Pendidikan
-            - Sosial & Donasi
-            - Asuransi & Pajak
-            - Lain-lain
-            - Gaji & Pemasukan
-            - Bonus & Komisi
-            - Usaha & Jualan
-            - Investasi & Dividen
-            - Hadiah & Arisan
-            - Cashback & Refund
-            
-            Keluarkan jawaban HANYA berupa JSON valid dalam format persis seperti ini:
+
+            TUGAS & ATURAN:
+            1. Deteksi TRANSAKSI KEUANGAN (pengeluaran, iuran, tagihan, pemasukan dana).
+            2. SATU pesan bisa memuat BANYAK transaksi ("beli bakso 15 ribu, bensin 30 ribu sama rokok 20 ribu") — kembalikan SEMUA dalam array "transactions", masing-masing dengan nominal dan kategorinya.
+            3. KONTEKS LANJUTAN: jika pesan melanjutkan transaksi sebelumnya tanpa menyebut jenis transaksi baru (mis. "sama es teh 5 ribu" setelah "beli bakso 15 ribu"), catat transaksi lanjutan yang wajar dengan nominal yang disebut. Jangan mencatat ulang transaksi yang sudah ada di konteks.
+            4. KOREKSI / PEMBATALAN ("eh bukan 15 ribu, 25 ribu", "yang tadi salah", "batal", "hapus yang tadi"): JANGAN membuat transaksi baru. Kembalikan containsTransaction=false dengan aiReply singkat yang menjelaskan bahwa tidak ada transaksi baru dicatat dan user dapat mengedit pesan sebelumnya.
+            5. AMBIGU: jika ada nominal tapi maksud tidak jelas / bukan transaksi yang pasti, JANGAN memaksakan. containsTransaction=false, aiReply meminta klarifikasi.
+            6. JANGAN catat sebagai transaksi: pertanyaan keuangan, rencana, pengingat ("ingatkan saya beli bakso"), perintah non-transaksi.
+            7. NOMINAL: tulis RUPIAH PENUH tanpa desimal (50000, 2500000, bukan 50 atau 2.5).
+            8. KATEGORI: HANYA dari daftar valid di bawah dan harus sesuai TIPE transaksi (pengeluaran tidak boleh kategori pemasukan, dst). Jangan mengarang kategori.
+            9. TANGGAL: jika pesan menyebut waktu transaksi ("kemarin", "kemarin sore", "minggu lalu", "tanggal 12"), isi "date" dengan format YYYY-MM-DD. Jika tidak disebut, biarkan "date": "".
+            10. "aiReply" dalam Bahasa Indonesia, ringkas, menyebut jumlah transaksi & nominal total yang dicatat.
+
+            KATEGORI VALID:
+            ${categoryListForPrompt()}
+
+            Keluarkan jawaban HANYA berupa JSON valid, tanpa teks lain. Contoh untuk banyak transaksi:
             {
               "containsTransaction": true,
-              "type": "PENGELUARAN" atau "PEMASUKAN",
-              "category": "Makanan & Minuman",
-              "amount": 50000,
-              "description": "Beli nasi padang",
-              "aiReply": "Transaksi 'Beli nasi padang' sebesar Rp 50.000 telah dicatat otomatis."
+              "transactions": [
+                { "type": "PENGELUARAN", "category": "Makanan & Minuman", "amount": 15000, "description": "Beli bakso", "date": "" },
+                { "type": "PENGELUARAN", "category": "Transportasi", "amount": 30000, "description": "Bensin", "date": "" }
+              ],
+              "aiReply": "2 transaksi dicatat: Rp 15.000 (Makanan & Minuman) + Rp 30.000 (Transportasi)."
             }
-            
-            Jika tidak mengandung transaksi keuangan, kirimkan:
+
+            Contoh satu transaksi:
+            {
+              "containsTransaction": true,
+              "transactions": [
+                { "type": "PEMASUKAN", "category": "Gaji & Pemasukan", "amount": 5000000, "description": "Gajian", "date": "" }
+              ],
+              "aiReply": "Pemasukan Rp 5.000.000 (Gaji & Pemasukan) dicatat."
+            }
+
+            Jika tidak ada transaksi keuangan:
             {
               "containsTransaction": false,
-              "aiReply": "Catatan pesan tersimpan dalam ruang obrolan."
+              "aiReply": "Pesan ini tidak dicatat sebagai transaksi."
             }
         """.trimIndent()
     }
@@ -769,35 +819,149 @@ object GeminiService {
         return parts.getJSONObject(0).optString("text")
     }
 
+    /**
+     * Parse respons AI (format baru ARRAY + format lama field tunggal).
+     *
+     * Format baru (r1.2.4): `transactions: [{type, category, amount, description, date}]`
+     * — mendukung multi-transaksi & tanggal eksplisit. Format lama
+     * `{type, category, amount, description}` tetap diterima (backward compat).
+     * Kategori yang diarang AI dipaksa ke daftar valid (tuning AI: tidak boleh
+     * sembarang kategori). Nominal <= 0 dibuang.
+     */
     private fun parseJsonResponse(rawGeminiJson: String, originalText: String, sender: String): AiChatParseResult? {
         val responseText = extractTextFromGeminiResponse(rawGeminiJson) ?: return null
         // Clean JSON formatting
         val cleanedJson = responseText.replace("```json", "").replace("```", "").trim()
-        
+
         return try {
             val json = JSONObject(cleanedJson)
             val contains = json.optBoolean("containsTransaction", false)
-            if (contains) {
-                AiChatParseResult(
-                    containsTransaction = true,
-                    type = json.optString("type", Constants.TransactionTypes.EXPENSE),
-                    category = json.optString("category", "Lain-lain"),
-                    amount = json.optDouble("amount", 0.0),
-                    description = json.optString("description", originalText),
-                    aiReply = json.optString("aiReply", "Pesan telah dicatat sebagai transaksi."),
-                    // M7: hasil dari AI (Gemini/OpenRouter) — bukan heuristik lokal.
-                    detectedBy = "AI"
-                )
-            } else {
-                AiChatParseResult(
+            if (!contains) {
+                return AiChatParseResult(
                     containsTransaction = false,
                     aiReply = json.optString("aiReply", "Pesan tercatat dalam obrolan.")
                 )
             }
+
+            // 1) Format baru: array "transactions"
+            val arr = json.optJSONArray("transactions")
+            val txList = mutableListOf<AiTransaction>()
+            if (arr != null && arr.length() > 0) {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val amount = o.optDouble("amount", 0.0)
+                    if (amount <= 0) continue
+                    val type = if (o.optString("type", "") == Constants.TransactionTypes.INCOME) {
+                        Constants.TransactionTypes.INCOME
+                    } else {
+                        Constants.TransactionTypes.EXPENSE
+                    }
+                    val category = normalizeCategory(type, o.optString("category", ""))
+                    txList += AiTransaction(
+                        type = type,
+                        category = category,
+                        amount = amount,
+                        description = o.optString("description", originalText),
+                        timestamp = parseDateString(o.optString("date", ""))
+                    )
+                }
+            }
+            if (txList.isNotEmpty()) {
+                val total = txList.sumOf { it.amount }
+                return AiChatParseResult(
+                    containsTransaction = true,
+                    type = txList.first().type,
+                    category = txList.first().category,
+                    amount = total,
+                    description = txList.first().description,
+                    aiReply = json.optString("aiReply").ifBlank { buildMultiAiReply(txList) },
+                    detectedBy = "AI",
+                    transactions = txList
+                )
+            }
+
+            // 2) Format lama: field tunggal
+            val amount = json.optDouble("amount", 0.0)
+            if (amount <= 0) {
+                return AiChatParseResult(
+                    containsTransaction = false,
+                    aiReply = json.optString("aiReply", "Tidak ada transaksi dicatat.")
+                )
+            }
+            val type = if (json.optString("type", "") == Constants.TransactionTypes.INCOME) {
+                Constants.TransactionTypes.INCOME
+            } else {
+                Constants.TransactionTypes.EXPENSE
+            }
+            AiChatParseResult(
+                containsTransaction = true,
+                type = type,
+                category = normalizeCategory(type, json.optString("category", "")),
+                amount = amount,
+                description = json.optString("description", originalText),
+                aiReply = json.optString("aiReply", "Pesan telah dicatat sebagai transaksi."),
+                // M7: hasil dari AI (Gemini/OpenRouter) — bukan heuristik lokal.
+                detectedBy = "AI"
+            )
         } catch (e: Exception) {
             Log.w("GeminiService", "Respons AI bukan JSON valid", e)
             null
         }
+    }
+
+    /**
+     * Paksa kategori hasil AI ke daftar VALID (tuning AI): kategori yang diarang
+     * tidak boleh masuk Rekap. Cocokkan persis dulu, lalu case-insensitive;
+     * gagal → default sesuai tipe (pengeluaran → Lain-lain, pemasukan →
+     * Gaji & Pemasukan) supaya data tidak pernah kategori sampah.
+     */
+    internal fun normalizeCategory(type: String, raw: String): String {
+        val valid = if (type == Constants.TransactionTypes.INCOME) {
+            Constants.Categories.INCOME_ALL
+        } else {
+            Constants.Categories.EXPENSE_ALL
+        }
+        if (raw.isBlank()) {
+            return if (type == Constants.TransactionTypes.INCOME) {
+                Constants.Categories.SALARY
+            } else {
+                Constants.Categories.MISC
+            }
+        }
+        val exact = valid.firstOrNull { it == raw }
+        if (exact != null) return exact
+        return valid.firstOrNull { it.equals(raw, ignoreCase = true) }
+            ?: if (type == Constants.TransactionTypes.INCOME) {
+                Constants.Categories.SALARY
+            } else {
+                Constants.Categories.MISC
+            }
+    }
+
+    /** Konversi "YYYY-MM-DD" (zona lokal) ke epoch ms. null bila kosong/tidak valid. */
+    internal fun parseDateString(date: String): Long? {
+        if (date.isBlank()) return null
+        return try {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            sdf.isLenient = false
+            sdf.parse(date.trim())?.time
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** aiReply default untuk multi-transaksi bila AI tidak mengisinya. */
+    private fun buildMultiAiReply(txList: List<AiTransaction>): String {
+        if (txList.size == 1) {
+            val t = txList.first()
+            val label = if (t.type == Constants.TransactionTypes.INCOME) "Pemasukan" else "Pengeluaran"
+            return "$label Rp ${formatSuggestionAmount(t.amount)} (${t.category}) dicatat."
+        }
+        val ringkas = txList.take(3).joinToString(" + ") {
+            "Rp ${formatSuggestionAmount(it.amount)} (${it.category})"
+        }
+        val sisa = txList.size - 3
+        return "${txList.size} transaksi dicatat: $ringkas${if (sisa > 0) " + $sisa lainnya" else ""}."
     }
 
     /** Pola angka + satuan opsional: "50rb", "50.000", "2,5jt", "5 juta", "10k".
@@ -847,54 +1011,110 @@ object GeminiService {
         }
     }
 
-    internal fun offlineHeuristicParse(messageText: String, sender: String): AiChatParseResult {
-        val textLower = messageText.lowercase()
+    // ---- r1.2.4 (tuning AI): mesin heuristik offline multi-transaksi ----
 
-        // Amount detection: angka bersatuan (rb/jt/k) dimenangkan atas angka polos
-        // pertama — lihat extractAmountFromText.
+    /**
+     * Deteksi tanggal dari frasa waktu bahasa Indonesia (tuning AI): "kemarin",
+     * "tadi", "minggu lalu", "tanggal N". Return OFFSET ms relatif sekarang
+     * (negatif = masa lalu); null bila tidak ada indikasi waktu. Dipakai untuk
+     * mengisi timestamp transaksi agar Rekap tidak selalu memakai waktu proses.
+     */
+    internal fun detectDateOffset(textLower: String): Long? {
+        val dayMs = 86_400_000L
+        return when {
+            // "kemarin lusa" harus dicek DULU — "kemarin lusa" mengandung "kemarin"
+            // sehingga cabang "kemarin" akan menang lebih dulu (review r1.2.4).
+            textLower.contains("kemarin lusa") -> -2 * dayMs
+            textLower.contains("kemarin") || textLower.contains("tadi malam") ||
+                textLower.contains("tadi sore") -> -dayMs
+            textLower.contains("tadi") -> -2 * 3_600_000L // "tadi pagi/siang" ≈ beberapa jam lalu
+            textLower.contains("minggu lalu") || textLower.contains("pekan lalu") -> -7 * dayMs
+            textLower.contains("bulan lalu") -> -30 * dayMs
+            textLower.contains("tanggal") || textLower.contains("tgl") -> {
+                // "tanggal 12" → tanggal 12 bulan ini; BILA sudah lewat (offset positif
+                // = masa depan), geser ke bulan SEBELUMNYA supaya timestamp tidak
+                // pernah di masa depan (review r1.2.4).
+                val m = Regex("""(?:tanggal|tgl)\s*(\d{1,2})""").find(textLower)
+                val day = m?.groupValues?.get(1)?.toIntOrNull() ?: return null
+                val now = System.currentTimeMillis()
+                val cal = java.util.Calendar.getInstance()
+                cal.set(java.util.Calendar.DAY_OF_MONTH, day.coerceIn(1, 31))
+                if (cal.timeInMillis > now) {
+                    cal.add(java.util.Calendar.MONTH, -1)
+                }
+                cal.timeInMillis - now
+            }
+            else -> null
+        }
+    }
+
+    /**
+     * Pisahkan teks menjadi segmen kandidat multi-transaksi. Separator: koma,
+     * titik koma, " dan ", " sama ", " atau " (kata utuh).
+     *
+     * ATURAN AMAN (tuning AI): hasil split dipakai HANYA jika tidak ada segmen
+     * yang MENGANDUNG ANGKA namun gagal jadi transaksi — mis. "beli sayur dan
+     * buah 20rb" maksudnya SATU transaksi; split " dan " akan memecahnya jadi
+     * "beli sayur" (tanpa angka) + "buah 20rb" (angka tanpa trigger). Dalam
+     * kasus seperti ini, fallback ke parse utuh supaya tidak ada transaksi yang
+     * hilang atau salah. Prinsip: jangan pernah salah catat.
+     */
+    internal fun splitTransactionSegments(text: String): List<String> {
+        val split = text.trim()
+            .split(Regex(""",\s*|;\s*|\s+dan\s+|\s+sama\s+|\s+atau\s+"""))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (split.size <= 1) return split.ifEmpty { listOf(text.trim()) }
+
+        // Verifikasi: setiap segmen berisi angka harus menghasilkan transaksi.
+        val allValid = split.all { seg ->
+            val segLower = seg.lowercase()
+            val hasNumber = NUMBER_UNIT_PATTERN.matcher(segLower).find()
+            !hasNumber || parseSegment(segLower, seg) != null
+        }
+        return if (allValid) split else listOf(text.trim())
+    }
+
+    /**
+     * Parse SATU segmen menjadi transaksi (inti logika heuristik lama, di-refactor
+     * agar bisa dipanggil per segmen untuk multi-transaksi). Return null bila
+     * segmen tidak memuat transaksi yang jelas. [segText] asli dipakai untuk
+     * deskripsi; [textLower] versi lowercase untuk pencocokan kata kunci.
+     */
+    private fun parseSegment(textLower: String, segText: String): AiTransaction? {
         val amount = extractAmountFromText(textLower)
+        if (amount == null || amount <= 0) return null
 
-        // Income: frasa penerimaan dana yang lazim dipakai user Indonesia. Mencakup
-        // kombinasi verba menerima (terima/dapat/menerima/cair/masuk) + sumber dana
-        // (gaji, bonus, komisi, dividen, arisan, rejeki, hadiah, undian) DAN sumber
-        // yang praktis selalu "masuk" berdiri sendiri (gaji, dividen, rejeki,
-        // warisan, hibah, undian). Sebelumnya hanya 6 frasa — "dapat arisan 50jt",
-        // "terima dividen 3jt" dll. tidak terekap (laporan user 2026-08-10).
-        // Catatan: "arisan" sengaja TIDAK mandiri — "bayar/setor arisan" adalah
-        // pengeluaran; hanya "dapat/terima/menang/cair arisan" yang dianggap masuk.
         val isIncome = listOf(
-            // gaji
             "terima gaji", "dapat gaji", "menerima gaji", "gaji masuk", "gaji cair", "cair gaji", "gaji",
-            // bonus
             "terima bonus", "dapat bonus", "menerima bonus", "bonus masuk", "bonus cair", "cair bonus",
-            // komisi
             "terima komisi", "dapat komisi", "menerima komisi", "komisi masuk", "komisi cair", "cair komisi",
-            // dividen
+            "bonus", // r1.2.4: mandiri (paritas dgn "gaji"/"dividen") — "gaji 5jt dan bonus 2jt"
             "terima dividen", "dapat dividen", "menerima dividen", "dividen masuk", "dividen cair", "cair dividen", "dividen",
-            // arisan (hanya saat diterima)
             "terima arisan", "dapat arisan", "menerima arisan", "arisan masuk", "arisan cair", "cair arisan", "menang arisan",
-            // rejeki / uang / hadiah / undian
             "terima rejeki", "dapat rejeki", "menerima rejeki", "rejeki nomplok", "rejeki",
             "terima uang", "dapat uang", "menerima uang", "uang masuk", "uang jajan masuk",
             "terima hadiah", "dapat hadiah", "menerima hadiah", "menang undian", "dapat undian", "undian",
-            // r1.2.2: usaha & jualan (hanya saat menerima hasil, bukan "beli")
             "hasil jualan", "hasil dagang", "hasil usaha", "omzet", "omset", "penjualan",
             "laku", "terjual", "dapat hasil", "terima hasil",
-            // r1.2.2: cashback & refund (uang kembali = pemasukan)
             "cashback", "refund", "pengembalian dana", "uang kembali",
-            // r1.2.2: bonus / THR / insentif / tips (frasa lengkap — "bayar THR"
-            // dan "kasih tips" tetap pengeluaran karena bukan frasa menerima)
             "terima thr", "dapat thr", "thr masuk", "thr cair",
             "terima insentif", "dapat insentif", "insentif masuk",
             "terima tips", "dapat tips", "menerima tips",
-            // r1.2.2: investasi (bunga bank/deposito, bagi hasil sudah di atas)
             "bunga bank", "bunga deposito", "cair deposito", "kupon obligasi",
-            // umum
             "transfer masuk", "pemasukan", "pencairan", "bagi hasil", "warisan", "hibah"
         ).any { textLower.contains(it) }
 
-        val isExpenseTrigger = amount != null && (
-                textLower.contains("beli") || textLower.contains("bayar") ||
+        // r1.2.4 (review): "bonus/komisi/tips/insentif/thr" mandiri bisa berarti
+        // MENGELUARKAN ("bagi bonus 500rb", "kasih tips 20rb", "bayar komisi") —
+        // blokir deteksi income bila ada verba pengeluaran yang menempel. "bagi
+        // hasil" (investasi) TIDAK kena karena "hasil" bukan kata yang diblokir.
+        val incomeBlocker = Regex(
+            "(bagi|kasih|setor|kirim|beri|bayar)\\s+(bonus|komisi|tips|insentif|thr)"
+        ).containsMatchIn(textLower)
+
+        val isExpenseTrigger = (
+            textLower.contains("beli") || textLower.contains("bayar") ||
                 textLower.contains("pengeluaran") || textLower.contains("habis") ||
                 textLower.contains("belanja") || textLower.contains("ongkir") ||
                 textLower.contains("sewa") || textLower.contains("pulsa") ||
@@ -905,8 +1125,6 @@ object GeminiService {
                 textLower.contains("ojek") || textLower.contains("grab") ||
                 textLower.contains("gojek") || textLower.contains("tol") ||
                 textLower.contains("parkir") || textLower.contains("isi") ||
-                // r1.2.2: kata kunci kategori pengeluaran baru (Cicilan & Pinjaman,
-                // Pendidikan, Sosial & Donasi, Asuransi & Pajak).
                 textLower.contains("cicilan") || textLower.contains("kredit") ||
                 textLower.contains("angsuran") || textLower.contains("hutang") ||
                 textLower.contains("utang") || textLower.contains("pinjaman") ||
@@ -917,12 +1135,11 @@ object GeminiService {
                 textLower.contains("donasi") || textLower.contains("sumbangan") ||
                 textLower.contains("asuransi") || textLower.contains("premi") ||
                 textLower.contains("pajak") || textLower.contains("stnk") ||
-                textLower.contains("bpjs") || textLower.contains("topup") || textLower.contains("top up")
-        )
+                textLower.contains("bpjs") || textLower.contains("topup") || textLower.contains("top up") ||
+                textLower.contains("rokok") || textLower.contains("tembakau") // r1.2.4: barang konsumsi
+            )
 
-        if (isIncome && amount != null && amount > 0) {
-            // r1.2.2: pemasukan dipetakan ke kategori spesifik (bukan selalu
-            // "Gaji & Pemasukan") — dividen/arisan/jualan/cashback terpisah.
+        if (isIncome && !incomeBlocker) {
             val category = when {
                 textLower.contains("jual") || textLower.contains("dagang") || textLower.contains("omzet") ||
                     textLower.contains("omset") || textLower.contains("orderan") || textLower.contains("usaha") ||
@@ -943,28 +1160,20 @@ object GeminiService {
                     Constants.Categories.BONUS
                 else -> Constants.Categories.SALARY
             }
-            return AiChatParseResult(
-                containsTransaction = true,
+            return AiTransaction(
                 type = Constants.TransactionTypes.INCOME,
                 category = category,
                 amount = amount,
-                description = messageText,
-                // M7: dihasilkan mesin aturan lokal (fallback offline) — bukan AI.
-                detectedBy = "HEURISTIK",
-                aiReply = "Mantap! Aku catat PEMASUKAN sebesar Rp ${amount.toLong()} ($category: ${messageText}). Saldo bertambah! 💰"
+                description = segText,
+                timestamp = nowPlus(detectDateOffset(textLower))
             )
-        } else if (isExpenseTrigger && amount > 0) {
+        }
+
+        if (isExpenseTrigger) {
             val category = when {
                 textLower.contains("beras") || textLower.contains("minyak") || textLower.contains("sayur") || textLower.contains("sembako") || textLower.contains("pasar") || textLower.contains("supermarket") || textLower.contains("market") -> "Groceries & Sembako"
                 textLower.contains("makan") || textLower.contains("minum") || textLower.contains("kopi") || textLower.contains("bakso") || textLower.contains("snack") || textLower.contains("nasi") -> "Makanan & Minuman"
-                // "pbb" sengaja TIDAK di sini — PBB adalah pajak, masuk
-                // "Asuransi & Pajak" (r1.2.2). Token listrik tetap Utilitas.
                 textLower.contains("listrik") || textLower.contains("air") || textLower.contains("wifi") || textLower.contains("pulsa") || textLower.contains("kontrakan") || textLower.contains("token") -> "Tagihan & Utilitas"
-                // Pendidikan DICENTANG DULU dari "Kebutuhan Anak" (r1.2.2):
-                // "SPP anak" / "les anak" adalah biaya PENDIDIKAN, bukan sekadar
-                // kebutuhan anak — kata "anak" pada SPP tidak boleh menang.
-                // "lesehan" (warung kaki lima) mengandung "les" — dieksklusi supaya
-                // "makan lesehan" tidak salah masuk Pendidikan (r1.2.2 review).
                 textLower.contains("spp") || textLower.contains("kuliah") ||
                     (textLower.contains("les") && !textLower.contains("lesehan")) ||
                     textLower.contains("kursus") || textLower.contains("bimbel") || textLower.contains("uang gedung") ||
@@ -972,39 +1181,107 @@ object GeminiService {
                 textLower.contains("popok") || textLower.contains("susu") || textLower.contains("sekolah") || textLower.contains("mainan") || textLower.contains("anak") -> "Kebutuhan Anak"
                 textLower.contains("bensin") || textLower.contains("ojek") || textLower.contains("grab") || textLower.contains("gojek") || textLower.contains("tol") || textLower.contains("parkir") || textLower.contains("taxi") -> "Transportasi"
                 textLower.contains("skincare") || textLower.contains("obat") || textLower.contains("dokter") || textLower.contains("sabun") || textLower.contains("shampoo") -> "Kesehatan & Skincare"
-                textLower.contains("baju") || textLower.contains("sepatu") || textLower.contains("nonton") || textLower.contains("tas") || textLower.contains("shopee") || textLower.contains("tokped") || textLower.contains("belanja") -> "Hiburan & Belanja"
-                // r1.2.2: kategori pengeluaran baru (Pendidikan sudah dicek di atas,
-                // sebelum Kebutuhan Anak, supaya "SPP anak" masuk Pendidikan).
+                textLower.contains("baju") || textLower.contains("sepatu") || textLower.contains("nonton") || textLower.contains("tas") || textLower.contains("shopee") || textLower.contains("tokped") || textLower.contains("belanja") ||
+                    textLower.contains("rokok") || textLower.contains("tembakau") -> "Hiburan & Belanja"
                 textLower.contains("cicilan") || textLower.contains("kredit") || textLower.contains("angsuran") ||
                     textLower.contains("kpr") || textLower.contains("kkb") || textLower.contains("hutang") ||
                     textLower.contains("utang") || textLower.contains("pinjaman") || textLower.contains("nyicil") -> "Cicilan & Pinjaman"
                 textLower.contains("sedekah") || textLower.contains("zakat") || textLower.contains("infaq") ||
                     textLower.contains("infak") || textLower.contains("donasi") || textLower.contains("sumbangan") ||
                     textLower.contains("amal") || textLower.contains("kotak amal") -> "Sosial & Donasi"
-                // "premium" mengandung "premi" — dieksklusi supaya "beli barang
-                // premium" tidak salah masuk Asuransi & Pajak (r1.2.2 review).
                 textLower.contains("asuransi") || (textLower.contains("premi") && !textLower.contains("premium")) ||
                     textLower.contains("pajak") ||
                     textLower.contains("stnk") || textLower.contains("pbb") || textLower.contains("bpjs") ||
                     textLower.contains("retribusi") -> "Asuransi & Pajak"
                 else -> "Lain-lain"
             }
-
-            return AiChatParseResult(
-                containsTransaction = true,
+            return AiTransaction(
                 type = Constants.TransactionTypes.EXPENSE,
                 category = category,
                 amount = amount,
-                description = messageText,
-                // M7: hasil mesin heuristik offline.gv
-                detectedBy = "HEURISTIK",
-                aiReply = "Pengeluaran Rp ${amount.toLong()} ($category: $messageText) dicatat oleh $sender."
+                description = segText,
+                timestamp = nowPlus(detectDateOffset(textLower))
             )
         }
 
+        return null
+    }
+
+    /** now + offset (null → now). */
+    private fun nowPlus(offset: Long?): Long =
+        System.currentTimeMillis() + (offset ?: 0L)
+
+    /**
+     * Deteksi PERTANYAAN KEUANGAN di chat (tuning AI r1.2.4) — pesan yang
+     * bukan transaksi tapi menanyakan kondisi keuangan ("hari ini sudah keluar
+     * berapa?") dijawab berbasis data DB, bukan dibiarkan "tercatat saja".
+     * Gate ketat: harus ada kata tanya nominal (berapa/total/saldo) ATAU tanda
+     * tanya, DAN kata kunci finansial — supaya "besok makan dimana?" tidak
+     * memicu jawaban data.
+     */
+    internal fun isFinancialQuestion(text: String): Boolean {
+        val lower = text.lowercase().trim()
+        if (lower.length < 4 || lower.length > 150) return false
+        val moneyQuestion = listOf(
+            "berapa", "total", "saldo", "berapa banyak", "berapa sisa", "habis berapa", "sisa uang"
+        ).any { lower.contains(it) }
+        // "pengeluaran terbesar bulan ini apa" tanpa tanda tanya — kata tanya umum
+        // juga dihitung ("apa", "mana", "kapan"). Tetap butuh kata finansial.
+        val generalQuestion = listOf(" apa", " mana", " kapan", " berapa").any { lower.contains(it) }
+        val hasQuestionMark = lower.contains("?")
+        val financial = listOf(
+            "uang", "keluar", "masuk", "pengeluaran", "pemasukan", "saldo", "transaksi",
+            "rekap", "belanja", "beli", "bayar", "gaji", "arisan", "bensin", "listrik",
+            "pulsa", "tabungan", "nabung", "cicilan", "utang", "hutang", "anggaran", "budget"
+        ).any { lower.contains(it) }
+        return (moneyQuestion || hasQuestionMark || generalQuestion) && financial
+    }
+
+    internal fun offlineHeuristicParse(messageText: String, sender: String): AiChatParseResult {
+        // Guard false-positive (tuning AI): reminder/rencana BUKAN transaksi —
+        // "ingatkan saya beli bakso 15rb" tidak boleh tercatat.
+        val textLower = messageText.lowercase()
+        if (textLower.contains("ingatkan") || textLower.contains("reminder") ||
+            textLower.contains("tolong catat nanti") || textLower.contains("rencana beli")
+        ) {
+            return AiChatParseResult(
+                containsTransaction = false,
+                aiReply = "Pesan ini terlihat sebagai pengingat/rencana, jadi tidak dicatat sebagai transaksi."
+            )
+        }
+
+        val segments = splitTransactionSegments(messageText)
+        val transactions = segments.mapNotNull { seg ->
+            parseSegment(seg.lowercase(), seg)
+        }
+        if (transactions.isEmpty()) {
+            return AiChatParseResult(
+                containsTransaction = false,
+                aiReply = "Tercatat dalam ruang obrolan Nyachat."
+            )
+        }
+
+        // Field tunggal = ringkasan (pertama + total) untuk kompatibilitas UI.
+        val first = transactions.first()
+        val total = transactions.sumOf { it.amount }
+        val reply = if (transactions.size == 1) {
+            val label = if (first.type == Constants.TransactionTypes.INCOME) "PEMASUKAN" else "Pengeluaran"
+            "$label Rp ${first.amount.toLong()} (${first.category}: ${first.description}) dicatat oleh $sender."
+        } else {
+            val ringkas = transactions.take(3).joinToString(" + ") {
+                "${it.category} Rp ${it.amount.toLong()}"
+            }
+            "${transactions.size} transaksi dicatat oleh $sender: $ringkas."
+        }
         return AiChatParseResult(
-            containsTransaction = false,
-            aiReply = "Tercatat dalam ruang obrolan Nyachat."
+            containsTransaction = true,
+            type = first.type,
+            category = first.category,
+            amount = total,
+            description = first.description,
+            aiReply = reply,
+            detectedBy = "HEURISTIK",
+            transactions = transactions
         )
     }
 }

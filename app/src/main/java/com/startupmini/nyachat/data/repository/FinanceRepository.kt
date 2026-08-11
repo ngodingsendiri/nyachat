@@ -99,36 +99,53 @@ class FinanceRepository(
             var finalMsg = initialMsg.copy(id = msgId)
             var createdTx: FinancialTransaction? = null
 
-            if (aiResult.containsTransaction && aiResult.amount != null && aiResult.amount > 0) {
-                val trans = FinancialTransaction(
-                    type = aiResult.type ?: Constants.TransactionTypes.EXPENSE,
-                    category = aiResult.category ?: Constants.Categories.MISC,
-                    amount = aiResult.amount,
-                    description = aiResult.description ?: messageText,
-                    loggedBy = sender,
-                    timestamp = now,
-                    chatMessageId = msgId,
-                    cloudId = UUID.randomUUID().toString(),
-                    sourceMessageCloudId = finalMsg.cloudId // Cross-device lookup key
-                )
-                val txId = transactionDao.insertTransaction(trans)
-                createdTx = trans.copy(id = txId)
+            // r1.2.4 (tuning AI): SATU pesan bisa memuat BANYAK transaksi — semua
+            // hasil parse disimpan (Rekap menampilkan lengkap); badge pesan memakai
+            // ringkasan (total nominal + kategori transaksi pertama).
+            if (aiResult.containsTransaction) {
+                val txs = aiResult.all
+                if (txs.isNotEmpty()) {
+                    val insertedList = txs.map { tx ->
+                        val trans = FinancialTransaction(
+                            type = tx.type,
+                            category = tx.category,
+                            amount = tx.amount,
+                            description = tx.description.ifBlank { messageText },
+                            loggedBy = sender,
+                            // Timestamp eksplisit (tanggal disebut di pesan) atau waktu pesan.
+                            timestamp = tx.timestamp ?: now,
+                            chatMessageId = msgId,
+                            cloudId = UUID.randomUUID().toString(),
+                            sourceMessageCloudId = finalMsg.cloudId // Cross-device lookup key
+                        )
+                        val txId = transactionDao.insertTransaction(trans)
+                        trans.copy(id = txId)
+                    }
+                    createdTx = insertedList.first()
+                    val total = insertedList.sumOf { it.amount }
+                    val first = insertedList.first()
 
-                // Update user message with financial badge tags on the message itself
-                finalMsg = initialMsg.copy(
-                    id = msgId,
-                    isFinancial = true,
-                    detectedAmount = aiResult.amount,
-                    detectedCategory = aiResult.category,
-                    detectedType = aiResult.type,
-                    // M7: catat asal deteksi (AI atau heuristik offline) untuk
-                    // indikator transparansi di badge financisial.
-                    detectedBy = aiResult.detectedBy
-                )
-                chatMessageDao.insertMessage(finalMsg)
+                    // Update user message with financial badge tags on the message itself
+                    finalMsg = initialMsg.copy(
+                        id = msgId,
+                        isFinancial = true,
+                        detectedAmount = total,
+                        detectedCategory = first.category,
+                        detectedType = first.type,
+                        // M7: catat asal deteksi (AI atau heuristik offline) untuk
+                        // indikator transparansi di badge financisial.
+                        detectedBy = aiResult.detectedBy
+                    )
+                    chatMessageDao.insertMessage(finalMsg)
 
-                // Sync transaksi ke cloud supaya pasangan/keluarga di perangkat lain ikut melihat
-                FirestoreSyncManager.syncTransaction(trans)
+                    // Sync transaksi ke cloud supaya pasangan/keluarga di perangkat lain ikut melihat
+                    insertedList.forEach { FirestoreSyncManager.syncTransaction(it) }
+                }
+            } else if (com.startupmini.nyachat.data.remote.GeminiService.isFinancialQuestion(messageText)) {
+                // r1.2.4 (tuning AI): pertanyaan keuangan di chat dijawab BERBASIS
+                // data DB yang sebenarnya (bukan mengarang) — "hari ini sudah keluar
+                // berapa?" mendapat jawaban nyata, bukan "tercatat dalam obrolan".
+                answerFinancialQuestion(messageText)
             }
 
             // Push ke cloud supaya pasangan/keluarga di perangkat lain ikut melihat
@@ -154,64 +171,161 @@ class FinanceRepository(
             val aiResult = aiService.parseMessage(
                 newText, existing.sender, recentList, existing.imagePath
             )
-            val isFinancial = aiResult.containsTransaction && aiResult.amount != null && aiResult.amount > 0
+            val txs = if (aiResult.containsTransaction) aiResult.all else emptyList()
+            val isFinancial = txs.isNotEmpty()
 
             val updated = existing.copy(
                 messageText = newText,
                 editedAt = System.currentTimeMillis(),
                 isFinancial = isFinancial,
-                detectedAmount = if (isFinancial) aiResult.amount else null,
-                detectedCategory = if (isFinancial) aiResult.category else null,
-                detectedType = if (isFinancial) aiResult.type else null,
+                detectedAmount = if (isFinancial) txs.sumOf { it.amount } else null,
+                detectedCategory = if (isFinancial) txs.first().category else null,
+                detectedType = if (isFinancial) txs.first().type else null,
                 // M7: perbarui asal deteksi juga saat edit.
                 detectedBy = if (isFinancial) aiResult.detectedBy else null
             )
             chatMessageDao.updateMessage(updated)
 
-            // Transaksi yang terkait dengan pesan ini dicari lewat id lokal pesan
-            // (FinancialTransaction.chatMessageId menyimpan id ChatMessage).
-            val existingTx = transactionDao.getByChatMessageId(existing.id)
-            when {
-                isFinancial && existingTx != null -> {
-                    // Tetap transaksi → perbarui data Rekap
-                    val newTx = existingTx.copy(
-                        type = updated.detectedType ?: existingTx.type,
-                        category = updated.detectedCategory ?: existingTx.category,
-                        amount = updated.detectedAmount ?: existingTx.amount,
-                        description = newText,
-                        loggedBy = existing.sender,
-                        // Cap waktu edit — dasar resolusi konflik sync (last-writer-by-time)
-                        editedAt = System.currentTimeMillis()
-                    )
-                    transactionDao.updateTransaction(newTx)
-                    FirestoreSyncManager.syncTransaction(newTx)
-                }
-                isFinancial && existingTx == null -> {
-                    // Baru jadi transaksi → buat di Rekap
+            // r1.2.4: REBUILD semua transaksi pesan ini (bukan update 1 baris) —
+            // konsisten untuk pesan single maupun multi-transaksi: hapus yang lama
+            // (lokal + cloud), lalu tulis ulang dari hasil parse terbaru.
+            val oldTxs = transactionDao.getAllByChatMessageId(existing.id)
+            oldTxs.forEach { tx -> tx.cloudId?.let { FirestoreSyncManager.deleteTransaction(it) } }
+            transactionDao.deleteByChatMessageId(existing.id)
+
+            if (isFinancial) {
+                txs.forEach { tx ->
                     val trans = FinancialTransaction(
-                        type = updated.detectedType ?: Constants.TransactionTypes.EXPENSE,
-                        category = updated.detectedCategory ?: Constants.Categories.MISC,
-                        amount = updated.detectedAmount ?: 0.0,
-                        description = newText,
+                        type = tx.type,
+                        category = tx.category,
+                        amount = tx.amount,
+                        description = tx.description.ifBlank { newText },
                         loggedBy = existing.sender,
-                        timestamp = existing.timestamp,
+                        timestamp = tx.timestamp ?: existing.timestamp,
                         chatMessageId = messageId,
                         cloudId = UUID.randomUUID().toString(),
                         sourceMessageCloudId = existing.cloudId // Cross-device lookup key
                     )
-                    transactionDao.insertTransaction(trans)
-                    FirestoreSyncManager.syncTransaction(trans)
+                    val txId = transactionDao.insertTransaction(trans)
+                    FirestoreSyncManager.syncTransaction(trans.copy(id = txId))
                 }
-                !isFinancial && existingTx != null -> {
-                    // Bukan transaksi lagi → hapus dari Rekap
-                    transactionDao.deleteTransaction(existingTx)
-                    existingTx.cloudId?.let { FirestoreSyncManager.deleteTransaction(it) }
-                }
-                else -> { /* tidak ada perubahan transaksi */ }
             }
 
             FirestoreSyncManager.syncMessage(updated)
         }
+    }
+
+    /**
+     * Jawab pertanyaan keuangan di chat BERBASIS data DB (tuning AI r1.2.4):
+     * ringkasan nyata (hari ini / bulan ini / transaksi terakhir) disisipkan ke
+     * prompt AI; offline → jawaban lokal dari data yang sama (tetap nyata,
+     * bukan mengarang). Jawaban disimpan sebagai pesan AI di chat.
+     */
+    private suspend fun answerFinancialQuestion(question: String) {
+        val all = transactionDao.getAllTransactions().first()
+        val summary = buildFinancialSummaryText(all)
+        val reply = if (com.startupmini.nyachat.data.remote.GeminiService.isAiAvailable()) {
+            aiService.askInChat(
+                "Ini data riil keuangan pengguna saat ini (jangan berikan angka lain):\n$summary\n\nPertanyaan: $question"
+            )
+        } else {
+            buildOfflineFinancialAnswer(question, all)
+        }
+        val aiMsg = ChatMessage(
+            sender = Constants.Sender.AI,
+            messageText = reply,
+            timestamp = System.currentTimeMillis(),
+            cloudId = UUID.randomUUID().toString()
+        )
+        chatMessageDao.insertMessage(aiMsg)
+        FirestoreSyncManager.syncMessage(aiMsg)
+    }
+
+    /** Ringkasan angka nyata dari DB untuk prompt jawaban pertanyaan finansial. */
+    private fun buildFinancialSummaryText(all: List<FinancialTransaction>): String {
+        val now = System.currentTimeMillis()
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        val startOfDay = cal.timeInMillis
+        // Setiap batas dihitung dari Calendar SEGAR (review r1.2.4) — jangan
+        // mutasi objek yang sama karena startOfWeek bisa salah (berbasis tanggal
+        // 1, bukan hari ini, atau jatuh di bulan sebelumnya).
+        val startOfWeek = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            set(java.util.Calendar.DAY_OF_WEEK, java.util.Calendar.MONDAY)
+        }.timeInMillis
+        val startOfMonth = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            set(java.util.Calendar.DAY_OF_MONTH, 1)
+        }.timeInMillis
+
+        fun sum(period: Long): Pair<Double, Double> {
+            val inPeriod = all.filter { it.timestamp >= period }
+            return inPeriod.filter { it.type == Constants.TransactionTypes.EXPENSE }.sumOf { it.amount } to
+                inPeriod.filter { it.type == Constants.TransactionTypes.INCOME }.sumOf { it.amount }
+        }
+
+        val (todayExp, todayInc) = sum(startOfDay)
+        val (weekExp, weekInc) = sum(startOfWeek)
+        val (monthExp, monthInc) = sum(startOfMonth)
+        val last3 = all.take(3).joinToString("\n") {
+            "- ${it.type} ${it.category}: Rp ${it.amount.toLong()} (${it.description})"
+        }
+
+        return buildString {
+            appendLine("Total hari ini: keluar Rp ${todayExp.toLong()}, masuk Rp ${todayInc.toLong()}")
+            appendLine("Total minggu ini: keluar Rp ${weekExp.toLong()}, masuk Rp ${weekInc.toLong()}")
+            appendLine("Total bulan ini: keluar Rp ${monthExp.toLong()}, masuk Rp ${monthInc.toLong()}")
+            appendLine("Transaksi terakhir:")
+            appendLine(last3.ifBlank { "(belum ada transaksi)" })
+        }
+    }
+
+    /** Jawaban offline berbasis data nyata (tanpa AI). */
+    private fun buildOfflineFinancialAnswer(question: String, all: List<FinancialTransaction>): String {
+        val now = System.currentTimeMillis()
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        val startOfDay = cal.timeInMillis
+        val startOfMonth = cal.apply { set(java.util.Calendar.DAY_OF_MONTH, 1) }.timeInMillis
+        val lower = question.lowercase()
+
+        val todayExp = all.filter { it.timestamp >= startOfDay && it.type == Constants.TransactionTypes.EXPENSE }.sumOf { it.amount }
+        val todayInc = all.filter { it.timestamp >= startOfDay && it.type == Constants.TransactionTypes.INCOME }.sumOf { it.amount }
+        val monthExp = all.filter { it.timestamp >= startOfMonth && it.type == Constants.TransactionTypes.EXPENSE }.sumOf { it.amount }
+        val monthInc = all.filter { it.timestamp >= startOfMonth && it.type == Constants.TransactionTypes.INCOME }.sumOf { it.amount }
+
+        val sb = StringBuilder()
+        when {
+            lower.contains("hari ini") -> {
+                sb.appendLine("📊 Hari ini: keluar **Rp ${todayExp.toLong()}**, masuk **Rp ${todayInc.toLong()}**.")
+            }
+            lower.contains("bulan ini") -> {
+                sb.appendLine("📊 Bulan ini: keluar **Rp ${monthExp.toLong()}**, masuk **Rp ${monthInc.toLong()}** (saldo ${(monthInc - monthExp).toLong()}).")
+            }
+            else -> {
+                sb.appendLine("📊 Hari ini keluar Rp ${todayExp.toLong()}, bulan ini keluar Rp ${monthExp.toLong()}.")
+            }
+        }
+        val last3 = all.take(3)
+        if (last3.isNotEmpty()) {
+            sb.appendLine("Transaksi terakhir:")
+            last3.forEach { sb.appendLine("  • ${it.description} — Rp ${it.amount.toLong()} (${it.category})") }
+        }
+        sb.append("Aku dalam mode offline, jadi jawaban ini dari data tersimpan. 😊")
+        return sb.toString()
     }
 
     suspend fun askAiInChat(prompt: String): String {

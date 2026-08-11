@@ -32,11 +32,20 @@ interface TransactionDao {
     @Query("SELECT * FROM financial_transactions WHERE chatMessageId = :chatMessageId LIMIT 1")
     suspend fun getByChatMessageId(chatMessageId: Long): FinancialTransaction?
 
+    // r1.2.4 (tuning AI): SATU pesan bisa memuat BANYAK transaksi (multi-transaksi)
+    // — dibutuhkan untuk rebuild transaksi saat pesan diedit.
+    @Query("SELECT * FROM financial_transactions WHERE chatMessageId = :chatMessageId")
+    suspend fun getAllByChatMessageId(chatMessageId: Long): List<FinancialTransaction>
+
     @Query("SELECT * FROM financial_transactions WHERE sourceMessageCloudId = :sourceMessageCloudId LIMIT 1")
     suspend fun getBySourceMessageCloudId(sourceMessageCloudId: String): FinancialTransaction?
 
     @Query("DELETE FROM financial_transactions WHERE cloudId = :cloudId")
     suspend fun deleteByCloudId(cloudId: String)
+
+    // r1.2.4: hapus semua transaksi milik satu pesan (rebuild saat edit).
+    @Query("DELETE FROM financial_transactions WHERE chatMessageId = :chatMessageId")
+    suspend fun deleteByChatMessageId(chatMessageId: Long)
 
     @Query("DELETE FROM financial_transactions")
     suspend fun deleteAllTransactions()
