@@ -224,10 +224,21 @@ class FinanceRepository(
     private suspend fun answerFinancialQuestion(question: String) {
         val all = transactionDao.getAllTransactions().first()
         val summary = buildFinancialSummaryText(all)
+        // Audit r1.2.4: bila jalur AI tersedia tapi PANGGILAN gagal — baik exception
+        // MAUPUN timeout (askInChat menelan timeout menjadi balasan generik tanpa
+        // data; deteksi lewat ketiadaan "Rp" / frasa khas template offline) — jatuh
+        // ke jawaban offline BERBASIS DATA, jangan balas generik tanpa angka.
         val reply = if (com.startupmini.nyachat.data.remote.GeminiService.isAiAvailable()) {
-            aiService.askInChat(
-                "Ini data riil keuangan pengguna saat ini (jangan berikan angka lain):\n$summary\n\nPertanyaan: $question"
-            )
+            val ai = runCatching {
+                aiService.askInChat(
+                    "Ini data riil keuangan pengguna saat ini (jangan berikan angka lain):\n$summary\n\nPertanyaan: $question"
+                )
+            }.getOrNull()
+            if (ai.isNullOrBlank() || !ai.contains("Rp") || ai.contains("mode AI sedang offline")) {
+                buildOfflineFinancialAnswer(question, all)
+            } else {
+                ai
+            }
         } else {
             buildOfflineFinancialAnswer(question, all)
         }
@@ -398,18 +409,35 @@ class FinanceRepository(
 
     suspend fun deleteTransaction(transaction: FinancialTransaction) {
         withContext(Dispatchers.IO) {
-            // Konsistensi 2 arah: kalau transaksi ini dibuat dari pesan chat, cabut status
-            // keuangan pada pesan (badge hilang) + sinkron, agar Rekap & chat sinkron dan
-            // re-parse tidak menciptakan transaksi ulang.
-            transaction.chatMessageId?.let { messageId ->
-                chatMessageDao.getById(messageId)?.let { msg ->
-                    val cleared = msg.clearFinancialBadge()
-                    chatMessageDao.updateMessage(cleared)
-                    FirestoreSyncManager.syncMessage(cleared)
-                }
-            }
+            // Hapus DULU, lalu query sisa — tanpa filter id (review r1.2.4): filter
+            // `id != transaction.id` rapuh saat id lokal 0 (baris dari cloud yang
+            // belum pernah dapat id lokal).
             transactionDao.deleteTransaction(transaction)
             transaction.cloudId?.let { FirestoreSyncManager.deleteTransaction(it) }
+
+            // Konsistensi 2 arah: kalau transaksi ini dibuat dari pesan chat, perbarui
+            // badge pesan + sinkron, agar Rekap & chat sinkron dan re-parse tidak
+            // menciptakan transaksi ulang.
+            // Audit r1.2.4: pesan MULTI-transaksi — menghapus SATU transaksi tidak
+            // boleh menghilangkan badge total (sebelumnya clearFinancialBadge()
+            // menghapus SEMUA badge padahal transaksi lain masih ada).
+            transaction.chatMessageId?.let { messageId ->
+                chatMessageDao.getById(messageId)?.let { msg ->
+                    val remaining = transactionDao.getAllByChatMessageId(messageId)
+                    val updated = if (remaining.isEmpty()) {
+                        msg.clearFinancialBadge()
+                    } else {
+                        msg.copy(
+                            isFinancial = true,
+                            detectedAmount = remaining.sumOf { it.amount },
+                            detectedCategory = remaining.first().category,
+                            detectedType = remaining.first().type
+                        )
+                    }
+                    chatMessageDao.updateMessage(updated)
+                    FirestoreSyncManager.syncMessage(updated)
+                }
+            }
         }
     }
 

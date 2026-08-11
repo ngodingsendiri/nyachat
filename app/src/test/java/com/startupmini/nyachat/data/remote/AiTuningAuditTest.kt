@@ -203,6 +203,48 @@ class AiTuningAuditTest {
         assertEquals("Investasi & Dividen", r.transactions.first().category)
     }
 
+    // ---- Audit r1.2.4: bug yang ditemukan saat audit mendalam ----
+
+    @Test
+    fun bayarGajiAdalahPengeluaran() {
+        // Audit: "bayar gaji karyawan 5jt" sebelumnya salah PEMASUKAN (karena
+        // "gaji" mandiri menang) — sekarang harus PENGELUARAN.
+        val r = GeminiService.offlineHeuristicParse("bayar gaji karyawan 5jt", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.transactions.first().type)
+    }
+
+    @Test
+    fun potongGajiTidakJadiPemasukan() {
+        // "potong gaji" tidak punya verba pengeluaran yang jelas → tidak boleh
+        // tercatat PEMASUKAN (hasil null = aman, tidak salah catat).
+        val r = GeminiService.offlineHeuristicParse("potong gaji 500rb", "Suami")
+        assertFalse(r.containsTransaction)
+    }
+
+    @Test
+    fun terimaGajiTetapPemasukan() {
+        // Regresi: verba menerima TIDAK boleh terblokir.
+        val r = GeminiService.offlineHeuristicParse("terima gaji 5jt", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.transactions.first().type)
+    }
+
+    @Test
+    fun titikDesimalDenganUnitDibacaDesimal() {
+        // Audit: "3.5jt" (titik desimal) sebelumnya jadi 35jt (salah 10x).
+        assertEquals(3_500_000.0, GeminiService.extractAmountFromText("terima dividen 3.5jt")!!, 0.001)
+        assertEquals(1_500_000.0, GeminiService.extractAmountFromText("gaji 1.5jt")!!, 0.001)
+    }
+
+    @Test
+    fun titikRibuanTetapRibuan() {
+        // Regresi: titik ribuan tetap dihapus — "1.500.000" & "15.000" tidak berubah.
+        assertEquals(1_500_000.0, GeminiService.extractAmountFromText("gaji 1.500.000")!!, 0.001)
+        assertEquals(15_000.0, GeminiService.extractAmountFromText("beli bakso 15.000")!!, 0.001)
+        assertEquals(2_500_000.0, GeminiService.extractAmountFromText("transfer 2,5jt")!!, 0.001)
+    }
+
     // ---- 5. KATEGORI VALID ----
 
     @Test

@@ -999,10 +999,20 @@ object GeminiService {
     }
 
     private fun toRupiah(numStr: String, unit: String?): Double? {
-        // Normalisasi: hapus SEMUA titik ribuan (pemisah ribuan), koma jadi desimal kalau valid
-        val normalized = numStr
-            .replace(".", "")                    // hapus semua titik ribuan
-            .replace(",", ".")                   // koma jadi desimal
+        // Audit r1.2.4: "3.5jt" (TITIK desimal) sebelumnya jadi "35" → 35jt (salah
+        // 10x). Bila ada unit & angka memakai TITIK TUNGGAL dengan ≤2 digit di
+        // belakangnya, titik itu adalah DESIMAL ("3.5", "1.75"), bukan ribuan.
+        // Koma selalu desimal. Titik 3+ digit / titik ganda = pemisah ribuan
+        // ("1.500.000", "15.000") — dihapus seperti biasa.
+        val isDecimalDot = unit != null &&
+            numStr.count { it == '.' } == 1 &&
+            numStr.substringAfter('.').length in 1..2 &&
+            numStr.substringBefore('.').isNotBlank()
+        val normalized = if (isDecimalDot) {
+            numStr.replace(",", ".")
+        } else {
+            numStr.replace(".", "").replace(",", ".")
+        }
         val rawNum = normalized.toDoubleOrNull() ?: return null
         return when (unit) {
             "rb", "ribu", "k" -> rawNum * 1000
@@ -1105,12 +1115,14 @@ object GeminiService {
             "transfer masuk", "pemasukan", "pencairan", "bagi hasil", "warisan", "hibah"
         ).any { textLower.contains(it) }
 
-        // r1.2.4 (review): "bonus/komisi/tips/insentif/thr" mandiri bisa berarti
-        // MENGELUARKAN ("bagi bonus 500rb", "kasih tips 20rb", "bayar komisi") —
-        // blokir deteksi income bila ada verba pengeluaran yang menempel. "bagi
-        // hasil" (investasi) TIDAK kena karena "hasil" bukan kata yang diblokir.
+        // r1.2.4 (review): "bonus/komisi/tips/insentif/thr/gaji" mandiri bisa
+        // berarti MENGELUARKAN ("bagi bonus 500rb", "kasih tips 20rb", "bayar
+        // gaji 5jt", "potong gaji") — blokir deteksi income bila ada verba
+        // pengeluaran yang menempel. "bagi hasil" (investasi) TIDAK kena karena
+        // "hasil" bukan kata yang diblokir. Audit r1.2.4: "bayar gaji" sebelumnya
+        // salah tercatat PEMASUKAN karena "gaji" mandiri menang.
         val incomeBlocker = Regex(
-            "(bagi|kasih|setor|kirim|beri|bayar)\\s+(bonus|komisi|tips|insentif|thr)"
+            "(bagi|kasih|setor|kirim|beri|bayar|potong|kurang)\\s+(bonus|komisi|tips|insentif|thr|gaji)"
         ).containsMatchIn(textLower)
 
         val isExpenseTrigger = (
