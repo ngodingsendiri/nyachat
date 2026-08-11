@@ -338,7 +338,9 @@ fun PinConnectScreen(
                                     ) {
                                         Text(stringResource(R.string.pin_your_pin), style = MaterialTheme.typography.titleMedium)
                                         Text(
-                                            text = generatedPin!!,
+                                            // Audit ketahanan: pinFlowState==2 hanya dicapai
+                                            // SETELAH generatedPin di-set — fallback "" aman.
+                                            text = generatedPin.orEmpty(),
                                             style = MaterialTheme.typography.displayMedium,
                                             fontWeight = FontWeight.ExtraBold,
                                             color = MaterialTheme.colorScheme.primary,
@@ -399,7 +401,14 @@ fun PinConnectScreen(
                                         Spacer(modifier = Modifier.height(20.dp))
 
                                         Button(
-                                            onClick = { onPinConnected(generatedPin!!, Constants.Roles.OWNER, myName.ifBlank { defaultName }) },
+                                            onClick = {
+                                                // Audit ketahanan: PIN hanya tersambung bila
+                                                // sudah dibangkitkan (state 2) — guard null
+                                                // mencegah NPE pada jalur tak terduga.
+                                                generatedPin?.let { pin ->
+                                                    onPinConnected(pin, Constants.Roles.OWNER, myName.ifBlank { defaultName })
+                                                }
+                                            },
                                             modifier = Modifier.fillMaxWidth().height(56.dp),
                                             shape = RoundedCornerShape(16.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)

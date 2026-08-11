@@ -61,6 +61,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAiThinking = MutableStateFlow(false)
     val isAiThinking: StateFlow<Boolean> = _isAiThinking.asStateFlow()
 
+    // Audit ketahanan (2026-08-11): counter operasi AI aktif. Sebelumnya flag
+    // boolean di-set false di `finally` tiap operasi — kirim 2 pesan beruntun
+    // membuat indikator "AI berpikir" mati lebih awal (pesan pertama selesai)
+    // padahal pesan kedua masih diproses. Kenaikan/penurunan berpasangan;
+    // indikator off hanya saat counter kembali ke 0 (lihat AiThinkingCounter).
+    private val aiThinkingCounter = AiThinkingCounter()
+
+    private fun setAiThinking(on: Boolean) {
+        _isAiThinking.value = if (on) aiThinkingCounter.start() else aiThinkingCounter.finish()
+    }
+
     private val _auditReport = MutableStateFlow<String?>(null)
     val auditReport: StateFlow<String?> = _auditReport.asStateFlow()
 
@@ -182,7 +193,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Indikator "AI sedang berpikir" aktif SELAMA parsing (termasuk
             // kaskade AI) — tanpa ini user bisa mengirim pesan bertumpuk tanpa
             // tahu parse masih berjalan, dan bubble ketik tidak pernah muncul.
-            _isAiThinking.value = true
+            // Counter (bukan boolean): 2 kiriman beruntun tidak mematikan
+            // indikator lebih awal (audit ketahanan 2026-08-11).
+            setAiThinking(true)
             try {
                 val created = repository.sendMessage(
                     currentSender, text.trim(), imagePath, filePath, fileName, replyToSender, replyToText
@@ -191,7 +204,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Operasi gagal", e)
             } finally {
-                _isAiThinking.value = false
+                setAiThinking(false)
             }
         }
     }
@@ -220,13 +233,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun askAiInChat(prompt: String) {
         if (prompt.isBlank()) return
         viewModelScope.launch {
-            _isAiThinking.value = true
+            setAiThinking(true)
             try {
                 repository.askAiInChat(prompt.trim())
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Operasi gagal", e)
             } finally {
-                _isAiThinking.value = false
+                setAiThinking(false)
             }
         }
     }

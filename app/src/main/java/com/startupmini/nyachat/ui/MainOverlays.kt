@@ -97,9 +97,11 @@ fun BoxScope.MainOverlays(
     }
 
     // Layar kelola anggota & permintaan bergabung (owner/member).
+    // Guard `workspacePin != null` di atas → smart cast aman (audit ketahanan:
+    // hilangkan `!!` yang berisiko NPE bila alur berubah di masa depan).
     if (dialogs.showManageMembers && workspacePin != null) {
         ManageMembersScreen(
-            pin = workspacePin!!,
+            pin = workspacePin,
             isOwner = (workspaceRole == Constants.Roles.OWNER),
             onDismiss = { dialogs.showManageMembers = false }
         )
