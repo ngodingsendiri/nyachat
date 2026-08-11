@@ -615,8 +615,17 @@ object GeminiService {
             - Transportasi
             - Kesehatan & Skincare
             - Hiburan & Belanja
+            - Cicilan & Pinjaman
+            - Pendidikan
+            - Sosial & Donasi
+            - Asuransi & Pajak
             - Lain-lain
             - Gaji & Pemasukan
+            - Bonus & Komisi
+            - Usaha & Jualan
+            - Investasi & Dividen
+            - Hadiah & Arisan
+            - Cashback & Refund
             
             Keluarkan jawaban HANYA berupa JSON valid dalam format persis seperti ini:
             {
@@ -656,8 +665,17 @@ object GeminiService {
             - Transportasi
             - Kesehatan & Skincare
             - Hiburan & Belanja
+            - Cicilan & Pinjaman
+            - Pendidikan
+            - Sosial & Donasi
+            - Asuransi & Pajak
             - Lain-lain
             - Gaji & Pemasukan
+            - Bonus & Komisi
+            - Usaha & Jualan
+            - Investasi & Dividen
+            - Hadiah & Arisan
+            - Cashback & Refund
             
             Keluarkan jawaban HANYA berupa JSON valid dalam format persis seperti ini:
             {
@@ -859,6 +877,18 @@ object GeminiService {
             "terima rejeki", "dapat rejeki", "menerima rejeki", "rejeki nomplok", "rejeki",
             "terima uang", "dapat uang", "menerima uang", "uang masuk", "uang jajan masuk",
             "terima hadiah", "dapat hadiah", "menerima hadiah", "menang undian", "dapat undian", "undian",
+            // r1.2.2: usaha & jualan (hanya saat menerima hasil, bukan "beli")
+            "hasil jualan", "hasil dagang", "hasil usaha", "omzet", "omset", "penjualan",
+            "laku", "terjual", "dapat hasil", "terima hasil",
+            // r1.2.2: cashback & refund (uang kembali = pemasukan)
+            "cashback", "refund", "pengembalian dana", "uang kembali",
+            // r1.2.2: bonus / THR / insentif / tips (frasa lengkap — "bayar THR"
+            // dan "kasih tips" tetap pengeluaran karena bukan frasa menerima)
+            "terima thr", "dapat thr", "thr masuk", "thr cair",
+            "terima insentif", "dapat insentif", "insentif masuk",
+            "terima tips", "dapat tips", "menerima tips",
+            // r1.2.2: investasi (bunga bank/deposito, bagi hasil sudah di atas)
+            "bunga bank", "bunga deposito", "cair deposito", "kupon obligasi",
             // umum
             "transfer masuk", "pemasukan", "pencairan", "bagi hasil", "warisan", "hibah"
         ).any { textLower.contains(it) }
@@ -874,29 +904,89 @@ object GeminiService {
                 textLower.contains("bensin") || textLower.contains("taxi") ||
                 textLower.contains("ojek") || textLower.contains("grab") ||
                 textLower.contains("gojek") || textLower.contains("tol") ||
-                textLower.contains("parkir") || textLower.contains("isi")
+                textLower.contains("parkir") || textLower.contains("isi") ||
+                // r1.2.2: kata kunci kategori pengeluaran baru (Cicilan & Pinjaman,
+                // Pendidikan, Sosial & Donasi, Asuransi & Pajak).
+                textLower.contains("cicilan") || textLower.contains("kredit") ||
+                textLower.contains("angsuran") || textLower.contains("hutang") ||
+                textLower.contains("utang") || textLower.contains("pinjaman") ||
+                textLower.contains("spp") || textLower.contains("kuliah") ||
+                textLower.contains("les") || textLower.contains("kursus") ||
+                textLower.contains("sedekah") || textLower.contains("zakat") ||
+                textLower.contains("infaq") || textLower.contains("infak") ||
+                textLower.contains("donasi") || textLower.contains("sumbangan") ||
+                textLower.contains("asuransi") || textLower.contains("premi") ||
+                textLower.contains("pajak") || textLower.contains("stnk") ||
+                textLower.contains("bpjs") || textLower.contains("topup") || textLower.contains("top up")
         )
 
         if (isIncome && amount != null && amount > 0) {
+            // r1.2.2: pemasukan dipetakan ke kategori spesifik (bukan selalu
+            // "Gaji & Pemasukan") — dividen/arisan/jualan/cashback terpisah.
+            val category = when {
+                textLower.contains("jual") || textLower.contains("dagang") || textLower.contains("omzet") ||
+                    textLower.contains("omset") || textLower.contains("orderan") || textLower.contains("usaha") ||
+                    textLower.contains("laku") || textLower.contains("terjual") || textLower.contains("penjualan") ->
+                    Constants.Categories.BUSINESS
+                textLower.contains("dividen") || textLower.contains("bunga") || textLower.contains("bagi hasil") ||
+                    textLower.contains("saham") || textLower.contains("reksadana") || textLower.contains("investasi") ||
+                    textLower.contains("deposito") || textLower.contains("capital gain") ->
+                    Constants.Categories.INVESTMENT
+                textLower.contains("arisan") || textLower.contains("hadiah") || textLower.contains("undian") ||
+                    textLower.contains("rejeki") || textLower.contains("warisan") || textLower.contains("hibah") ->
+                    Constants.Categories.GIFT
+                textLower.contains("cashback") || textLower.contains("refund") ||
+                    textLower.contains("pengembalian") || textLower.contains("uang kembali") ->
+                    Constants.Categories.CASHBACK
+                textLower.contains("bonus") || textLower.contains("komisi") ||
+                    textLower.contains("thr") || textLower.contains("insentif") || textLower.contains("tips") ->
+                    Constants.Categories.BONUS
+                else -> Constants.Categories.SALARY
+            }
             return AiChatParseResult(
                 containsTransaction = true,
                 type = Constants.TransactionTypes.INCOME,
-                category = "Gaji & Pemasukan",
+                category = category,
                 amount = amount,
                 description = messageText,
                 // M7: dihasilkan mesin aturan lokal (fallback offline) — bukan AI.
                 detectedBy = "HEURISTIK",
-                aiReply = "Mantap! Aku catat PEMASUKAN sebesar Rp ${amount.toLong()} (${messageText}). Saldo bertambah! 💰"
+                aiReply = "Mantap! Aku catat PEMASUKAN sebesar Rp ${amount.toLong()} ($category: ${messageText}). Saldo bertambah! 💰"
             )
         } else if (isExpenseTrigger && amount > 0) {
             val category = when {
                 textLower.contains("beras") || textLower.contains("minyak") || textLower.contains("sayur") || textLower.contains("sembako") || textLower.contains("pasar") || textLower.contains("supermarket") || textLower.contains("market") -> "Groceries & Sembako"
                 textLower.contains("makan") || textLower.contains("minum") || textLower.contains("kopi") || textLower.contains("bakso") || textLower.contains("snack") || textLower.contains("nasi") -> "Makanan & Minuman"
-                textLower.contains("listrik") || textLower.contains("air") || textLower.contains("wifi") || textLower.contains("pulsa") || textLower.contains("kontrakan") || textLower.contains("pbb") -> "Tagihan & Utilitas"
+                // "pbb" sengaja TIDAK di sini — PBB adalah pajak, masuk
+                // "Asuransi & Pajak" (r1.2.2). Token listrik tetap Utilitas.
+                textLower.contains("listrik") || textLower.contains("air") || textLower.contains("wifi") || textLower.contains("pulsa") || textLower.contains("kontrakan") || textLower.contains("token") -> "Tagihan & Utilitas"
+                // Pendidikan DICENTANG DULU dari "Kebutuhan Anak" (r1.2.2):
+                // "SPP anak" / "les anak" adalah biaya PENDIDIKAN, bukan sekadar
+                // kebutuhan anak — kata "anak" pada SPP tidak boleh menang.
+                // "lesehan" (warung kaki lima) mengandung "les" — dieksklusi supaya
+                // "makan lesehan" tidak salah masuk Pendidikan (r1.2.2 review).
+                textLower.contains("spp") || textLower.contains("kuliah") ||
+                    (textLower.contains("les") && !textLower.contains("lesehan")) ||
+                    textLower.contains("kursus") || textLower.contains("bimbel") || textLower.contains("uang gedung") ||
+                    textLower.contains("ujian") || textLower.contains("pendidikan") -> "Pendidikan"
                 textLower.contains("popok") || textLower.contains("susu") || textLower.contains("sekolah") || textLower.contains("mainan") || textLower.contains("anak") -> "Kebutuhan Anak"
                 textLower.contains("bensin") || textLower.contains("ojek") || textLower.contains("grab") || textLower.contains("gojek") || textLower.contains("tol") || textLower.contains("parkir") || textLower.contains("taxi") -> "Transportasi"
                 textLower.contains("skincare") || textLower.contains("obat") || textLower.contains("dokter") || textLower.contains("sabun") || textLower.contains("shampoo") -> "Kesehatan & Skincare"
                 textLower.contains("baju") || textLower.contains("sepatu") || textLower.contains("nonton") || textLower.contains("tas") || textLower.contains("shopee") || textLower.contains("tokped") || textLower.contains("belanja") -> "Hiburan & Belanja"
+                // r1.2.2: kategori pengeluaran baru (Pendidikan sudah dicek di atas,
+                // sebelum Kebutuhan Anak, supaya "SPP anak" masuk Pendidikan).
+                textLower.contains("cicilan") || textLower.contains("kredit") || textLower.contains("angsuran") ||
+                    textLower.contains("kpr") || textLower.contains("kkb") || textLower.contains("hutang") ||
+                    textLower.contains("utang") || textLower.contains("pinjaman") || textLower.contains("nyicil") -> "Cicilan & Pinjaman"
+                textLower.contains("sedekah") || textLower.contains("zakat") || textLower.contains("infaq") ||
+                    textLower.contains("infak") || textLower.contains("donasi") || textLower.contains("sumbangan") ||
+                    textLower.contains("amal") || textLower.contains("kotak amal") -> "Sosial & Donasi"
+                // "premium" mengandung "premi" — dieksklusi supaya "beli barang
+                // premium" tidak salah masuk Asuransi & Pajak (r1.2.2 review).
+                textLower.contains("asuransi") || (textLower.contains("premi") && !textLower.contains("premium")) ||
+                    textLower.contains("pajak") ||
+                    textLower.contains("stnk") || textLower.contains("pbb") || textLower.contains("bpjs") ||
+                    textLower.contains("retribusi") -> "Asuransi & Pajak"
                 else -> "Lain-lain"
             }
 

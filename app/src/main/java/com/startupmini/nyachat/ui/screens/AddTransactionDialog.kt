@@ -102,7 +102,14 @@ fun AddTransactionDialog(
         transaction?.loggedBy ?: initialLoggedBy ?: Constants.Defaults.LABEL
     }
 
-    val categories = Constants.Categories.ALL
+    // r1.2.2: daftar kategori DINAMIS per tipe — pengeluaran hanya menampilkan
+    // kategori pengeluaran, pemasukan hanya kategori pemasukan (sebelumnya semua
+    // tercampur: dropdown pengeluaran ikut menampilkan "Gaji & Pemasukan").
+    val categories = if (type == Constants.TransactionTypes.INCOME) {
+        Constants.Categories.INCOME_ALL
+    } else {
+        Constants.Categories.EXPENSE_ALL
+    }
 
     var selectedCategory by remember(transaction?.id) {
         mutableStateOf(
@@ -182,7 +189,11 @@ fun AddTransactionDialog(
                     selected = type == Constants.TransactionTypes.EXPENSE,
                     onClick = {
                         type = Constants.TransactionTypes.EXPENSE
-                        if (selectedCategory == Constants.Categories.SALARY) selectedCategory = Constants.Categories.GROCERIES
+                        // Reset ke kategori pengeluaran bila yang terpilih
+                        // sekarang kategori pemasukan (r1.2.2).
+                        if (selectedCategory !in Constants.Categories.EXPENSE_ALL) {
+                            selectedCategory = Constants.Categories.GROCERIES
+                        }
                     },
                     label = { Text(stringResource(R.string.add_type_expense), fontWeight = FontWeight.Medium) },
                     colors = FilterChipDefaults.filterChipColors(
@@ -198,7 +209,11 @@ fun AddTransactionDialog(
                     selected = type == Constants.TransactionTypes.INCOME,
                     onClick = {
                         type = Constants.TransactionTypes.INCOME
-                        if (selectedCategory != Constants.Categories.SALARY) selectedCategory = Constants.Categories.SALARY
+                        // Reset ke kategori pemasukan bila yang terpilih
+                        // sekarang kategori pengeluaran (r1.2.2).
+                        if (selectedCategory !in Constants.Categories.INCOME_ALL) {
+                            selectedCategory = Constants.Categories.SALARY
+                        }
                     },
                     label = { Text(stringResource(R.string.add_type_income), fontWeight = FontWeight.Medium) },
                     colors = FilterChipDefaults.filterChipColors(

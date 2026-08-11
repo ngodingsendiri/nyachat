@@ -22,11 +22,20 @@ import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Fastfood
 import androidx.compose.material.icons.rounded.HomeWork
 import androidx.compose.material.icons.rounded.MedicalServices
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.CardGiftcard
+import androidx.compose.material.icons.rounded.CurrencyExchange
+import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.ShoppingBag
 import androidx.compose.material.icons.rounded.ShoppingCart
 import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material.icons.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.VolunteerActivism
 import androidx.compose.material.icons.rounded.Wallet
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -551,7 +560,18 @@ fun getCategoryIcon(category: String): ImageVector {
         Constants.Categories.TRANSPORT -> Icons.Rounded.DirectionsCar
         Constants.Categories.HEALTH -> Icons.Rounded.MedicalServices
         Constants.Categories.ENTERTAINMENT -> Icons.Rounded.SportsEsports
+        // r1.2.2: ikon kategori pengeluaran baru.
+        Constants.Categories.DEBT -> Icons.Rounded.AccountBalanceWallet
+        Constants.Categories.EDUCATION -> Icons.Rounded.School
+        Constants.Categories.SOCIAL -> Icons.Rounded.VolunteerActivism
+        Constants.Categories.INSURANCE -> Icons.Rounded.Security
+        // r1.2.2: ikon kategori pemasukan baru.
         Constants.Categories.SALARY -> Icons.Rounded.Payments
+        Constants.Categories.BONUS -> Icons.Rounded.CardGiftcard
+        Constants.Categories.BUSINESS -> Icons.Rounded.Storefront
+        Constants.Categories.INVESTMENT -> Icons.Rounded.TrendingUp
+        Constants.Categories.GIFT -> Icons.Rounded.EmojiEvents
+        Constants.Categories.CASHBACK -> Icons.Rounded.CurrencyExchange
         else -> Icons.Rounded.MoreHoriz
     }
 }

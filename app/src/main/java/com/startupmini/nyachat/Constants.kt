@@ -134,7 +134,12 @@ object Constants {
     }
 
     // ===== Kategori transaksi default (satu-satunya sumber kebenaran literal) =====
+    // Pemasukan & pengeluaran dipisah (r1.2.2): dulu hanya ada 1 kategori
+    // pemasukan ("Gaji & Pemasukan") sehingga dividen/arisan/jualan tercampur.
+    // Nama kategori yang SUDAH TERSIMPAN di DB/cloud TIDAK diubah — hanya
+    // menambah opsi baru supaya data lama tetap kompatibel.
     object Categories {
+        // ---- Pengeluaran ----
         const val GROCERIES = "Groceries & Sembako"
         const val FOOD = "Makanan & Minuman"
         const val UTILITIES = "Tagihan & Utilitas"
@@ -142,8 +147,30 @@ object Constants {
         const val TRANSPORT = "Transportasi"
         const val HEALTH = "Kesehatan & Skincare"
         const val ENTERTAINMENT = "Hiburan & Belanja"
+        const val DEBT = "Cicilan & Pinjaman"
+        const val EDUCATION = "Pendidikan"
+        const val SOCIAL = "Sosial & Donasi"
+        const val INSURANCE = "Asuransi & Pajak"
         const val MISC = "Lain-lain"
+
+        // ---- Pemasukan ----
         const val SALARY = "Gaji & Pemasukan"
-        val ALL = listOf(GROCERIES, FOOD, UTILITIES, KIDS, TRANSPORT, HEALTH, ENTERTAINMENT, MISC, SALARY)
+        const val BONUS = "Bonus & Komisi"
+        const val BUSINESS = "Usaha & Jualan"
+        const val INVESTMENT = "Investasi & Dividen"
+        const val GIFT = "Hadiah & Arisan"
+        const val CASHBACK = "Cashback & Refund"
+
+        /** Kategori yang relevan untuk transaksi PENGELUARAN. */
+        val EXPENSE_ALL = listOf(
+            GROCERIES, FOOD, UTILITIES, KIDS, TRANSPORT, HEALTH,
+            ENTERTAINMENT, DEBT, EDUCATION, SOCIAL, INSURANCE, MISC
+        )
+
+        /** Kategori yang relevan untuk transaksi PEMASUKAN. */
+        val INCOME_ALL = listOf(SALARY, BONUS, BUSINESS, INVESTMENT, GIFT, CASHBACK)
+
+        /** Seluruh kategori (urutan: pengeluaran dulu, lalu pemasukan). */
+        val ALL = EXPENSE_ALL + INCOME_ALL
     }
 }

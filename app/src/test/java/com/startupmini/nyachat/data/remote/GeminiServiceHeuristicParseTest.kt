@@ -341,6 +341,189 @@ class GeminiServiceHeuristicParseTest {
         assertEquals("", GeminiService.sanitizeSuggestion(""))
     }
 
+    // ---- r1.2.2: kategori baru — pemasukan spesifik (bukan selalu Gaji) ----
+
+    @Test
+    fun deteksiBonusSebagaiPemasukanKategoriSpesifik() {
+        val r = GeminiService.offlineHeuristicParse("terima bonus 2jt", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals("Bonus & Komisi", r.category)
+        assertEquals(2000000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiKomisiSebagaiPemasukanKategoriSpesifik() {
+        val r = GeminiService.offlineHeuristicParse("dapat komisi 500rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals("Bonus & Komisi", r.category)
+        assertEquals(500000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiTHRSebagaiPemasukanKategoriSpesifik() {
+        val r = GeminiService.offlineHeuristicParse("THR masuk 3jt", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals("Bonus & Komisi", r.category)
+        assertEquals(3000000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiHasilJualanSebagaiPemasukanKategoriSpesifik() {
+        val r = GeminiService.offlineHeuristicParse("hasil jualan online 300rb", "Istri")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals("Usaha & Jualan", r.category)
+        assertEquals(300000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiDividenKategoriSpesifik() {
+        // Test lama hanya cek tipe; sekarang kategori harus spesifik Investasi.
+        val r = GeminiService.offlineHeuristicParse("terima dividen 3jt", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals("Investasi & Dividen", r.category)
+        assertEquals(3000000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiBagiHasilKategoriInvestasi() {
+        val r = GeminiService.offlineHeuristicParse("bagi hasil investasi 1jt", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals("Investasi & Dividen", r.category)
+        assertEquals(1000000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiArisanKategoriSpesifik() {
+        val r = GeminiService.offlineHeuristicParse("dapat arisan 50jt", "Istri")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals("Hadiah & Arisan", r.category)
+        assertEquals(50000000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiCashbackSebagaiPemasukanKategoriSpesifik() {
+        val r = GeminiService.offlineHeuristicParse("cashback shopee 20rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PEMASUKAN", r.type)
+        assertEquals("Cashback & Refund", r.category)
+        assertEquals(20000.0, r.amount!!, 0.001)
+    }
+
+    // ---- r1.2.2: kategori pengeluaran baru ----
+
+    @Test
+    fun deteksiCicilanKategoriSpesifik() {
+        val r = GeminiService.offlineHeuristicParse("bayar cicilan motor 800rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Cicilan & Pinjaman", r.category)
+        assertEquals(800000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiKPRKategoriCicilan() {
+        val r = GeminiService.offlineHeuristicParse("angsuran KPR rumah 2,5jt", "Istri")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Cicilan & Pinjaman", r.category)
+        assertEquals(2500000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiPendidikanKategoriSpesifik() {
+        val r = GeminiService.offlineHeuristicParse("bayar SPP anak 1jt", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Pendidikan", r.category)
+        assertEquals(1000000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiLesKategoriPendidikan() {
+        val r = GeminiService.offlineHeuristicParse("bayar les bahasa inggris 300rb", "Istri")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Pendidikan", r.category)
+        assertEquals(300000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiDonasiKategoriSosial() {
+        val r = GeminiService.offlineHeuristicParse("sedekah 100rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Sosial & Donasi", r.category)
+        assertEquals(100000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiZakatKategoriSosial() {
+        val r = GeminiService.offlineHeuristicParse("bayar zakat fitrah 150rb", "Istri")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Sosial & Donasi", r.category)
+        assertEquals(150000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiAsuransiKategoriSpesifik() {
+        val r = GeminiService.offlineHeuristicParse("bayar asuransi kesehatan 250rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Asuransi & Pajak", r.category)
+        assertEquals(250000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiPajakSTNKKategoriAsuransiPajak() {
+        val r = GeminiService.offlineHeuristicParse("bayar pajak STNK 500rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Asuransi & Pajak", r.category)
+        assertEquals(500000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun deteksiPBBKategoriAsuransiPajak() {
+        // PBB (pajak bumi & bangunan) pindah dari Tagihan & Utilitas ke Asuransi & Pajak.
+        val r = GeminiService.offlineHeuristicParse("bayar PBB rumah 750rb", "Istri")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Asuransi & Pajak", r.category)
+        assertEquals(750000.0, r.amount!!, 0.001)
+    }
+
+    // ---- r1.2.2: regresi substring false-positive ----
+
+    @Test
+    fun kataPremiumTidakMasukAsuransi() {
+        // "premium" mengandung "premi" — harus TIDAK masuk Asuransi & Pajak.
+        val r = GeminiService.offlineHeuristicParse("beli barang premium 500rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertTrue(
+            "kata 'premium' tidak boleh jadi Asuransi & Pajak: ${r.category}",
+            r.category != "Asuransi & Pajak"
+        )
+    }
+
+    @Test
+    fun makanLesehanTetapMakanan() {
+        // "lesehan" mengandung "les" — harus tetap Makanan & Minuman (kata "makan").
+        val r = GeminiService.offlineHeuristicParse("makan lesehan 20rb", "Suami")
+        assertTrue(r.containsTransaction)
+        assertEquals("PENGELUARAN", r.type)
+        assertEquals("Makanan & Minuman", r.category)
+        assertEquals(20000.0, r.amount!!, 0.001)
+    }
+
     @Test
     fun parseChatMessageTanpaKeyJatuhKeHeuristikLewatWrapperTimeout() = runBlocking {
         // Tanpa API key apa pun, kaskade di dalam withTimeoutOrNull langsung

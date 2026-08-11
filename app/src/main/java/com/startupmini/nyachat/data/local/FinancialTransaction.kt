@@ -22,7 +22,7 @@ data class FinancialTransaction(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val type: String, // "PENGELUARAN" or "PEMASUKAN"
-    val category: String, // "Groceries & Sembako", "Makanan & Minuman", "Tagihan & Utilitas", "Kebutuhan Anak", "Transportasi", "Kesehatan & Skincare", "Hiburan & Belanja", "Lain-lain", "Gaji & Pemasukan"
+    val category: String, // lihat Constants.Categories (pengeluaran: Groceries & Sembako, Makanan & Minuman, Tagihan & Utilitas, Kebutuhan Anak, Transportasi, Kesehatan & Skincare, Hiburan & Belanja, Cicilan & Pinjaman, Pendidikan, Sosial & Donasi, Asuransi & Pajak, Lain-lain; pemasukan: Gaji & Pemasukan, Bonus & Komisi, Usaha & Jualan, Investasi & Dividen, Hadiah & Arisan, Cashback & Refund)
     val amount: Double,
     val description: String,
     val loggedBy: String, // "ISTRI", "SUAMI", "AI"
