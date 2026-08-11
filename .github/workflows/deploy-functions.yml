@@ -4,6 +4,11 @@ name: Deploy Cloud Functions
 #   - aiComplete        (FASE 4: relay AI — key server, auth Firebase)
 #   - notifyChatMessage (notifikasi FCM chat real-time)
 #
+# Autentikasi: Workload Identity Federation (tanpa kunci JSON) — pool
+# github-pool + provider github-provider + SA github-actions di proyek
+# nyachat-in (PASTIKAN semua resource WIF ada di proyek nyachat-in, BUKAN
+# ngodingsendiri-note — proyek lain yang tidak terkait).
+#
 # Trigger:
 #   - push ke main (HANYA jika file fungsi berubah — paths filter) → deploy
 #   - workflow_dispatch → tombol manual "Run workflow" di tab Actions
