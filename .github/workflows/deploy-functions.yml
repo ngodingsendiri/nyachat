@@ -102,4 +102,8 @@ jobs:
 
       - name: Deploy functions
         working-directory: functions
+        # --force: (1) skip konfirmasi, (2) otomatis set cleanup policy
+        # artifact repository (tanpa ini deploy berakhir non-zero walaupun
+        # fungsi sukses dibuat — semua fungsi sudah ada di index.js, jadi
+        # aman).
         run: firebase deploy --only functions --project nyachat-in --force
