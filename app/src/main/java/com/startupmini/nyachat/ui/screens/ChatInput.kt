@@ -70,6 +70,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
@@ -101,10 +102,12 @@ private val CHAT_FIELD_MIN_HEIGHT = CHAT_BAR_HEIGHT - 4.dp
 fun QuickSuggestionRow(
     suggestions: List<String>,
     onSuggestionClicked: (String) -> Unit,
-    // Ruang cadangan di ujung kanan baris chip saat FAB jump-to-bottom melayang
-    // di atas baris saran (ChatScreen) — chip terakhir tidak pernah tersembunyi
-    // di balik FAB dan tetap bisa diketuk. 0.dp saat FAB tidak tampil.
-    endPadding: Dp = 0.dp
+    // Ruang cadangan di ujung KIRI baris chip saat FAB jump-to-bottom melayang
+    // di ujung kiri baris saran (ChatScreen) — chip pertama tidak pernah
+    // tersembunyi di balik FAB dan tetap bisa diketuk. 0.dp saat FAB tidak
+    // tampil. Nilai berubah dengan ANIMASI (animateDpAsState di pemanggil)
+    // sehingga chips bergeser halus ke kanan saat FAB muncul, bukan lompat.
+    startPadding: Dp = 0.dp
 ) {
     Column(
         modifier = Modifier
@@ -119,11 +122,17 @@ fun QuickSuggestionRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
-                // endPadding DI LUAR area scroll (sebelum horizontalScroll):
+                // startPadding DI LUAR area scroll (sebelum horizontalScroll):
                 // mempersempit lebar yang bisa diisi chips, sehingga baris chips
-                // berhenti sebelum area FAB — bukan sekadar padding konten di
-                // ujung daftar yang baru terlihat saat di-scroll habis.
-                .padding(end = endPadding)
+                // berhenti sebelum area FAB (yang melayang di ujung kiri) —
+                // bukan sekadar padding konten di ujung daftar.
+                //
+                // CLAMP (r1.2.0, crash 2026-08-11 17:24): pemanggil mengirim nilai
+                // dari animateDpAsState dengan spring bouncy (DampingRatioMediumBouncy)
+                // yang OVER-SHOOT di bawah 0 saat FAB menghilang (target 64dp→0dp).
+                // Padding negatif = IllegalArgument crash. coerceAtLeast menjaga nilai
+                // tetap >= 0 tanpa menghilangkan efek elastis.
+                .padding(start = startPadding.coerceAtLeast(0.dp))
                 .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),

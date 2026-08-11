@@ -5,14 +5,17 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.border
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,8 +43,6 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -58,6 +59,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -372,23 +375,40 @@ fun ChatScreen(
                 // (2026-08-10: FAB yang menutupi bubble terakhir saat scroll).
                 // BUG-05 (r1.2.0): AnimatedVisibility dari compose-bom 2026.06
                 // meng-komposisi content tapi TIDAK me-layout-nya — dipakai if biasa.
+                //
+                // ANIMASI GESER (r1.2.0): FAB jump-to-bottom pindah ke ujung KIRI
+                // baris chips. Saat FAB muncul, chips bergeser ELASTIS ke kanan
+                // (startPadding 0 → 64dp) dengan spring — bukan lompat instan —
+                // sehingga FAB dan chips saling memberi ruang tanpa menimpa.
+                val chipShift by animateDpAsState(
+                    targetValue = if (shouldShowJumpButton) 64.dp else 0.dp,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "chipShiftForFab"
+                )
                 if (draftText.isBlank() && quickSuggestions.isNotEmpty()) {
                     QuickSuggestionRow(
                         suggestions = quickSuggestions,
                         onSuggestionClicked = { onDraftChange(it) },
-                        // Chip berhenti 64dp sebelum tepi kanan saat FAB tampil —
-                        // chip terakhir tidak pernah tersembunyi di balik FAB.
-                        endPadding = if (shouldShowJumpButton) 64.dp else 0.dp
+                        startPadding = chipShift
                     )
                 }
             } // end Column dalam Box (list + chips)
 
             // Tombol lompat ke pesan terbaru (muncul saat scroll ke atas) —
-            // OVERLAY frame-only di pojok kanan-bawah Box. Karena baris chips ada
-            // DI DALAM Box (di bawah list), FAB melayang DI ATAS baris chips —
-            // pesan berhenti di tepi atas chips, jadi FAB tidak pernah menutupi
-            // bubble chat (yang terakhir sekalipun) saat scroll; dan tetap tidak
-            // menimpa tombol Send (overlay hanya seluas area chat + chips).
+            // OVERLAY di pojok KIRI-bawah Box, sejajar baris chips. Karena baris
+            // chips ada DI DALAM Box (di bawah list), FAB melayang di ujung kiri
+            // baris chips — pesan berhenti di tepi atas chips, jadi FAB tidak
+            // pernah menutupi bubble chat saat scroll; chips bergeser ke kanan
+            // (startPadding animasi) memberi ruang, jadi tidak saling menimpa.
+            //
+            // Desain (2026-08-11, masukan user): FAB SOLID surface (mode-aware,
+            // bukan transparan) dengan shape lingkaran EKSPLISIT supaya ripple/
+            // hover ikut lingkaran (bukan kotak rounded bawaan M3), ukuran ~44dp
+            // seimbang dengan chip saran (~40dp), dan posisi kiri karena chips
+            // mengalir dari kiri ke kanan — FAB tidak "memaksa" di ujung kanan.
             // Catatan: pakai nama lengkap (bukan import) untuk memaksa overload
             // generik tanpa receiver — di dalam Box, resolver Kotlin justru memilih
             // ColumnScope.AnimatedVisibility dari receiver Column di luar dan gagal
@@ -400,33 +420,54 @@ fun ChatScreen(
                 // tampil — user sedang menulis, bukan menavigasi riwayat.
                 visible = shouldShowJumpButton && draftText.isBlank(),
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 12.dp),
-                enter = fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(200)),
-                exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it / 2 }, animationSpec = tween(150))
-            ) {
-                // FAB frame-only (2026-08-10): container TRANSPARAN + border
-                // outline + elevasi 0 — konsisten dengan chip saran ("cukup frame
-                // dari tombol aja"). Sebelumnya containerColor=surface (lingkaran
-                // solid + shadow) terlihat seperti area/panel yang menutupi chat
-                // saat di-scroll ke atas.
-                FloatingActionButton(
-                    onClick = { coroutineScope.launch { listState.animateScrollToItem(rows.size - 1) } },
-                    containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    elevation = FloatingActionButtonDefaults.elevation(
-                        defaultElevation = 0.dp,
-                        pressedElevation = 0.dp,
-                        focusedElevation = 0.dp,
-                        hoveredElevation = 0.dp
+                    .align(Alignment.BottomStart)
+                    .padding(start = 12.dp),
+                // MASUK DARI KIRI (2026-08-11, masukan user): FAB slide dari luar
+                // tepi kiri layar (initialOffsetX = -width) + fade — bukan muncul
+                // dari bawah. Keluar juga ke kiri. Spring ringan biar elastis.
+                enter = fadeIn(animationSpec = tween(180)) +
+                    slideInHorizontally(
+                        initialOffsetX = { -it },
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        )
                     ),
+                exit = fadeOut(animationSpec = tween(140)) +
+                    slideOutHorizontally(
+                        targetOffsetX = { -it },
+                        animationSpec = tween(180)
+                    )
+            ) {
+                // FAB SOLID PENUH (2026-08-11, masukan user #2): FloatingActionButton
+                // M3 diganti Box custom — FAB bawaan punya ukuran minimum internal
+                // (48dp) + shadow default sehingga di 40dp tampil 'lingkaran garis di
+                // luar, isi kecil di dalam' (fill terasa tidak penuh). Box custom:
+                // lingkaran 40dp SOLID penuh + shadow halus 3dp + TANPA border
+                // (border 1dp sebelumnya menciptakan kesan cincin).
+                //
+                // PENTING — fill pakai surfaceVariant, BUKAN surface: di theme ini
+                // background == surface (#FBFDF9 light / hampir sama gelap di dark),
+                // sehingga FAB isi surface INVISIBLE (putih di atas putih) — yang
+                // terlihat hanya garis/shadow + ikon = kesan 'fill gak penuh'.
+                // surfaceVariant (#DBE5E0 light / #2C3331 dark) jelas kontras di
+                // kedua mode, selaras dengan keluarga warna composer pill.
+                // Ripple ter-clip lingkaran sempurna karena clip sebelum clickable.
+                Box(
                     modifier = Modifier
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                        .testTag("jump_to_bottom")
+                        .size(40.dp)
+                        .shadow(3.dp, CircleShape)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { coroutineScope.launch { listState.animateScrollToItem(rows.size - 1) } }
+                        .testTag("jump_to_bottom"),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = stringResource(R.string.chat_jump_bottom_desc)
+                        contentDescription = stringResource(R.string.chat_jump_bottom_desc),
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
