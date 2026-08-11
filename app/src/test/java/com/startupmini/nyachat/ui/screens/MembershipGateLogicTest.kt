@@ -36,14 +36,6 @@ class MembershipGateLogicTest {
     }
 
     @Test
-    fun `FAMILY_NOT_FOUND menghasilkan error not found`() {
-        assertEquals(
-            GateStep.Fail(GateError.NOT_FOUND),
-            MembershipGateLogic.nextStep(MembershipStatus.FAMILY_NOT_FOUND, requestedOnce = false)
-        )
-    }
-
-    @Test
     fun `FAILED menghasilkan error failed saat cek keanggotaan`() {
         assertEquals(
             GateStep.Fail(GateError.FAILED),

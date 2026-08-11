@@ -39,7 +39,6 @@ object MembershipGateLogic {
      */
     fun nextStep(status: MembershipStatus, requestedOnce: Boolean): GateStep = when (status) {
         MembershipStatus.MEMBER -> GateStep.Ready
-        MembershipStatus.FAMILY_NOT_FOUND -> GateStep.Fail(GateError.NOT_FOUND)
         MembershipStatus.FAILED -> GateStep.Fail(GateError.FAILED)
         MembershipStatus.TIMED_OUT -> GateStep.Fail(GateError.TIMEOUT)
         MembershipStatus.NOT_REQUESTED ->

@@ -62,9 +62,13 @@ service cloud.firestore {
       // r1.2.3 (P1): avatarBytes/avatarVersion juga boleh di-update diri sendiri
       // — upload foto avatar (Blob JPEG kecil ≤ ~100KB) + versinya. Batas ukuran
       // mencegah klien tak patuh mengisi dokumen member dengan data besar.
+      // Audit keanggotaan: 'name' & 'label' juga boleh di-update diri sendiri —
+      // sinkron nama pilihan user ke member doc (identitas koheren lintas
+      // perangkat). 'label' hanya ditulis klien saat masih default (kosong/==
+      // nama lama) sehingga label kustom owner tidak tertimpa.
       allow update: if signedInGoogle() && (isOwner(familyId)
         || (request.auth.uid == uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'avatarBytes', 'avatarVersion'])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'avatarBytes', 'avatarVersion', 'name', 'label'])
             // Guard: avatarBytes boleh tidak ada (update hanya fcmToken) —
             // jangan panggil .size() pada field null (error evaluasi rules).
             && (!('avatarBytes' in request.resource.data)
@@ -112,6 +116,19 @@ service cloud.firestore {
     // M3 (audit): validasi skema — cloudId wajib == docId, text tidak kosong,
     // timestamps bertipe number (bukan string), supaya anggota tidak bisa
     // menulis dokumen tak valid yang merusak data keluarga lain.
+    //
+    // CATATAN (audit keanggotaan): sender TIDAK diikat ke identitas penulis.
+    // Trade-off yang disengaja & didokumentasikan:
+    //   1) Pesan AI memakai sender reserved "AI" yang ditulis oleh anggota mana
+    //      pun yang bertanya — binding rules akan memblokirnya.
+    //   2) Nama sender bisa diedit user (onboarding/ganti nama); binding ke
+    //      member doc butuh sinkronisasi nama dua arah yang rawan putus saat
+    //      offline-first (kirim pertama ditolak = data hilang).
+    // Implikasi: anggota keluarga (yang sudah dipercaya via PIN + persetujuan
+    // owner) bisa menulis atas nama anggota lain. Dampak terbatas karena semua
+    // anggota sudah punya akses baca-tulis penuh ke data keluarga; identitas
+    // dijaga koheren di sisi klien (nama disinkronkan ke member doc saat
+    // connect/rename — lihat MembershipManager.updateMyIdentity).
     match /families/{familyId}/messages/{docId} {
       allow read: if signedInGoogle() && isMember(familyId);
       allow create: if signedInGoogle() && isMember(familyId)

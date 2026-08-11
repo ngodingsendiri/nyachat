@@ -344,6 +344,20 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                // Audit keanggotaan: sinkronkan nama pilihan user ke member doc
+                // Firestore (identitas koheren lintas perangkat). Pref NAME_SYNCED
+                // di-set setelah sukses supaya SyncLifecycle tidak menulis ulang di
+                // tiap buka app — tapi connect/rename berikutnya tetap menyinkronkan.
+                val syncMyName = { name: String ->
+                    workspacePin?.let { pin ->
+                        scope.launch {
+                            if (com.startupmini.nyachat.data.remote.MembershipManager.updateMyIdentity(pin, name)) {
+                                appPrefs.edit().putBoolean(Constants.Prefs.NAME_SYNCED, true).apply()
+                            }
+                        }
+                    }
+                }
+
                 val handleRenameUser: (String) -> Unit = { newName ->
                     if (newName.isNotBlank()) {
                         userName = newName
@@ -352,6 +366,7 @@ class MainActivity : ComponentActivity() {
                         // (Google hanya default saat onboarding) — setSender memakai
                         // nilai prefs yang sudah diedit ini.
                         viewModel.setSender(newName)
+                        syncMyName(newName)
                     }
                 }
 
@@ -472,6 +487,26 @@ driveController.getAutoPassphrase = {
                     }
                 }
 
+                // P1-1 (audit keanggotaan): peran bisa berubah di device lain (owner
+                // di-demote/promote). Ikuti perubahan role dari snapshot members —
+                // update prefs, state UI, dan manager sync tanpa restart app.
+                // remember(firebaseReady): uid baru tersedia SETELAH login — key ini
+                // memastikan myUid dihitung ulang saat user masuk (jangan terkunci null
+                // dari komposisi pertama di layar login).
+                val myUid = remember(firebaseReady) {
+                    com.startupmini.nyachat.data.remote.MembershipManager.currentUid()
+                }
+                val myRole = remember(members) { members.firstOrNull { it.uid == myUid }?.role }
+                LaunchedEffect(myRole, workspaceRole) {
+                    val newRole = myRole
+                    if (newRole != null && workspaceRole != null && newRole != workspaceRole) {
+                        workspaceRole = newRole
+                        appPrefs.edit().putString(Constants.Prefs.WORKSPACE_ROLE, newRole).apply()
+                        com.startupmini.nyachat.data.remote.MembershipManager.updateRole(newRole)
+                        com.startupmini.nyachat.data.remote.FirestoreSyncManager.setRole(newRole)
+                    }
+                }
+
                 // Bersihkan sesi & kembali ke layar login setelah logout.
                 val performLogoutCleanup = {
                     viewModel.stopCloudSync()
@@ -494,6 +529,26 @@ driveController.getAutoPassphrase = {
                     chatDraft = ""
                 }
 
+                // Audit keanggotaan: member di-kick/ditolak ≠ logout penuh — kembali
+                // ke layar PIN tapi PERTAHANKAN sesi Google & API key BYOK (user tidak
+                // perlu login ulang untuk membuat/bergabung workspace lain).
+                val performKickedCleanup = {
+                    viewModel.stopCloudSync()
+                    workspaceRole = Constants.Defaults.ROLE
+                    workspacePin = null
+                    dialogs.showSettingsSheet = false
+                    dialogs.showProfileAccount = false
+                    // BUG-2 lanjutan: draf tidak boleh bocor ke workspace berikutnya.
+                    chatDraft = ""
+                    scope.launch {
+                        secureStorage.deleteSecretAsync(context, Constants.Prefs.WORKSPACE_PIN)
+                    }
+                    appPrefs.edit()
+                        .remove(Constants.Prefs.WORKSPACE_ROLE)
+                        .remove(Constants.Prefs.LAST_UPLOADED_AVATAR)
+                        .apply()
+                }
+
                 // TASK-1.3.3: seluruh lifecycle glue (sync, API key, update check,
                 // auto-backup, pause/resume listener, re-check membership) hidup
                 // di SyncLifecycleGlue — MainActivity hanya wiring dependency.
@@ -510,6 +565,7 @@ driveController.getAutoPassphrase = {
                     driveController = driveController,
                     scope = scope,
                     onLogoutCleanup = { performLogoutCleanup() },
+                    onKickedCleanup = { performKickedCleanup() },
                     onUpdateAvailable = { dialogs.updateInfo = it }
                 )
 
@@ -568,6 +624,10 @@ driveController.getAutoPassphrase = {
                     // membersihkan draf — isolasi antar-workspace.
                     chatDraft = ""
                     viewModel.setSender(name)
+                    // Audit keanggotaan: nama yang dipilih user langsung disinkronkan ke
+                    // member doc Firestore (doc member joiner dibuat owner dengan nama
+                    // Google — nama pilihan user harus jadi sumber kebenaran).
+                    syncMyName(name)
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {

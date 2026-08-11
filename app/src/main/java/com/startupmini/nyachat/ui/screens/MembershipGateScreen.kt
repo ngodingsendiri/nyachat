@@ -163,9 +163,9 @@ fun MembershipGateScreen(
                             return@LaunchedEffect
                         }
                         else -> {
-                            // Seharusnya tidak sampai sini (PENDING/FAMILY_NOT_FOUND tidak
-                            // dikembalikan oleh waitForJoinRequestDecision), tapi fallback
-                            // ke cek ulang manual kalau perlu.
+                            // Seharusnya tidak sampai sini (PENDING tidak dikembalikan
+                            // oleh waitForJoinRequestDecision), tapi fallback ke cek ulang
+                            // manual kalau perlu.
                             delay(3_000)
                         }
                     }
@@ -284,7 +284,15 @@ fun MembershipGateScreen(
 
             Spacer(modifier = Modifier.height(28.dp))
 
-            if (state == GateState.ERROR) {
+            // P2-1 (audit keanggotaan): REJECTED (ditolak owner) & PIN_OWNED (PIN
+            // dimiliki orang lain) adalah kondisi TERMINAL — "Coba Lagi" hanya akan
+            // mengirim ulang permintaan/percobaan yang sama (spam). Untuk kondisi
+            // itu hanya ada Batal (kembali ke layar PIN; percobaan ulang lewat
+            // PinAttemptLimiter di input PIN).
+            if (state == GateState.ERROR &&
+                error != GateError.REJECTED &&
+                error != GateError.PIN_OWNED
+            ) {
                 Button(
                     onClick = {
                         error = null
@@ -304,16 +312,16 @@ fun MembershipGateScreen(
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
-            if (state != GateState.CHECKING) {
-                OutlinedButton(
-                    onClick = onCancel,
-                    modifier = Modifier.fillMaxWidth(0.72f).height(48.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.action_cancel),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            // Batal selalu tersedia (termasuk saat CHECKING — P3 audit keanggotaan:
+            // cek yang lama karena jaringan buruk tetap bisa dibatalkan).
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.fillMaxWidth(0.72f).height(48.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.action_cancel),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

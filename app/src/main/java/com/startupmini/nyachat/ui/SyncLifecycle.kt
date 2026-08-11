@@ -52,6 +52,9 @@ fun SyncLifecycleGlue(
     driveController: DriveBackupController,
     scope: CoroutineScope,
     onLogoutCleanup: () -> Unit,
+    // Audit keanggotaan: member di-kick/ditolak ≠ logout penuh — cleanup ringan
+    // (kembali ke layar PIN, PERTAHANKAN sesi Google & API key BYOK).
+    onKickedCleanup: () -> Unit,
     onUpdateAvailable: (GitHubRelease) -> Unit
 ) {
     // BUG-06 lanjutan (P0): deteksi jaringan — tanpa ini, indikator sync tetap
@@ -78,16 +81,32 @@ fun SyncLifecycleGlue(
         }
     }
 
-    // Start/stop cloud sync & membership saat PIN workspace berubah.
-    LaunchedEffect(workspacePin, userName) {
+    // Start/stop cloud sync & membership saat PIN workspace berubah. P3 (audit
+    // keanggotaan): userName TIDAK jadi key di sini — ganti nama tidak boleh
+    // me-restart seluruh sync (listener dilepas-pasang & cache avatar ditulis
+    // ulang); setSender dipindah ke LaunchedEffect terpisah.
+    LaunchedEffect(workspacePin) {
         val pin = workspacePin
         if (pin != null) {
             viewModel.startCloudSync(pin, workspaceRole ?: Constants.Roles.MEMBER)
             // r1.2.3 (P1): konteks untuk cache avatar anggota lain ke disk.
             MembershipManager.start(pin, workspaceRole ?: Constants.Roles.MEMBER, context)
+            // Audit keanggotaan: pastikan nama di member doc Firestore mencerminkan
+            // nama yang dipakai user (user lama yang belum pernah re-connect).
+            // Hanya SEKALI (pref NAME_SYNCED) — jangan menulis Firestore di setiap
+            // buka app (reviewer: biaya write per peluncuran).
+            if (!appPrefs.getBoolean(Constants.Prefs.NAME_SYNCED, false)) {
+                val synced = userName?.let { MembershipManager.updateMyIdentity(pin, it) } ?: false
+                if (synced) {
+                    appPrefs.edit().putBoolean(Constants.Prefs.NAME_SYNCED, true).apply()
+                }
+            }
         } else {
             viewModel.stopCloudSync()
         }
+    }
+
+    LaunchedEffect(userName) {
         userName?.let { viewModel.setSender(it) }
     }
 
@@ -156,11 +175,12 @@ fun SyncLifecycleGlue(
             scope.launch {
                 val status = MembershipManager.checkMembership(pin)
                 when (status) {
-                    MembershipStatus.FAMILY_NOT_FOUND,
                     MembershipStatus.NOT_REQUESTED -> {
                         // Workspace dihapus atau user dikick/ditolak di device lain.
-                        // Reset state lokal & kembali ke layar PIN.
-                        onLogoutCleanup()
+                        // Audit keanggotaan: kembali ke layar PIN TANPA menghapus sesi
+                        // Google & API key BYOK — user tinggal buat/gabung workspace
+                        // lain tanpa login ulang.
+                        onKickedCleanup()
                     }
                     MembershipStatus.FAILED -> {
                         // Error jaringan — biarkan state apa adanya, coba lagi nanti.

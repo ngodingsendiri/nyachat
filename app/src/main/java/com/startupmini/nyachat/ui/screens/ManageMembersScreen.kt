@@ -160,7 +160,10 @@ fun ManageMembersScreen(
                         item { SectionTitle(stringResource(R.string.manage_members_list)) }
                     }
 
-                    if (members.isEmpty() && !isOwner) {
+                    // P3 (audit keanggotaan): empty-state untuk SEMUA peran — owner
+                    // juga dapat melihat "kosong" saat snapshot belum datang / anggota
+                    // belum ada (sebelumnya hanya non-owner).
+                    if (members.isEmpty()) {
                         item {
                             Text(
                                 text = stringResource(R.string.manage_members_empty),

@@ -149,6 +149,15 @@ object FirestoreSyncManager {
     fun isSignedIn(): Boolean = FirebaseAuth.getInstance().currentUser != null
 
     /**
+     * Peran berubah di tengah sesi (P1-1 audit keanggotaan) — dipanggil saat
+     * snapshot members mendeteksi role diri sendiri berubah (di-demote/promote
+     * oleh owner lain). Menjaga keputusan owner-only konsisten dengan peran baru.
+     */
+    fun setRole(role: String) {
+        this.role = role
+    }
+
+    /**
      * Pasang DAO antrian pending sejak awal (dipanggil saat repository dibuat),
      * supaya operasi yang dikirim SEBELUM start() selesai (familyId masih kosong)
      * tetap bisa di-antri — tidak hilang.
@@ -238,30 +247,11 @@ object FirestoreSyncManager {
                     ),
                     SetOptions.merge()
                 ).await()
-                ensureSelfMemberDoc(famRef, uid, MembershipManager.ROLE_OWNER)
+                // Satu implementasi member doc (deduplikasi P3 audit keanggotaan) —
+                // hidup di MembershipManager.
+                MembershipManager.ensureSelfMemberDoc(famRef, uid, MembershipManager.ROLE_OWNER)
             }.onFailure { Log.w(TAG, "Catat ownerId/member gagal: ${it.message}") }
         }
-    }
-
-    /** Tulis member doc diri sendiri bila belum ada (bootstrap & migrasi workspace lama). */
-    private suspend fun ensureSelfMemberDoc(
-        famRef: com.google.firebase.firestore.DocumentReference,
-        uid: String,
-        role: String
-    ) {
-        val selfRef = famRef.collection("members").document(uid)
-        if (selfRef.get().await().exists()) return
-        val user = FirebaseAuth.getInstance().currentUser
-        selfRef.set(
-            nonNullMap(
-                Constants.Fields.UID to uid,
-                Constants.Fields.EMAIL to user?.email,
-                Constants.Fields.NAME to user?.displayName,
-                Constants.Fields.ROLE to role,
-                Constants.Fields.LABEL to (user?.displayName ?: Constants.Defaults.LABEL),
-                Constants.Fields.ADDED_AT to System.currentTimeMillis()
-            )
-        ).await()
     }
 
     /**
@@ -272,6 +262,12 @@ object FirestoreSyncManager {
         if (secret.length <= 4) "****" else secret.take(2) + "••••" + secret.takeLast(2)
 
     private fun db() = FirebaseFirestore.getInstance()
+
+    /** True bila error = PERMISSION_DENIED (member dihapus / kehilangan akses
+     *  workspace) — operasi tidak akan pernah sukses lagi (P2-2 audit keanggotaan). */
+    private fun isPermissionDenied(e: Throwable): Boolean =
+        e is com.google.firebase.firestore.FirebaseFirestoreException &&
+            e.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED
 
     private fun messagesRef() =
         db().collection(Constants.Collections.FAMILIES).document(familyId).collection(Constants.Collections.MESSAGES)
@@ -556,7 +552,23 @@ val local = if (existing != null) {
 
     suspend fun syncMessage(message: ChatMessage) {
         val cid = message.cloudId?.takeIf { it.isNotBlank() } ?: return
-        if (canSync() && syncMessageNow(message)) return
+        if (canSync()) {
+            val sent = try {
+                syncMessageNow(message)
+            } catch (e: Exception) {
+                // P2-2: bukan anggota lagi (di-kick) — op tidak akan pernah sukses;
+                // buang supaya tidak di-retry selamanya. Non-PD sudah ditelan
+                // syncMessageNow (kembali false → di-antri).
+                if (isPermissionDenied(e)) {
+                    Log.w(TAG, "Sync pesan dibuang: PERMISSION_DENIED (bukan anggota lagi?)")
+                    return
+                }
+                Log.w(TAG, "Sync pesan gagal: ${e.message}")
+                onSyncFailure(e)
+                false
+            }
+            if (sent) return
+        }
         enqueueOp(OP_SYNC_MESSAGE, DataExporter.messageToJson(message).toString())
     }
 
@@ -586,6 +598,9 @@ val local = if (existing != null) {
             ).await()
             true
         } catch (e: Exception) {
+            // P2-2: biarkan PERMISSION_DENIED mengalir ke pemanggil (dibuang di
+            // syncMessage) — jangan diantri & di-retry tanpa batas.
+            if (isPermissionDenied(e)) throw e
             Log.w(TAG, "Sync pesan gagal: ${e.message}")
             onSyncFailure(e)
             false
@@ -594,7 +609,20 @@ val local = if (existing != null) {
 
     suspend fun deleteMessage(cloudId: String) {
         if (cloudId.isBlank()) return
-        if (canSync() && deleteMessageNow(cloudId)) return
+        if (canSync()) {
+            val done = try {
+                deleteMessageNow(cloudId)
+            } catch (e: Exception) {
+                if (isPermissionDenied(e)) {
+                    Log.w(TAG, "Hapus pesan cloud dibuang: PERMISSION_DENIED (bukan anggota lagi?)")
+                    return
+                }
+                Log.w(TAG, "Hapus pesan cloud gagal: ${e.message}")
+                onSyncFailure(e)
+                false
+            }
+            if (done) return
+        }
         enqueueOp(OP_DELETE_MESSAGE, JSONObject().put("cloudId", cloudId).toString())
     }
 
@@ -602,6 +630,7 @@ val local = if (existing != null) {
         messagesRef().document(cloudId).delete().await()
         true
     } catch (e: Exception) {
+        if (isPermissionDenied(e)) throw e
         Log.w(TAG, "Hapus pesan cloud gagal: ${e.message}")
         onSyncFailure(e)
         false
@@ -609,7 +638,20 @@ val local = if (existing != null) {
 
     suspend fun syncTransaction(transaction: FinancialTransaction) {
         val cid = transaction.cloudId?.takeIf { it.isNotBlank() } ?: return
-        if (canSync() && syncTransactionNow(transaction)) return
+        if (canSync()) {
+            val sent = try {
+                syncTransactionNow(transaction)
+            } catch (e: Exception) {
+                if (isPermissionDenied(e)) {
+                    Log.w(TAG, "Sync transaksi dibuang: PERMISSION_DENIED (bukan anggota lagi?)")
+                    return
+                }
+                Log.w(TAG, "Sync transaksi gagal: ${e.message}")
+                onSyncFailure(e)
+                false
+            }
+            if (sent) return
+        }
         enqueueOp(OP_SYNC_TRANSACTION, DataExporter.transactionToJson(transaction).toString())
     }
 
@@ -635,6 +677,7 @@ val local = if (existing != null) {
             ).await()
             true
         } catch (e: Exception) {
+            if (isPermissionDenied(e)) throw e
             Log.w(TAG, "Sync transaksi gagal: ${e.message}")
             onSyncFailure(e)
             false
@@ -650,7 +693,20 @@ val local = if (existing != null) {
 
     suspend fun deleteTransaction(cloudId: String) {
         if (cloudId.isBlank()) return
-        if (canSync() && deleteTransactionNow(cloudId)) return
+        if (canSync()) {
+            val done = try {
+                deleteTransactionNow(cloudId)
+            } catch (e: Exception) {
+                if (isPermissionDenied(e)) {
+                    Log.w(TAG, "Hapus transaksi cloud dibuang: PERMISSION_DENIED (bukan anggota lagi?)")
+                    return
+                }
+                Log.w(TAG, "Hapus transaksi cloud gagal: ${e.message}")
+                onSyncFailure(e)
+                false
+            }
+            if (done) return
+        }
         enqueueOp(OP_DELETE_TRANSACTION, JSONObject().put("cloudId", cloudId).toString())
     }
 
@@ -658,6 +714,7 @@ val local = if (existing != null) {
         transactionsRef().document(cloudId).delete().await()
         true
     } catch (e: Exception) {
+        if (isPermissionDenied(e)) throw e
         Log.w(TAG, "Hapus transaksi cloud gagal: ${e.message}")
         onSyncFailure(e)
         false
@@ -665,7 +722,20 @@ val local = if (existing != null) {
 
     /** Hapus semua data workspace keluarga dari cloud. */
     suspend fun clearFamilyData() {
-        if (canSync() && clearFamilyDataNow()) return
+        if (canSync()) {
+            val done = try {
+                clearFamilyDataNow()
+            } catch (e: Exception) {
+                if (isPermissionDenied(e)) {
+                    Log.w(TAG, "Bersihkan cloud dibuang: PERMISSION_DENIED (bukan anggota lagi?)")
+                    return
+                }
+                Log.w(TAG, "Bersihkan cloud gagal: ${e.message}")
+                onSyncFailure(e)
+                false
+            }
+            if (done) return
+        }
         enqueueOp(OP_CLEAR_FAMILY, JSONObject().toString())
     }
 
@@ -678,6 +748,7 @@ val local = if (existing != null) {
         deleteCollectionInBatches(transactionsRef())
         true
     } catch (e: Exception) {
+        if (isPermissionDenied(e)) throw e
         Log.w(TAG, "Bersihkan cloud gagal: ${e.message}")
         onSyncFailure(e)
         false
@@ -891,21 +962,30 @@ val local = if (existing != null) {
     }
 
     /** Eksekusi satu op antrian. Return true kalau berhasil (op bisa dihapus). */
-    private suspend fun executeOp(op: PendingOp): Boolean = try {
-        val payload = JSONObject(op.payload)
-        when (op.opType) {
-            OP_SYNC_MESSAGE -> syncMessageNow(DataExporter.messageFromJson(payload))
-            OP_DELETE_MESSAGE -> deleteMessageNow(payload.optString("cloudId"))
-            OP_SYNC_TRANSACTION -> syncTransactionNow(DataExporter.transactionFromJson(payload))
-            OP_DELETE_TRANSACTION -> deleteTransactionNow(payload.optString("cloudId"))
-            OP_CLEAR_FAMILY -> clearFamilyDataNow()
-            else -> true // tipe tak dikenal → buang agar tidak macet
+    private suspend fun executeOp(op: PendingOp): Boolean {
+        return try {
+            val payload = JSONObject(op.payload)
+            when (op.opType) {
+                OP_SYNC_MESSAGE -> syncMessageNow(DataExporter.messageFromJson(payload))
+                OP_DELETE_MESSAGE -> deleteMessageNow(payload.optString("cloudId"))
+                OP_SYNC_TRANSACTION -> syncTransactionNow(DataExporter.transactionFromJson(payload))
+                OP_DELETE_TRANSACTION -> deleteTransactionNow(payload.optString("cloudId"))
+                OP_CLEAR_FAMILY -> clearFamilyDataNow()
+                else -> true // tipe tak dikenal → buang agar tidak macet
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // jangan telan pembatalan coroutine (logout/stop) sebagai kegagalan op
+        } catch (e: Exception) {
+            // P2-2 (audit keanggotaan): member dihapus/di-kick — PERMISSION_DENIED
+            // tidak akan pernah sukses; buang op agar drain tidak retry selamanya.
+            if (isPermissionDenied(e)) {
+                Log.w(TAG, "Pending op dibuang: PERMISSION_DENIED (bukan anggota lagi?)")
+                true
+            } else {
+                Log.w(TAG, "Eksekusi pending op gagal: ${e.message}")
+                false
+            }
         }
-    } catch (e: kotlinx.coroutines.CancellationException) {
-        throw e // jangan telan pembatalan coroutine (logout/stop) sebagai kegagalan op
-    } catch (e: Exception) {
-        Log.w(TAG, "Eksekusi pending op gagal: ${e.message}")
-        false
     }
 
     /**

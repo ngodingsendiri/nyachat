@@ -43,6 +43,11 @@ object Constants {
         // r1.2.3 (P1): path avatar terakhir yang sudah di-upload ke Firestore —
         // supaya tidak upload ulang foto yang sama di setiap buka app.
         const val LAST_UPLOADED_AVATAR = "last_uploaded_avatar"
+        // Audit keanggotaan: nama user sudah pernah disinkronkan ke member doc
+        // Firestore — supaya SyncLifecycle tidak menulis ulang di SETIAP buka app
+        // (biaya write). Di-reset saat logout (clear) & diset ulang saat rename/
+        // connect berikutnya.
+        const val NAME_SYNCED = "name_synced"
     }
 
     // ===== Sumber foto profil (nilai AVATAR_SOURCE) =====

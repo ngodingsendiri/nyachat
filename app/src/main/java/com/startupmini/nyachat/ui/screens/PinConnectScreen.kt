@@ -421,8 +421,12 @@ fun PinConnectScreen(
                             1 -> {
                                 OutlinedTextField(
                                     value = inputPin,
-                                    onValueChange = {
-                                        if (it.length <= Constants.Defaults.PIN_LENGTH) inputPin = it.uppercase()
+                                    onValueChange = { value ->
+                                        // P3 (audit keanggotaan): PIN adalah digit — saring
+                                        // karakter non-digit (paste berhuruf) supaya lookup
+                                        // workspace konsisten & tidak lolos ke server.
+                                        val digits = value.filter(Char::isDigit)
+                                        if (digits.length <= Constants.Defaults.PIN_LENGTH) inputPin = digits
                                     },
                                     label = { Text(stringResource(R.string.pin_input_label)) },
                                     modifier = Modifier.fillMaxWidth(),

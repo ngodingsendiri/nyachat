@@ -50,7 +50,7 @@ data class JoinRequest(
 )
 
 /** Status keanggotaan untuk alur masuk workspace (PIN perlu persetujuan owner). */
-enum class MembershipStatus { FAMILY_NOT_FOUND, MEMBER, PENDING, NOT_REQUESTED, FAILED, TIMED_OUT }
+enum class MembershipStatus { MEMBER, PENDING, NOT_REQUESTED, FAILED, TIMED_OUT }
 
 /** Hasil pengiriman permintaan bergabung (membedakan "PIN tidak ada" vs error). */
 enum class JoinRequestResult { SUCCESS, NOT_FOUND, FAILED }
@@ -181,7 +181,11 @@ object MembershipManager {
                     name = d[Constants.Fields.NAME] as? String ?: "",
                     role = d[Constants.Fields.ROLE] as? String ?: Constants.Roles.MEMBER,
                     label = d[Constants.Fields.LABEL] as? String ?: "",
-                    addedAt = (d[Constants.Fields.ADDED_AT] as? Number)?.toLong() ?: 0L,
+                    // P3 (audit keanggotaan): addedAt bisa bertipe Timestamp
+                    // (serverTimestamp) atau Number (jam klien lama) — tangani keduanya.
+                    addedAt = (d[Constants.Fields.ADDED_AT] as? Number)?.toLong()
+                        ?: (d[Constants.Fields.ADDED_AT] as? com.google.firebase.Timestamp)?.toDate()?.time
+                        ?: 0L,
                     avatarVersion = (d[Constants.Fields.AVATAR_VERSION] as? Number)?.toLong() ?: 0L
                 )
             }
@@ -228,6 +232,12 @@ object MembershipManager {
             }
         }
         if (role != Constants.Roles.OWNER) return
+        listenJoinRequests(famRef)
+    }
+
+    /** Listener realtime permintaan bergabung (hanya owner) — dipasang saat start
+     *  dan dipasang ulang bila peran di-promote ke owner (P1-1 audit keanggotaan). */
+    private fun listenJoinRequests(famRef: com.google.firebase.firestore.DocumentReference) {
         joinRequestsListener = famRef.collection(Constants.Collections.JOIN_REQUESTS).addSnapshotListener { snap, err ->
             if (err != null) {
                 Log.w(TAG, "Listen joinRequests gagal: ${err.message}")
@@ -244,6 +254,56 @@ object MembershipManager {
                 )
             }
         }
+    }
+
+    /**
+     * Peran berubah di tengah sesi (di-promote/di-demote oleh owner lain).
+     * P1-1 (audit keanggotaan): sebelumnya role hanya di-set saat start() — owner
+     * yang di-demote tetap punya listener joinRequests & UI owner sampai restart.
+     * Fungsi ini menyinkronkan listener dengan peran terbaru (dipanggil saat
+     * snapshot members mendeteksi perbedaan role sendiri).
+     */
+    fun updateRole(role: String) {
+        if (role == activeRole) return
+        activeRole = role
+        if (currentPin.isEmpty()) return
+        val famRef = db().collection(Constants.Collections.FAMILIES).document(currentPin)
+        if (role == ROLE_OWNER) {
+            listenJoinRequests(famRef)
+        } else {
+            joinRequestsListener?.remove(); joinRequestsListener = null
+            _joinRequests.value = emptyList()
+        }
+    }
+
+    /**
+     * Sinkronkan nama tampilan diri sendiri ke member doc Firestore (audit
+     * keanggotaan — identitas koheren lintas perangkat): nama yang dipilih user
+     * (onboarding/ganti nama) harus sama dengan nama di doc member supaya device
+     * lain menampilkan nama yang benar & map avatar berfungsi. Best-effort —
+     * gagal offline tidak fatal, dicoba lagi saat rename/connect berikutnya.
+     */
+    suspend fun updateMyIdentity(pin: String, name: String): Boolean {
+        val uid = currentUid() ?: return false
+        if (name.isBlank()) return false
+        return runCatching {
+            val selfRef = db().collection(Constants.Collections.FAMILIES).document(pin)
+                .collection(Constants.Collections.MEMBERS).document(uid)
+            val doc = selfRef.get().await()
+            if (!doc.exists()) return@runCatching false
+            val currentName = doc.getString(Constants.Fields.NAME)
+            val currentLabel = doc.getString(Constants.Fields.LABEL)
+            val updates = mutableMapOf<String, Any>(Constants.Fields.NAME to name)
+            // Sinkron label juga bila masih DEFAULT (kosong / == nama lama) supaya
+            // device lain tidak menampilkan nama lama di daftar anggota. Label yang
+            // dikustomisasi owner (mis. "Bendahara") TIDAK ditimpa.
+            if (currentLabel.isNullOrBlank() || currentLabel == currentName) {
+                updates[Constants.Fields.LABEL] = name
+            }
+            selfRef.update(updates).await()
+            true
+        }.onFailure { Log.w(TAG, "updateMyIdentity gagal: ${it.message}") }
+            .getOrDefault(false)
     }
 
     /**
@@ -304,8 +364,12 @@ object MembershipManager {
         _lastFailure.value = msg
     }
 
-    /** Tulis member doc diri sendiri bila belum ada (bootstrap & migrasi workspace lama). */
-    private suspend fun ensureSelfMemberDoc(
+    /**
+     * Tulis member doc diri sendiri bila belum ada (bootstrap & migrasi workspace
+     * lama). internal (bukan private): dipakai juga FirestoreSyncManager.ensureFamilyDoc
+     * — SATU implementasi (deduplikasi P3 audit keanggotaan).
+     */
+    internal suspend fun ensureSelfMemberDoc(
         famRef: com.google.firebase.firestore.DocumentReference,
         uid: String,
         role: String
@@ -320,7 +384,9 @@ object MembershipManager {
                 Constants.Fields.NAME to user?.displayName,
                 Constants.Fields.ROLE to role,
                 Constants.Fields.LABEL to (user?.displayName ?: Constants.Defaults.LABEL),
-                Constants.Fields.ADDED_AT to System.currentTimeMillis()
+                // P3 (audit keanggotaan): jam SERVER (bukan jam klien) — konsisten
+                // dengan createdAt di dokumen keluarga.
+                Constants.Fields.ADDED_AT to FieldValue.serverTimestamp()
             )
         ).await()
     }
@@ -387,9 +453,9 @@ object MembershipManager {
 
     /**
      * Cek status keanggotaan pengguna saat ini di sebuah workspace (PIN).
-     * Sesuai rules: dokumen keluarga TIDAK dibaca non-anggota, jadi
-     * FAMILY_NOT_FOUND tidak bisa dideteksi di sini — keberadaan PIN ditentukan
-     * lewat hasil [requestJoin] (create ditolak rules bila keluarga tidak ada).
+     * Sesuai rules: dokumen keluarga TIDAK dibaca non-anggota, jadi keberadaan
+     * PIN ditentukan lewat hasil [requestJoin] (create ditolak rules bila
+     * keluarga tidak ada) — bukan di sini.
      */
     suspend fun checkMembership(pin: String): MembershipStatus {
         val uid = currentUid() ?: return MembershipStatus.FAILED
@@ -513,7 +579,9 @@ object MembershipManager {
                             Constants.Fields.NAME to request.name,
                             Constants.Fields.ROLE to Constants.Roles.MEMBER,
                             Constants.Fields.LABEL to request.name.ifBlank { Constants.Defaults.LABEL },
-                            Constants.Fields.ADDED_AT to System.currentTimeMillis()
+                            // P3 (audit keanggotaan): jam server, bukan jam klien
+                            // (selisih jam antar perangkat tidak memengaruhi addedAt).
+                            Constants.Fields.ADDED_AT to FieldValue.serverTimestamp()
                         )
                     )
                     txn.delete(requestRef)
