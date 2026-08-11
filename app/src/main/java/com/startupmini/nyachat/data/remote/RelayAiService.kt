@@ -54,7 +54,16 @@ object RelayAiService {
     fun setNetworkOnline(online: Boolean) {
         networkOnline = online
         // Jaringan jelas mati → tidak ada gunanya mencoba relay (hemat waktu).
-        if (!online) relayUsable = false
+        if (!online) {
+            relayUsable = false
+            return
+        }
+        // Jaringan pulih → relay layak dicoba lagi. Ini juga membatalkan flag
+        // "mati permanen" dari NOT_FOUND: fungsi aiComplete bisa di-deploy
+        // kapan saja SETELAH app terinstall (kasus nyata: APK terpasang dulu,
+        // Cloud Function menyusul) — mematikan selamanya sampai app restart
+        // membuat relay tak pernah aktif walau server sudah siap.
+        relayUsable = true
     }
 
     /** Reset saat login/logout / app baru — untuk keperluan test & lifecycle. */

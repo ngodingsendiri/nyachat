@@ -66,4 +66,27 @@ class RelayAiServiceTest {
         val result = RelayAiService.completeChat("dapat arisan 50jt")
         assertNull("Offline murni → relay harus null (langsung heuristik)", result)
     }
+
+    @Test
+    fun jaringanPulihSetelahOfflineMenghidupkanKembaliRelay() {
+        // Kasus nyata: offline (relay mati) → jaringan pulih → relay harus
+        // layak dicoba lagi tanpa perlu restart app.
+        RelayAiService.setNetworkOnline(false)
+        assertFalse(RelayAiService.isAvailable())
+        RelayAiService.setNetworkOnline(true)
+        assertTrue("Jaringan pulih → relay harus aktif lagi", RelayAiService.isAvailable())
+    }
+
+    @Test
+    fun notFoundTidakMematikanRelayPermanenSetelahJaringanPulih() = runBlocking {
+        // Simulasi: fungsi aiComplete belum ter-deploy (NOT_FOUND) → relay
+        // mati. Lalu Cloud Function di-deploy (jaringan berubah / pulih) →
+        // relay harus dicoba lagi (bukan mati selamanya sampai app restart).
+        // completeChat tanpa FirebaseApp menghasilkan pesan yang mengandung
+        // "FirebaseApp" — setara dengan kondisi "belum siap" yang harus
+        // bisa pulih.
+        RelayAiService.completeChat("uji")
+        RelayAiService.setNetworkOnline(true)
+        assertTrue("Setelah jaringan pulih, relay harus bisa dicoba lagi", RelayAiService.isAvailable())
+    }
 }
