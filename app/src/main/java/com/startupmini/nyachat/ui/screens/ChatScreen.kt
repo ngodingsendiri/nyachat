@@ -245,7 +245,16 @@ fun ChatScreen(
             // Tekstur grid halus di area chat (2026-08-11) — pola kotak-kotak
             // sangat tipis & alpha rendah supaya background hampir terlihat
             // polos tapi ada depth; tetap di belakang semua elemen chat.
-            .chatGridBackground(isDark)
+            // Audit warna (2026-08-11): dark memakai surfaceVariant (hue
+            // menyatu dengan palet gelap kehijauan, bukan putih murni yang
+            // tadinya nyaris seterang surface saat di-blend).
+            .chatGridBackground(
+                if (isDark) {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.06f)
+                } else {
+                    Color.Black.copy(alpha = 0.04f)
+                }
+            )
             .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -655,20 +664,19 @@ fun ChatScreen(
 
 /**
  * Grid kotak-kotak halus untuk area chat (2026-08-11) — tekstur subtle,
- * bukan wallpaper. Garis 0.5dp dengan alpha sangat rendah (mode-aware)
- * sehingga background hampir terlihat polos; grid digambar lewat drawBehind
- * (sekali per ukuran layar, efisien — tidak ada bitmap pattern).
+ * bukan wallpaper. Garis 0.5dp dengan alpha sangat rendah sehingga background
+ * hampir terlihat polos; grid digambar lewat drawBehind (sekali per ukuran
+ * layar, efisien — tidak ada bitmap pattern).
+ *
+ * [gridColor] diteruskan dari caller (yang punya akses MaterialTheme):
+ *  - light: Black α0.04 — garis gelap tipis di atas latar terang.
+ *  - dark : surfaceVariant α0.06 — hue MENYATU dengan palet gelap kehijauan
+ *    (audit 2026-08-11). Sebelumnya White murni α0.03 yang saat di-blend ke
+ *    background #101414 menghasilkan #171B1B — nyaris seterang surface
+ *    (selisih 5-6 level) sehingga grid terasa "berbeda dari warna gelap lain".
  */
-private fun Modifier.chatGridBackground(isDark: Boolean): Modifier = this.drawBehind {
-    // Warna garis menyatu dengan tema: gelap-tipis di light, terang-tipis di dark.
-    // (2026-08-11 tuning): alpha diturunkan lagi — dark 0.06→0.03, light
-    // 0.05→0.04 — karena grid masih terlalu mencolok terutama di mode gelap.
-    // Target: pertama lihat hampir polos; grid baru terasa saat diperhatikan.
-    val gridLine = if (isDark) {
-        Color.White.copy(alpha = 0.03f)
-    } else {
-        Color.Black.copy(alpha = 0.04f)
-    }
+private fun Modifier.chatGridBackground(gridColor: Color): Modifier = this.drawBehind {
+    val gridLine = gridColor
     val cellSize = 32.dp.toPx()
     val stroke = 0.5.dp.toPx()
     var x = 0f
