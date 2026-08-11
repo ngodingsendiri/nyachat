@@ -1,5 +1,6 @@
 package com.startupmini.nyachat.data.remote
 
+import android.content.Context
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
@@ -7,11 +8,18 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.startupmini.nyachat.Constants
+import com.startupmini.nyachat.data.local.AvatarStore
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -25,7 +33,10 @@ data class FamilyMember(
     val name: String = "",
     val role: String = "member",
     val label: String = "",
-    val addedAt: Long = 0L
+    val addedAt: Long = 0L,
+    // r1.2.3 (P1): versi foto avatar member (0 = belum punya foto). Bytes foto
+    // tidak dibawa ke UI — di-cache ke disk via AvatarStore (lihat [cacheAvatarOf]).
+    val avatarVersion: Long = 0L
 ) {
     val isOwner: Boolean get() = role == Constants.Roles.OWNER
 }
@@ -104,6 +115,17 @@ object MembershipManager {
     @Volatile private var currentPin: String = ""
     @Volatile private var activeRole: String = ROLE_MEMBER
 
+    // r1.2.3 (P1): konteks aplikasi untuk cache avatar anggota lain ke disk.
+    // Di-set saat start() — snapshot listener Firestore butuh konteks untuk
+    // menulis file cache (bukan komposisi, jadi tidak bisa pakai LocalContext).
+    @Volatile private var appContext: Context? = null
+
+    // r1.2.3 (P1): scope khusus untuk I/O cache avatar anggota lain. Snapshot
+    // listener Firestore berjalan di main thread — menulis file di dalamnya
+    // memicu jank (review P1). Semua operasi disk avatar di-pindahkan ke sini;
+    // dibatalkan di stop() agar tidak ada task menggantung setelah logout.
+    private val avatarScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     /** true saat app background & listener keanggotaan untuk sementara diputus (M2). */
     @Volatile private var paused = false
 
@@ -117,17 +139,30 @@ object MembershipManager {
      * "Kelola Anggota". Listener joinRequests hanya dipasang untuk owner
      * (anggota tidak punya izin baca, jadi jangan sampai kena PERMISSION_DENIED).
      */
-    fun start(pin: String, role: String) {
+    fun start(pin: String, role: String, context: Context? = null) {
         // stop() di sini (selain yang dipicu FirestoreSyncManager.start) bersifat
         // idempoten — dipanggil dua kali saat startup (L12) tapi tidak berbahaya:
         // membersListener/joinRequestsListener null-safe & state di-reset bersih.
         stop()
         currentPin = pin
         activeRole = role
+        appContext = context?.applicationContext
         attachListeners(pin, role)
     }
 
     /** Pasang listener keanggotaan (dipisah agar bisa dipasang ulang di resume, M2). */
+    // r1.2.3 (P1): foto avatar anggota lain yang sudah di-cache ke disk,
+    // dikunci uid → path file. Dibangun saat snapshot members datang (lihat
+    // [cacheAvatarOf]); UI header chat/topbar memakainya untuk AvatarImage.
+    private val _memberAvatarPaths = MutableStateFlow<Map<String, String>>(emptyMap())
+    val memberAvatarPaths: StateFlow<Map<String, String>> = _memberAvatarPaths.asStateFlow()
+
+    // Versi avatar per uid yang sudah di-publish (review P1): mencegah task
+    // avatarScope yang lebih TUA menimpa map dengan versi lebih baru saat dua
+    // snapshot beruntun (mis. member ganti foto tepat saat snapshot pertama
+    // masih menulis cache). ConcurrentHashMap aman diakses lintas thread.
+    private val publishedAvatarVersions = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     private fun attachListeners(pin: String, role: String) {
         val famRef = db().collection(Constants.Collections.FAMILIES).document(pin)
         membersListener = famRef.collection(Constants.Collections.MEMBERS).addSnapshotListener { snap, err ->
@@ -138,7 +173,7 @@ object MembershipManager {
                 return@addSnapshotListener
             }
             snap ?: return@addSnapshotListener
-            _members.value = snap.documents.mapNotNull { doc ->
+            val list = snap.documents.mapNotNull { doc ->
                 val d = doc.data ?: return@mapNotNull null
                 FamilyMember(
                     uid = doc.id,
@@ -146,8 +181,50 @@ object MembershipManager {
                     name = d[Constants.Fields.NAME] as? String ?: "",
                     role = d[Constants.Fields.ROLE] as? String ?: Constants.Roles.MEMBER,
                     label = d[Constants.Fields.LABEL] as? String ?: "",
-                    addedAt = (d[Constants.Fields.ADDED_AT] as? Number)?.toLong() ?: 0L
+                    addedAt = (d[Constants.Fields.ADDED_AT] as? Number)?.toLong() ?: 0L,
+                    avatarVersion = (d[Constants.Fields.AVATAR_VERSION] as? Number)?.toLong() ?: 0L
                 )
+            }
+            _members.value = list
+            // P1: cache foto avatar anggota lain ke disk (Blob Firestore → file),
+            // lalu publish map uid→path untuk UI. Dijalankan di avatarScope
+            // (Dispatchers.IO) — snapshot listener main thread TIDAK boleh
+            // menulis file (jank). Bytes foto tidak disimpan di memori — hanya
+            // dibaca saat snapshot & langsung ditulis ke disk.
+            val ctx = appContext ?: return@addSnapshotListener
+            if (list.isNotEmpty()) {
+                val docs = snap.documents
+                avatarScope.launch {
+                    val paths = mutableMapOf<String, String>()
+                    docs.forEach { doc ->
+                        val uid = doc.id
+                        val version = (doc.data?.get(Constants.Fields.AVATAR_VERSION) as? Number)?.toLong() ?: 0L
+                        if (version <= 0L) return@forEach
+                        // Skip bila versi ini sudah ter-publish (atau ada yang lebih baru).
+                        val prev = publishedAvatarVersions[uid] ?: 0L
+                        if (version <= prev) return@forEach
+                        val existing = AvatarStore.getMemberAvatarPath(ctx, uid, version)
+                        if (existing != null) {
+                            paths[uid] = existing
+                            publishedAvatarVersions[uid] = version
+                        } else {
+                            val bytes = (doc.data?.get(Constants.Fields.AVATAR_BYTES) as? com.google.firebase.firestore.Blob)?.toBytes()
+                            if (bytes != null && bytes.isNotEmpty()) {
+                                AvatarStore.cacheMemberAvatar(ctx, uid, version, bytes)
+                                    ?.let {
+                                        paths[uid] = it
+                                        publishedAvatarVersions[uid] = version
+                                    }
+                            }
+                        }
+                    }
+                    // StateFlow thread-safe; merge (bukan replace) supaya task yang
+                    // selesai belakangan untuk member berbeda tidak menghapus path
+                    // milik member lain yang sudah ter-publish lebih dulu.
+                    if (paths.isNotEmpty()) {
+                        _memberAvatarPaths.value = _memberAvatarPaths.value + paths
+                    }
+                }
             }
         }
         if (role != Constants.Roles.OWNER) return
@@ -195,12 +272,18 @@ object MembershipManager {
         paused = false
         currentPin = ""
         activeRole = ROLE_MEMBER
+        appContext = null
         membersListener?.remove(); membersListener = null
         joinRequestsListener?.remove(); joinRequestsListener = null
+        // Batalkan task I/O avatar yang mungkin masih jalan (review P1) —
+        // jangan biarkan menulis cache setelah stop().
+        avatarScope.coroutineContext.cancelChildren()
+        publishedAvatarVersions.clear()
         // Jangan biarkan daftar workspace lama menempel (P4-1): login ke workspace
         // berbeda berikutnya harus menampilkan anggota baru, bukan yang lama.
         _members.value = emptyList()
         _joinRequests.value = emptyList()
+        _memberAvatarPaths.value = emptyMap()
         _lastFailure.value = null
     }
 
@@ -465,5 +548,63 @@ object MembershipManager {
                 .collection(Constants.Collections.MEMBERS).document(uid)
                 .update(updates).await()
         }.onFailure { Log.w(TAG, "setMemberRole gagal: ${it.message}") }
+    }
+
+    /**
+     * Upload foto avatar Diri Sendiri ke Firestore (r1.2.3 — P1): bytes JPEG
+     * kecil (sudah dikompresi via [AvatarStore.compressAvatarForCloud]) + versi
+     * timestamp supaya perangkat lain tahu cache lokalnya kedaluwarsa.
+     *
+     * Rules mengizinkan tiap anggota meng-update field avatarBytes/avatarVersion
+     * miliknya sendiri (lihat firestore.rules). [bytes] null → reset avatar
+     * (hapus foto dari cloud, member lain kembali ke inisial berwarna).
+     */
+    /**
+     * Upload foto avatar Diri Sendiri ke Firestore. Return true hanya bila
+     * upload BENAR-BENAR berhasil — pemanggil (MainActivity) memakai ini untuk
+     * menandai pref "terakhir di-upload". Tanpa return ini, upload yang gagal
+     * (mis. offline) ikut ditandai sukses dan tidak pernah dicoba ulang sampai
+     * user mengganti foto lagi (review P1).
+     */
+    suspend fun uploadMyAvatar(pin: String, bytes: ByteArray?): Boolean {
+        val uid = currentUid() ?: return false
+        return runCatching {
+            val updates = mutableMapOf<String, Any>()
+            if (bytes != null) {
+                updates[Constants.Fields.AVATAR_BYTES] = com.google.firebase.firestore.Blob.fromBytes(bytes)
+                updates[Constants.Fields.AVATAR_VERSION] = System.currentTimeMillis()
+            } else {
+                // Reset: hapus field avatar (Firestore menerima FieldValue.delete).
+                updates[Constants.Fields.AVATAR_BYTES] = FieldValue.delete()
+                updates[Constants.Fields.AVATAR_VERSION] = FieldValue.delete()
+            }
+            db().collection(Constants.Collections.FAMILIES).document(pin)
+                .collection(Constants.Collections.MEMBERS).document(uid)
+                .update(updates).await()
+            true
+        }.onFailure { Log.w(TAG, "uploadMyAvatar gagal: ${it.message}") }
+            .getOrDefault(false)
+    }
+
+    /**
+     * Build map nama-tampilan → path foto avatar (r1.2.3 — P1) untuk header
+     * chat & topbar. Kunci = nama & label member (sender pesan bisa salah satu),
+     * plus nama user lokal sendiri bila punya foto. Murni (tanpa baca state
+     * internal) supaya bisa di-remember reaktif oleh UI layer.
+     */
+    fun buildAvatarNameMap(
+        members: List<FamilyMember>,
+        memberAvatarPaths: Map<String, String>,
+        myName: String?,
+        myAvatarPath: String?
+    ): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        members.forEach { member ->
+            val path = memberAvatarPaths[member.uid] ?: return@forEach
+            if (member.name.isNotBlank()) map[member.name] = path
+            if (member.label.isNotBlank()) map[member.label] = path
+        }
+        if (myName != null && myAvatarPath != null) map[myName] = myAvatarPath
+        return map
     }
 }

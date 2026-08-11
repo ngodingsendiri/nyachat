@@ -40,6 +40,9 @@ object Constants {
         // Email akun Google yang dipakai login — untuk ditampilkan di Profil
         // & Akun (FirebaseAuth bisa null setelah logout, jadi di-snapshot).
         const val USER_EMAIL = "user_email"
+        // r1.2.3 (P1): path avatar terakhir yang sudah di-upload ke Firestore —
+        // supaya tidak upload ulang foto yang sama di setiap buka app.
+        const val LAST_UPLOADED_AVATAR = "last_uploaded_avatar"
     }
 
     // ===== Sumber foto profil (nilai AVATAR_SOURCE) =====
@@ -86,6 +89,10 @@ object Constants {
         const val LOGGED_BY = "loggedBy"
         const val CHAT_MESSAGE_ID = "chatMessageId"
         const val FCM_TOKEN = "fcmToken"
+        // r1.2.3 (P1): avatar foto member — bytes JPEG kecil (Blob Firestore) +
+        // version untuk cache invalidation antar perangkat.
+        const val AVATAR_BYTES = "avatarBytes"
+        const val AVATAR_VERSION = "avatarVersion"
     }
 
     // ===== Peran workspace (wajib sama dengan rules) =====

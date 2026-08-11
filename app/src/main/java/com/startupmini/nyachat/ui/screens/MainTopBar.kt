@@ -39,16 +39,21 @@ import androidx.compose.ui.zIndex
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
+import com.startupmini.nyachat.ui.util.AvatarImage
+import com.startupmini.nyachat.ui.util.avatarColorFor
 
 /**
  * TopAppBar utama: avatar bertumpuk anggota + judul + aksi (kelola anggota &
  * pengaturan). Ekstraksi dari MainActivity (TASK-1.3) — tanpa perubahan behavior.
+ * r1.2.3 (P1): [memberAvatarPaths] = map nama-tampilan → path foto, supaya
+ * avatar bertumpuk menampilkan FOTO bila tersedia (fallback inisial berwarna).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainTopBar(
     messages: List<ChatMessage>,
     userName: String?,
+    memberAvatarPaths: Map<String, String> = emptyMap(),
     onManageMembers: () -> Unit,
     onSettings: () -> Unit
 ) {
@@ -74,6 +79,7 @@ fun MainTopBar(
                     senders = uniqueSenders.ifEmpty {
                         userName?.let { listOf(it) } ?: emptyList()
                     },
+                    avatarPaths = memberAvatarPaths,
                     modifier = Modifier.padding(end = 10.dp)
                 )
                 Column {
@@ -134,6 +140,7 @@ fun MainTopBar(
 @Composable
 private fun StackedAvatars(
     senders: List<String>,
+    avatarPaths: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier,
     avatarSize: Int = 32,
     overlapDp: Int = 10
@@ -148,52 +155,50 @@ private fun StackedAvatars(
             .height(avatarSize.dp)
     ) {
         show.forEachIndexed { index, name ->
-            val avatarColor = avatarColorFor(name)
-            val initials = name.take(2).uppercase()
-            // Teks adaptif (audit WCAG): inisial gelap saat bg avatar terang (orange/sky/
-            // hijau — putih hanya ~2.3-3:1), putih saat bg gelap (indigo/ungu/crimson).
-            val fgColor = if (avatarColor.luminance() > 0.22f) Color(0xFF202124) else Color.White
-            Box(
-                modifier = Modifier
-                    .size(avatarSize.dp)
-                    .offset(x = (index * (avatarSize - overlapDp)).dp)
-                    .zIndex((show.size - index).toFloat())
-                    .clip(CircleShape)
-                    .drawBehind { drawCircle(color = avatarColor) },
-                contentAlignment = Alignment.Center
-            ) {
-                // White border ring
+            val photoPath = avatarPaths[name]
+            if (photoPath != null) {
+                // r1.2.3 (P1): tampilkan FOTO avatar bila tersedia.
+                AvatarImage(
+                    name = name,
+                    size = avatarSize,
+                    photoPath = photoPath,
+                    modifier = Modifier
+                        .offset(x = (index * (avatarSize - overlapDp)).dp)
+                        .zIndex((show.size - index).toFloat()),
+                    backgroundColor = avatarColorFor(name),
+                    textStyle = MaterialTheme.typography.labelMedium
+                )
+            } else {
+                val avatarColor = avatarColorFor(name)
+                val initials = name.take(2).uppercase()
+                // Teks adaptif (audit WCAG): inisial gelap saat bg avatar terang (orange/sky/
+                // hijau — putih hanya ~2.3-3:1), putih saat bg gelap (indigo/ungu/crimson).
+                val fgColor = if (avatarColor.luminance() > 0.22f) Color(0xFF202124) else Color.White
                 Box(
                     modifier = Modifier
                         .size(avatarSize.dp)
+                        .offset(x = (index * (avatarSize - overlapDp)).dp)
+                        .zIndex((show.size - index).toFloat())
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.25f))
-                )
-                Text(
-                    text = initials,
-                    color = fgColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = (avatarSize / 2.8).sp,
-                    maxLines = 1
-                )
+                        .drawBehind { drawCircle(color = avatarColor) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    // White border ring
+                    Box(
+                        modifier = Modifier
+                            .size(avatarSize.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.25f))
+                    )
+                    Text(
+                        text = initials,
+                        color = fgColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (avatarSize / 2.8).sp,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
-}
-
-/** Warna avatar deterministik berdasarkan hash nama — konsisten antar sesi.
- *  Gunakan & 0x7FFFFFFF, bukan Math.abs: abs(Int.MIN_VALUE) tetap negatif dan
- *  bisa menghasilkan indeks negatif → ArrayIndexOutOfBoundsException. */
-private fun avatarColorFor(name: String): Color {
-    val palette = listOf(
-        Color(0xFF6C3DE8), // indigo
-        Color(0xFF00A878), // teal
-        Color(0xFFE84393), // pink
-        Color(0xFFFF8C42), // orange
-        Color(0xFF3D9BE9), // sky blue
-        Color(0xFFB23A48), // crimson
-        Color(0xFF4CAF50), // green
-        Color(0xFF9C27B0), // purple
-    )
-    return palette[(name.hashCode() and 0x7FFFFFFF) % palette.size]
 }

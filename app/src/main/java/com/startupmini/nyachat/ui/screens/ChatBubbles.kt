@@ -74,6 +74,9 @@ import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.remote.ImageFileUtil
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
+import com.startupmini.nyachat.ui.util.AvatarImage
+import com.startupmini.nyachat.ui.util.avatarColorFor
+import com.startupmini.nyachat.ui.util.avatarNameColor
 import java.io.File
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -137,7 +140,10 @@ fun ChatMessageBubble(
     onReply: (() -> Unit)? = null,
     onOpenFile: (() -> Unit)? = null,
     onOpenTransaction: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // r1.2.3 (P1): path foto avatar pengirim (dari map nama→foto di ChatScreen).
+    // null → fallback lingkaran inisial berwarna unik.
+    senderAvatarPath: String? = null
 ) {
     val isAi = message.sender == Constants.Sender.AI
     val isMe = message.sender == currentActiveSender
@@ -176,10 +182,18 @@ fun ChatMessageBubble(
         else -> message.sender
     }
 
+    // r1.2.3 (P0): warna sender UNIK per orang (dari hash nama) — sama dengan
+    // topbar & fallback avatar, supaya konsisten identifikasi siapa bicara.
+    // Teks memakai varian kontras-aman (avatarNameColor); lingkaran avatar
+    // memakai warna murni dengan alpha tipis.
     val senderColor = when {
         isMe -> MaterialTheme.colorScheme.primary
         isAi -> semantic.ai
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> avatarNameColor(senderLabel, isDark)
+    }
+    val senderAvatarBase = when {
+        isAi -> semantic.ai
+        else -> avatarColorFor(senderLabel)
     }
 
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.forLanguageTag("id-ID")) }
@@ -211,23 +225,35 @@ fun ChatMessageBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(bottom = 4.dp, start = 4.dp, end = 4.dp)
             ) {
-                // Avatar inisial pengirim — dekoratif (nama pengirim sudah ada di
-                // sampingnya); disembunyikan dari pembaca layar supaya TalkBack tidak
-                // membacakan huruf tunggal yang membingungkan (P3-2).
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(senderColor.copy(alpha = 0.16f))
-                        .clearAndSetSemantics {},
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = senderLabel.take(1).uppercase(Locale.ROOT),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = senderColor
+                // Avatar pengirim — FOTO bila tersedia (P1), else lingkaran inisial
+                // berwarna unik (P0). Dekoratif (nama sudah di sampingnya);
+                // disembunyikan dari pembaca layar (P3-2).
+                if (senderAvatarPath != null) {
+                    AvatarImage(
+                        name = senderLabel,
+                        size = 24,
+                        photoPath = senderAvatarPath,
+                        backgroundColor = senderAvatarBase.copy(alpha = 0.16f),
+                        textColor = senderColor,
+                        textStyle = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.clearAndSetSemantics {}
                     )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(senderAvatarBase.copy(alpha = 0.16f))
+                            .clearAndSetSemantics {},
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = senderLabel.take(1).uppercase(Locale.ROOT),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = senderColor
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(

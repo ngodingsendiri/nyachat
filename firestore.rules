@@ -59,9 +59,16 @@ service cloud.firestore {
                 && get(/databases/$(database)/documents/families/$(familyId)).data.ownerId == request.auth.uid));
       // 3.7: selain owner, setiap anggota boleh meng-update HANYA field fcmToken
       // miliknya sendiri — sinkronisasi token FCM untuk notifikasi chat real-time.
+      // r1.2.3 (P1): avatarBytes/avatarVersion juga boleh di-update diri sendiri
+      // — upload foto avatar (Blob JPEG kecil ≤ ~100KB) + versinya. Batas ukuran
+      // mencegah klien tak patuh mengisi dokumen member dengan data besar.
       allow update: if signedInGoogle() && (isOwner(familyId)
         || (request.auth.uid == uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken'])));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'avatarBytes', 'avatarVersion'])
+            // Guard: avatarBytes boleh tidak ada (update hanya fcmToken) —
+            // jangan panggil .size() pada field null (error evaluasi rules).
+            && (!('avatarBytes' in request.resource.data)
+                || request.resource.data.avatarBytes.size() <= 100000)));
       allow delete: if signedInGoogle() && isOwner(familyId);
     }
 

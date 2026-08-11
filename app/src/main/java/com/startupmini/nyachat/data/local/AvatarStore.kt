@@ -19,6 +19,18 @@ import java.io.File
  */
 object AvatarStore {
 
+    // ===== Mesin kompresi avatar (r1.2.3 — P1) =====
+    // Avatar tampil kecil (24-40dp di chat/topbar, ~100dp di profil). Foto asli
+    // kamera/gallery bisa 12-48MP — memuat & menyimpannya utuh hanya boros
+    // memori, penyimpanan, DAN bandwidth cloud. Strategi:
+    //   - [LOCAL_MAX_DIM]: resolusi avatar yang disimpan/dipakai lokal.
+    //   - [CLOUD_MAX_DIM] + [CLOUD_QUALITY]: versi UPLOAD ke Firestore (Blob)
+    //     di dalam dokumen member — jauh lebih kecil daripada menyimpan file
+    //     asli, sehingga biaya penyimpanan & traffic server minimal.
+    const val LOCAL_MAX_DIM = 256
+    const val CLOUD_MAX_DIM = 128
+    const val CLOUD_QUALITY = 72
+
     private fun avatarsDir(context: Context): File =
         File(context.filesDir, "avatars").apply { mkdirs() }
 
@@ -35,7 +47,7 @@ object AvatarStore {
         withContext(Dispatchers.IO) {
             runCatching {
                 val dest = fileFor(context, name)
-                if (!writeSampledImage(context, uri, dest)) return@runCatching null
+                if (!writeSampledImage(context, uri, dest, LOCAL_MAX_DIM, 85)) return@runCatching null
                 dest.absolutePath
             }.getOrNull()
         }
@@ -56,16 +68,33 @@ object AvatarStore {
     /**
      * Simpan foto profil CUSTOM user — nama file FIXED (`custom.jpg`) supaya
      * ganti nama user tidak menghilangkan foto (tidak seperti [saveAvatar] yang
-     * berkunci nama). Sampling 512px + JPEG 85 agar ringan. Return path absolut.
+     * berkunci nama). Sampling [LOCAL_MAX_DIM] + JPEG 85 agar ringan.
+     * Return path absolut.
      */
     suspend fun saveCustomAvatar(context: Context, uri: Uri): String? =
         withContext(Dispatchers.IO) {
             runCatching {
                 val dest = File(avatarsDir(context), "custom.jpg")
-                if (!writeSampledImage(context, uri, dest)) return@runCatching null
+                if (!writeSampledImage(context, uri, dest, LOCAL_MAX_DIM, 85)) return@runCatching null
                 dest.absolutePath
             }.getOrNull()
         }
+
+    /**
+     * Kompres foto dari [uri] menjadi BYTES JPEG kecil untuk di-upload ke
+     * Firestore (Blob di dokumen member) — sampling ≤[CLOUD_MAX_DIM] px +
+     * quality [CLOUD_QUALITY] (≈3-10KB). Foto ini ditampilkan anggota lain di
+     * header chat / topbar (24-40dp), jadi resolusi kecil sudah tajam. Sangat
+     * irit penyimpanan & traffic server dibanding upload file asli.
+     * Dipanggil dari Dispatchers.IO. Return null bila gagal.
+     */
+    fun compressAvatarForCloud(context: Context, uri: Uri): ByteArray? =
+        runCatching {
+            val bmp = decodeSampled(context, uri, CLOUD_MAX_DIM) ?: return null
+            val out = java.io.ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, CLOUD_QUALITY, out)
+            out.toByteArray()
+        }.getOrNull()
 
     /**
      * Unduh & cache foto profil GOOGLE ke `google_<uid>.jpg` (cache lokal).
@@ -79,15 +108,7 @@ object AvatarStore {
             val input = java.net.URL(url).openStream()
             input.use {
                 val bmp = BitmapFactory.decodeStream(it) ?: return@runCatching null
-                val scaled = if (bmp.width > 512 || bmp.height > 512) {
-                    val ratio = 512f / maxOf(bmp.width, bmp.height)
-                    Bitmap.createScaledBitmap(
-                        bmp,
-                        (bmp.width * ratio).toInt().coerceAtLeast(1),
-                        (bmp.height * ratio).toInt().coerceAtLeast(1),
-                        true
-                    )
-                } else bmp
+                val scaled = scaleTo(bmp, LOCAL_MAX_DIM)
                 dest.outputStream().use { out ->
                     scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
                 }
@@ -107,27 +128,79 @@ object AvatarStore {
         return if (f.exists()) f.absolutePath else null
     }
 
+    // ===== Cache avatar ANGGOTA LAIN (r1.2.3 — P1) =====
+    // Foto anggota lain diterima sebagai bytes (Blob Firestore). Disimpan ke
+    // disk per uid+version supaya header chat / topbar bisa menampilkannya
+    // tanpa men-decode bytes berulang setiap komposisi.
+
+    /** Nama file cache avatar anggota lain, dikunci version (invalidate alami). */
+    private fun memberAvatarFile(context: Context, uid: String, version: Long): File =
+        File(avatarsDir(context), "member_${uid.take(16)}_$version.jpg")
+
     /**
-     * Decode & tulis gambar dari [uri] ke [dest] dengan sampling ≤512px + JPEG 85
-     * (avatar hanya ~200dp di layar, jadi hemat memori & penyimpanan).
-     * Dipakai [saveAvatar] & [saveCustomAvatar] (DRY). Return false bila gagal.
+     * Simpan bytes avatar anggota lain ke disk cache. Return path, null bila
+     * gagal. [version] mencegah file lama kedaluwarsa dipakai ulang.
      */
-    private fun writeSampledImage(context: Context, uri: Uri, dest: File): Boolean {
+    fun cacheMemberAvatar(context: Context, uid: String, version: Long, bytes: ByteArray): String? =
+        runCatching {
+            val dest = memberAvatarFile(context, uid, version)
+            if (dest.exists() && dest.length() > 0) return dest.absolutePath
+            dest.outputStream().use { it.write(bytes) }
+            dest.absolutePath
+        }.getOrNull()
+
+    /** Path cache avatar anggota lain, null bila belum ter-cache untuk versi ini. */
+    fun getMemberAvatarPath(context: Context, uid: String, version: Long): String? {
+        val f = memberAvatarFile(context, uid, version)
+        return if (f.exists()) f.absolutePath else null
+    }
+
+    /**
+     * Decode & tulis gambar dari [uri] ke [dest] dengan sampling ≤[maxDim] +
+     * quality [quality]. Dipakai seluruh jalur simpan avatar (DRY).
+     * Return false bila gagal.
+     */
+    private fun writeSampledImage(
+        context: Context,
+        uri: Uri,
+        dest: File,
+        maxDim: Int,
+        quality: Int
+    ): Boolean {
+        val bmp = decodeSampled(context, uri, maxDim) ?: return false
+        dest.outputStream().use { out ->
+            bmp.compress(Bitmap.CompressFormat.JPEG, quality, out)
+        }
+        return true
+    }
+
+    /** Decode dari [uri] dengan sampling agar sisi terpanjang ≤ [maxDim]. */
+    private fun decodeSampled(context: Context, uri: Uri, maxDim: Int): Bitmap? {
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, opts)
         }
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) return null
         var sample = 1
-        while (opts.outWidth / (sample * 2) >= 512 && opts.outHeight / (sample * 2) >= 512) {
+        while (opts.outWidth / (sample * 2) >= maxDim && opts.outHeight / (sample * 2) >= maxDim) {
             sample *= 2
         }
         val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
         val bmp = context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, decodeOpts)
-        } ?: return false
-        dest.outputStream().use { out ->
-            bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
-        }
-        return true
+        } ?: return null
+        return scaleTo(bmp, maxDim)
+    }
+
+    /** Perkecil bitmap agar sisi terpanjang ≤ [maxDim] (proportional). */
+    private fun scaleTo(bmp: Bitmap, maxDim: Int): Bitmap {
+        if (bmp.width <= maxDim && bmp.height <= maxDim) return bmp
+        val ratio = maxDim.toFloat() / maxOf(bmp.width, bmp.height)
+        return Bitmap.createScaledBitmap(
+            bmp,
+            (bmp.width * ratio).toInt().coerceAtLeast(1),
+            (bmp.height * ratio).toInt().coerceAtLeast(1),
+            true
+        )
     }
 }

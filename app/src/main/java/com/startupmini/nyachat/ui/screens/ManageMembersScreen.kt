@@ -81,6 +81,9 @@ fun ManageMembersScreen(
     val scope = rememberCoroutineScope()
     val members by MembershipManager.members.collectAsState()
     val joinRequests by MembershipManager.joinRequests.collectAsState()
+    // r1.2.3 (P1): foto avatar anggota (cache disk, map uid → path) —
+    // ditampilkan di kartu anggota bila tersedia.
+    val memberAvatars by MembershipManager.memberAvatarPaths.collectAsState()
     val myUid = remember { MembershipManager.currentUid() }
 
     var labelTarget by remember { mutableStateOf<FamilyMember?>(null) }
@@ -171,6 +174,7 @@ fun ManageMembersScreen(
                                 member = member,
                                 isSelf = member.uid == myUid,
                                 isOwner = isOwner,
+                                avatarPath = memberAvatars[member.uid],
                                 onEditLabel = { labelTarget = member },
                                 onToggleRole = {
                                     scope.launch {
@@ -279,7 +283,9 @@ private fun MemberCard(
     isOwner: Boolean,
     onEditLabel: () -> Unit,
     onToggleRole: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    // r1.2.3 (P1): path foto avatar anggota (null → inisial berwarna).
+    avatarPath: String? = null
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -292,7 +298,17 @@ private fun MemberCard(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AvatarCircle(name = member.label.ifBlank { member.name.ifBlank { "?" } }, member.uid)
+            if (avatarPath != null) {
+                com.startupmini.nyachat.ui.util.AvatarImage(
+                    name = member.label.ifBlank { member.name.ifBlank { "?" } },
+                    size = 40,
+                    photoPath = avatarPath,
+                    backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+            } else {
+                AvatarCircle(name = member.label.ifBlank { member.name.ifBlank { "?" } }, member.uid)
+            }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

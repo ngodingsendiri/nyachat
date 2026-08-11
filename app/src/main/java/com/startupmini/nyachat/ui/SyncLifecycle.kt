@@ -83,7 +83,8 @@ fun SyncLifecycleGlue(
         val pin = workspacePin
         if (pin != null) {
             viewModel.startCloudSync(pin, workspaceRole ?: Constants.Roles.MEMBER)
-            MembershipManager.start(pin, workspaceRole ?: Constants.Roles.MEMBER)
+            // r1.2.3 (P1): konteks untuk cache avatar anggota lain ke disk.
+            MembershipManager.start(pin, workspaceRole ?: Constants.Roles.MEMBER, context)
         } else {
             viewModel.stopCloudSync()
         }

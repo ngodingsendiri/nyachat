@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -24,6 +25,44 @@ import androidx.compose.ui.unit.dp
 import com.startupmini.nyachat.data.remote.ImageFileUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/**
+ * Warna avatar deterministik berdasarkan hash nama (r1.2.3 — P0). Dipakai
+ * BERSAMA oleh header bubble chat, topbar (StackedAvatars), dan fallback
+ * avatar anggota — supaya warna satu orang konsisten di seluruh aplikasi.
+ * Gunakan & 0x7FFFFFFF, bukan Math.abs: abs(Int.MIN_VALUE) tetap negatif dan
+ * bisa menghasilkan indeks negatif → ArrayIndexOutOfBoundsException.
+ */
+fun avatarColorFor(name: String): Color {
+    val palette = listOf(
+        Color(0xFF6C3DE8), // indigo
+        Color(0xFF00A878), // teal
+        Color(0xFFE84393), // pink
+        Color(0xFFFF8C42), // orange
+        Color(0xFF3D9BE9), // sky blue
+        Color(0xFFB23A48), // crimson
+        Color(0xFF4CAF50), // green
+        Color(0xFF9C27B0), // purple
+    )
+    return palette[(name.hashCode() and 0x7FFFFFFF) % palette.size]
+}
+
+/**
+ * Warna TEKS pengirim yang kontras aman (WCAG AA untuk teks kecil) di kedua
+ * mode, tapi tetap ber-nuansa warna avatar orangnya — dipakai label nama di
+ * header bubble chat & kutipan balasan. Warna avatar murni (mis. orange) terlalu
+ * terang untuk teks di background terang — padatkan/cerahkan secukupnya.
+ */
+fun avatarNameColor(name: String, isDark: Boolean): Color {
+    val base = avatarColorFor(name)
+    return if (isDark) {
+        // Background gelap → cerahkan warna avatar (campur putih 55%).
+        lerp(base, Color.White, 0.55f)
+    } else {
+        // Background terang → gelapkan warna avatar (campur hitam 55%).
+        lerp(base, Color.Black, 0.55f)
+    }
+}
 
 /**
  * Avatar umum (audit #2): menampilkan FOTO profil bila [photoPath] tersedia &

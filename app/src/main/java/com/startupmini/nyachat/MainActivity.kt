@@ -134,6 +134,10 @@ class MainActivity : ComponentActivity() {
                 val syncStatus by com.startupmini.nyachat.data.remote.FirestoreSyncManager.syncStatus.collectAsStateWithLifecycle()
                 // 3.8: waktu terakhir sinkron berhasil → label "Tersinkron · HH:mm" di Rekap.
                 val lastSyncedAt by com.startupmini.nyachat.data.remote.FirestoreSyncManager.lastSyncedAt.collectAsStateWithLifecycle()
+                // r1.2.3 (P1): daftar member + foto avatar anggota lain (cache disk)
+                // — untuk header chat, topbar, dan halaman kelola anggota.
+                val members by com.startupmini.nyachat.data.remote.MembershipManager.members.collectAsStateWithLifecycle()
+                val memberAvatarPaths by com.startupmini.nyachat.data.remote.MembershipManager.memberAvatarPaths.collectAsStateWithLifecycle()
 
                 // M8: indeks transaksi per pesan (Map) supaya tap badge finansial tidak
                 // melakukan scan linear O(n) per komposisi — dibangun ulang hanya saat
@@ -228,6 +232,35 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // ---- Profil & Akun (r1.2.1) ----
+                // r1.2.3 (P1): sinkronkan avatar Diri Sendiri ke Firestore (Blob JPEG
+                // kecil) supaya anggota lain melihatnya di header chat / topbar.
+                // Hanya di-upload saat path berubah (dibandingkan prefs) — tidak
+                // boros bandwidth di setiap buka app. Reset (null) menghapus foto
+                // cloud → anggota lain kembali ke inisial berwarna.
+                val syncAvatarIfChanged = {
+                    val pin = workspacePin
+                    val last = appPrefs.getString(Constants.Prefs.LAST_UPLOADED_AVATAR, null)
+                    val current = avatarPath
+                    if (pin != null && current != last) {                            scope.launch {
+                                val bytes = withContext(Dispatchers.IO) {
+                                    current?.let { path ->
+                                        AvatarStore.compressAvatarForCloud(context, Uri.fromFile(java.io.File(path)))
+                                    }
+                                }
+                                // Pref baru ditandai HANYA jika upload sukses — kalau
+                                // gagal (offline), current != last tetap true dan
+                                // dicoba ulang saat resolveAvatar berikutnya.
+                                val ok = com.startupmini.nyachat.data.remote.MembershipManager
+                                    .uploadMyAvatar(pin, bytes)
+                                if (ok) {
+                                    appPrefs.edit()
+                                        .putString(Constants.Prefs.LAST_UPLOADED_AVATAR, current ?: "__none__")
+                                        .apply()
+                                }
+                            }
+                    }
+                }
+
                 // Resolve path avatar berdasarkan sumber. Foto Google hanya di-CACHE
                 // lokal (google_<uid>.jpg) sebagai avatar aplikasi — akun Google
                 // tidak pernah diubah. custom → custom.jpg; google/auto → cache
@@ -254,10 +287,16 @@ class MainActivity : ComponentActivity() {
                                     AvatarStore.cacheGooglePhoto(context, url, uid)
                                 }
                                 // Jangan menimpa foto custom yang dipilih user saat unduhan selesai.
-                                if (p != null && avatarSource != Constants.AvatarSources.CUSTOM) avatarPath = p
+                                if (p != null && avatarSource != Constants.AvatarSources.CUSTOM) {
+                                    avatarPath = p
+                                    // r1.2.3 (P1): foto Google yang baru ter-cache di-upload
+                                    // sekali agar anggota lain bisa melihatnya.
+                                    syncAvatarIfChanged()
+                                }
                             }
                         } else {
                             avatarPath = null
+                            syncAvatarIfChanged()
                         }
                     }
                 }
@@ -266,7 +305,20 @@ class MainActivity : ComponentActivity() {
                     if (workspacePin != null && firebaseReady) resolveAvatar()
                 }
 
+                // r1.2.3 (P1): map nama-tampilan → path foto avatar untuk header
+                // chat & topbar. Kunci = nama & label member (sender pesan bisa
+                // salah satu), plus nama user lokal sendiri bila punya foto.
+                val senderAvatarPaths = remember(members, memberAvatarPaths, userName, avatarPath) {
+                    com.startupmini.nyachat.data.remote.MembershipManager.buildAvatarNameMap(
+                        members = members,
+                        memberAvatarPaths = memberAvatarPaths,
+                        myName = userName,
+                        myAvatarPath = avatarPath
+                    )
+                }
+
                 val avatarSaveFailedLabel = stringResource(R.string.avatar_save_failed)
+
                 val handleAvatarSourceChanged: (String?) -> Unit = { source ->
                     avatarSource = source
                     if (source == null) {
@@ -275,6 +327,7 @@ class MainActivity : ComponentActivity() {
                         appPrefs.edit().putString(Constants.Prefs.AVATAR_SOURCE, source).apply()
                     }
                     resolveAvatar()
+                    syncAvatarIfChanged()
                 }
                 val handleCustomAvatarPicked: (Uri) -> Unit = { uri ->
                     scope.launch {
@@ -285,6 +338,7 @@ class MainActivity : ComponentActivity() {
                             appPrefs.edit()
                                 .putString(Constants.Prefs.AVATAR_SOURCE, Constants.AvatarSources.CUSTOM)
                                 .apply()
+                            syncAvatarIfChanged()
                         } else {
                             showSnack(avatarSaveFailedLabel, null, null)
                         }
@@ -592,6 +646,7 @@ driveController.getAutoPassphrase = {
                             MainTopBar(
                                 messages = messages,
                                 userName = userName,
+                                memberAvatarPaths = senderAvatarPaths,
                                 onManageMembers = { dialogs.showManageMembers = true },
                                 onSettings = { dialogs.showSettingsSheet = true }
                             )
@@ -636,6 +691,7 @@ driveController.getAutoPassphrase = {
                                             activeSender = activeSender,
                                             isAiThinking = isAiThinking,
                                             workspacePin = workspacePin,
+                                            senderAvatarPaths = senderAvatarPaths,
                                             onSendMessage = chatCallbacks::onSendMessage,
                                             onEditMessage = chatCallbacks::onEditMessage,
                                             onAskAiClicked = chatCallbacks::onAskAiClicked,

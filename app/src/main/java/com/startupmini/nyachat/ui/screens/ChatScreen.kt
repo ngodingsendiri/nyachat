@@ -119,7 +119,10 @@ fun ChatScreen(
     onDraftChange: (String) -> Unit = {},
     // BUG-08: reset draf saat dialog transaksi manual (dari tab Chat) ditutup —
     // diproses MainActivity (pemilik state), tidak lagi di sini.
-    resetChatInputTrigger: Int = 0
+    resetChatInputTrigger: Int = 0,
+    // r1.2.3 (P1): map nama-tampilan → path foto avatar (untuk header bubble
+    // pesan masuk). Dibangun MainActivity dari daftar member + foto diri sendiri.
+    senderAvatarPaths: Map<String, String> = emptyMap()
 ) {
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     var pendingDelete by remember { mutableStateOf<ChatMessage?>(null) }
@@ -321,6 +324,7 @@ fun ChatScreen(
                                     onReply = { replyTarget = msg },
                                     onOpenFile = { openAttachedFile(context, msg) },
                                     onOpenTransaction = { onOpenTransaction(msg) },
+                                    senderAvatarPath = senderAvatarPaths[msg.sender],
                                     modifier = Modifier.animateItem()
                                 )
                                 DropdownMenu(
