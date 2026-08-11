@@ -661,10 +661,13 @@ fun ChatScreen(
  */
 private fun Modifier.chatGridBackground(isDark: Boolean): Modifier = this.drawBehind {
     // Warna garis menyatu dengan tema: gelap-tipis di light, terang-tipis di dark.
+    // (2026-08-11 tuning): alpha diturunkan lagi — dark 0.06→0.03, light
+    // 0.05→0.04 — karena grid masih terlalu mencolok terutama di mode gelap.
+    // Target: pertama lihat hampir polos; grid baru terasa saat diperhatikan.
     val gridLine = if (isDark) {
-        Color.White.copy(alpha = 0.06f)
+        Color.White.copy(alpha = 0.03f)
     } else {
-        Color.Black.copy(alpha = 0.05f)
+        Color.Black.copy(alpha = 0.04f)
     }
     val cellSize = 32.dp.toPx()
     val stroke = 0.5.dp.toPx()
