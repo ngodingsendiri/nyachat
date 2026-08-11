@@ -65,7 +65,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -77,6 +76,7 @@ import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.remote.ImageFileUtil
+import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.theme.Motion
 import com.startupmini.nyachat.ui.util.dayLabel
 import com.startupmini.nyachat.ui.util.isSameDay
@@ -124,7 +124,9 @@ fun ChatScreen(
     // pesan masuk). Dibangun MainActivity dari daftar member + foto diri sendiri.
     senderAvatarPaths: Map<String, String> = emptyMap()
 ) {
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    // isDark dari token semantik (single source of truth) — pola luminance()
+    // yang rapuh sudah ditinggalkan (audit konsistensi 2026-08-11).
+    val isDark = LocalSemanticColors.current.isDark
     var pendingDelete by remember { mutableStateOf<ChatMessage?>(null) }
     var pendingImagePath by remember { mutableStateOf<String?>(null) }
     var pendingFilePath by remember { mutableStateOf<String?>(null) }

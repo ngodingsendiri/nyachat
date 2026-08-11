@@ -52,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -147,8 +146,11 @@ fun ChatMessageBubble(
 ) {
     val isAi = message.sender == Constants.Sender.AI
     val isMe = message.sender == currentActiveSender
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    // isDark dari token semantik (single source of truth) — sebelumnya
+    // luminance() < 0.5f (pola rapuh yang malah bertentangan dengan
+    // semantic.isDark di baris-baris lain file ini).
     val semantic = LocalSemanticColors.current
+    val isDark = semantic.isDark
 
     val alignment = when {
         isAi -> Alignment.Start
@@ -496,9 +498,13 @@ private fun FinancialBadge(
     val tagBg = if (isIncome) semantic.moneyTagIncomeBg else semantic.moneyTagExpenseBg
     val tagColor = if (isIncome) semantic.income else semantic.expense
 
-    val formatRp = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
-        maximumFractionDigits = 0
-    }.format(message.detectedAmount)
+    // Formatter dibuat SEKALI per nominal (bukan tiap komposisi) — murah &
+    // deterministik; locale id-ID konsisten dengan Rekap.
+    val formatRp = remember(message.detectedAmount) {
+        NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
+            maximumFractionDigits = 0
+        }.format(message.detectedAmount)
+    }
 
     // Badge bisa di-tap untuk membuka transaksi di Rekap — inner clickable
     // menang atas combinedClickable bubble. Label aksesibilitas di-hoist.

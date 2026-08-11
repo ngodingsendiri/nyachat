@@ -251,12 +251,13 @@ fun ChatFilePreviewBar(
         enter = fadeIn(animationSpec = Motion.fast()) + slideInVertically(initialOffsetY = { it }, animationSpec = Motion.fast()),
         exit = fadeOut(animationSpec = Motion.quick()) + slideOutVertically(targetOffsetY = { it }, animationSpec = Motion.quick())
     ) {
-        // Floating card (bukan surface full-width) — konsisten dengan composer pill.
+        // Floating card (bukan surface full-width) — konsisten dengan composer
+        // pill: TANPA shadow (audit konsistensi 2026-08-11 — shadow memberi
+        // kesan "ditempel di panel lain", sama seperti masalah pill lama).
         // Tinggi seragam 52dp (isi min 44dp + margin 4dp × 2).
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-            shadowElevation = 2.dp,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
         ) {
             Row(
@@ -311,12 +312,12 @@ fun ChatImagePreviewBar(
         enter = fadeIn(animationSpec = Motion.fast()) + slideInVertically(initialOffsetY = { it }, animationSpec = Motion.fast()),
         exit = fadeOut(animationSpec = Motion.quick()) + slideOutVertically(targetOffsetY = { it }, animationSpec = Motion.quick())
     ) {
-        // Floating card (bukan surface full-width) — konsisten dengan composer pill.
+        // Floating card (bukan surface full-width) — konsisten dengan composer
+        // pill: TANPA shadow (audit konsistensi 2026-08-11).
         // Tinggi seragam 52dp; thumbnail 44dp supaya tidak mendorong kartu lebih tinggi.
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-            shadowElevation = 2.dp,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
         ) {
             Row(
