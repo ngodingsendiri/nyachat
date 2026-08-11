@@ -1,8 +1,7 @@
 package com.startupmini.nyachat.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
@@ -71,6 +70,7 @@ import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.ui.theme.ExpenseRed
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
+import com.startupmini.nyachat.ui.theme.Motion
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -156,32 +156,39 @@ internal fun RekapFilterHeader(
     ) {
         // Chip saldo ringkas — muncul saat banner ter-scroll keluar
         // supaya saldo tetap terpantau di riwayat panjang (item 2).
-        AnimatedVisibility(visible = !bannerVisible) {
-            Surface(
-                shape = RoundedCornerShape(Constants.Ui.CORNER_M.dp),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 2.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-                    .testTag("rekap_balance_chip")
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+        // Animasi tinggi via animateContentSize (tween terkontrol) — muncul/
+        // menyusut halus tanpa kesan "kenyal/terlempar" saat scroll cepat.
+        // PENTING: TIDAK pakai AnimatedVisibility — BUG-05 compose-bom 2026.06
+        // tidak me-layout konten AnimatedVisibility di konteks tertentu
+        // (diverifikasi live: chip filter kategori tidak pernah ter-render).
+        Column(modifier = Modifier.animateContentSize(animationSpec = Motion.fast())) {
+            if (!bannerVisible) {
+                Surface(
+                    shape = RoundedCornerShape(Constants.Ui.CORNER_M.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .testTag("rekap_balance_chip")
                 ) {
-                    Text(
-                        text = stringResource(R.string.balance_title),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = currencyFormat.format(balance),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = balanceColor
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.balance_title),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = currencyFormat.format(balance),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = balanceColor
+                        )
+                    }
                 }
             }
         }
@@ -244,12 +251,12 @@ internal fun RekapFilterHeader(
                     val isSelected = selectedFilterTab == index
                     val segBg by animateColorAsState(
                         targetValue = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
-                        animationSpec = tween(220),
+                        animationSpec = Motion.fast(),
                         label = "segBg"
                     )
                     val segText by animateColorAsState(
                         targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        animationSpec = tween(220),
+                        animationSpec = Motion.fast(),
                         label = "segText"
                     )
                     Box(
@@ -282,31 +289,37 @@ internal fun RekapFilterHeader(
 
         // Chip filter kategori aktif (dari tap baris breakdown — item 3).
         // Tap chip untuk menghapus filter dan kembali ke semua kategori.
-        selectedCategory?.let { category ->
-            Spacer(modifier = Modifier.height(8.dp))
-            Surface(
-                onClick = onClearCategory,
-                shape = RoundedCornerShape(Constants.Ui.CORNER_S.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.testTag("rekap_category_filter_chip")
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+        // Muncul/hilang DIANIMASIKAN tingginya (sebelumnya snap = layout jump).
+        // Pakai animateContentSize + if (bukan AnimatedVisibility — BUG-05,
+        // lihat komentar chip saldo di atas; chip ini DIVERIFIKASI ter-render).
+        Column(modifier = Modifier.animateContentSize(animationSpec = Motion.fast())) {
+            val activeCategory = selectedCategory
+            if (activeCategory != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    onClick = onClearCategory,
+                    shape = RoundedCornerShape(Constants.Ui.CORNER_S.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.testTag("rekap_category_filter_chip")
                 ) {
-                    Text(
-                        text = stringResource(R.string.rekap_category_filter_active, category),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = stringResource(R.string.rekap_category_filter_clear),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(14.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.rekap_category_filter_active, activeCategory),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.rekap_category_filter_clear),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 }
             }
         }

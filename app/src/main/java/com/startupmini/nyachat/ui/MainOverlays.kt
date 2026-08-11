@@ -2,9 +2,7 @@ package com.startupmini.nyachat.ui
 
 import android.content.Context
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.VectorConverter
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -44,6 +42,7 @@ import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.backup.DriveBackupController
 import com.startupmini.nyachat.data.remote.GitHubUpdateChecker
+import com.startupmini.nyachat.ui.theme.Motion
 import com.startupmini.nyachat.ui.screens.BackupProgressDialog
 import com.startupmini.nyachat.ui.screens.CrossFamilyRestoreDialog
 import com.startupmini.nyachat.ui.screens.ManageMembersScreen
@@ -307,7 +306,7 @@ private fun DismissibleSnackbar(
                                 Animatable(start, Offset.VectorConverter)
                                     .animateTo(
                                         Offset.Zero,
-                                        tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                                        Motion.base(),
                                     ) { dragOffset = value }
                             }
                         }

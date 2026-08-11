@@ -8,7 +8,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -77,6 +76,7 @@ import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.remote.ImageFileUtil
 import com.startupmini.nyachat.ui.theme.ExpenseRed
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
+import com.startupmini.nyachat.ui.theme.Motion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -248,8 +248,8 @@ fun ChatFilePreviewBar(
     val semantic = LocalSemanticColors.current
     AnimatedVisibility(
         visible = fileName != null,
-        enter = fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)),
-        exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(150))
+        enter = fadeIn(animationSpec = Motion.fast()) + slideInVertically(initialOffsetY = { it }, animationSpec = Motion.fast()),
+        exit = fadeOut(animationSpec = Motion.quick()) + slideOutVertically(targetOffsetY = { it }, animationSpec = Motion.quick())
     ) {
         // Floating card (bukan surface full-width) — konsisten dengan composer pill.
         // Tinggi seragam 52dp (isi min 44dp + margin 4dp × 2).
@@ -308,8 +308,8 @@ fun ChatImagePreviewBar(
     }
     AnimatedVisibility(
         visible = imagePath != null,
-        enter = fadeIn(animationSpec = tween(200)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)),
-        exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(150))
+        enter = fadeIn(animationSpec = Motion.fast()) + slideInVertically(initialOffsetY = { it }, animationSpec = Motion.fast()),
+        exit = fadeOut(animationSpec = Motion.quick()) + slideOutVertically(targetOffsetY = { it }, animationSpec = Motion.quick())
     ) {
         // Floating card (bukan surface full-width) — konsisten dengan composer pill.
         // Tinggi seragam 52dp; thumbnail 44dp supaya tidak mendorong kartu lebih tinggi.
@@ -380,12 +380,12 @@ fun ChatInputBar(
     // Smooth color transitions instead of instant snapping
     val sendBgColor by animateColorAsState(
         targetValue = if (value.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-        animationSpec = tween(200),
+        animationSpec = Motion.fast(),
         label = "sendBg"
     )
     val sendTintColor by animateColorAsState(
         targetValue = if (value.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(200),
+        animationSpec = Motion.fast(),
         label = "sendTint"
     )
     val askAiTint by animateColorAsState(
@@ -393,7 +393,7 @@ fun ChatInputBar(
             value.isBlank() -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
             else -> semantic.ai
         },
-        animationSpec = tween(200),
+        animationSpec = Motion.fast(),
         label = "askAiTint"
     )
 
@@ -437,12 +437,12 @@ fun ChatInputBar(
                     visible = replyTarget != null,
                     enter = expandVertically(
                         expandFrom = Alignment.Top,
-                        animationSpec = tween(220)
-                    ) + fadeIn(animationSpec = tween(220)),
+                        animationSpec = Motion.fast()
+                    ) + fadeIn(animationSpec = Motion.fast()),
                     exit = shrinkVertically(
                         shrinkTowards = Alignment.Top,
-                        animationSpec = tween(160)
-                    ) + fadeOut(animationSpec = tween(160))
+                        animationSpec = Motion.quick()
+                    ) + fadeOut(animationSpec = Motion.quick())
                 ) {
                     replyTarget?.let { target ->
                         ReplyQuoteRow(target = target, onDismiss = onReplyDismiss)

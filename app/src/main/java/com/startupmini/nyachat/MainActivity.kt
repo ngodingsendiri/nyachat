@@ -15,8 +15,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -77,6 +75,7 @@ import com.startupmini.nyachat.ui.screens.MainNavigationBar
 import com.startupmini.nyachat.ui.screens.MainTopBar
 import com.startupmini.nyachat.ui.screens.RekapScreen
 import com.startupmini.nyachat.ui.theme.CoupleFinanceTheme
+import com.startupmini.nyachat.ui.theme.Motion
 import java.text.NumberFormat
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -616,12 +615,12 @@ driveController.getAutoPassphrase = {
                                         val forward = targetState > initialState
                                         val enter = slideInHorizontally(
                                             initialOffsetX = { if (forward) it / 5 else -it / 5 },
-                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
-                                        ) + fadeIn(animationSpec = tween(300, easing = FastOutSlowInEasing))
+                                            animationSpec = Motion.nav()
+                                        ) + fadeIn(animationSpec = Motion.nav())
                                         val exit = slideOutHorizontally(
                                             targetOffsetX = { if (forward) -it / 5 else it / 5 },
-                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
-                                        ) + fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing))
+                                            animationSpec = Motion.nav()
+                                        ) + fadeOut(animationSpec = Motion.base())
                                         enter togetherWith exit
                                     },
                                     label = "tabContent"
@@ -741,8 +740,8 @@ driveController.getAutoPassphrase = {
                 val imeVisible = WindowInsets.isImeVisible
                 AnimatedVisibility(
                     visible = isInMainApp && !imeVisible,
-                    enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
-                    exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(220)) + fadeOut(animationSpec = tween(220))
+                    enter = slideInVertically(initialOffsetY = { it }, animationSpec = Motion.base()) + fadeIn(animationSpec = Motion.base()),
+                    exit = slideOutVertically(targetOffsetY = { it }, animationSpec = Motion.base()) + fadeOut(animationSpec = Motion.base())
                 ) {
                     MainNavigationBar(
                         selectedTab = selectedTab,

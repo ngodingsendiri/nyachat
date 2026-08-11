@@ -8,7 +8,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -76,6 +75,7 @@ import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.remote.ImageFileUtil
+import com.startupmini.nyachat.ui.theme.Motion
 import com.startupmini.nyachat.ui.util.dayLabel
 import com.startupmini.nyachat.ui.util.isSameDay
 import java.io.File
@@ -449,7 +449,7 @@ fun ChatScreen(
                 // r1.2.0 (masukan user #3): kemunculan LEBIH SOFT — spring
                 // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±1 detik)
                 // menggantikan MediumBouncy/StiffnessMedium yang terasa cepat.
-                enter = fadeIn(animationSpec = tween(300)) +
+                enter = fadeIn(animationSpec = Motion.nav()) +
                     slideInHorizontally(
                         initialOffsetX = { -it },
                         animationSpec = spring(
@@ -457,10 +457,10 @@ fun ChatScreen(
                             stiffness = FAB_SPRING_STIFFNESS
                         )
                     ),
-                exit = fadeOut(animationSpec = tween(220)) +
+                exit = fadeOut(animationSpec = Motion.base()) +
                     slideOutHorizontally(
                         targetOffsetX = { -it },
-                        animationSpec = tween(280)
+                        animationSpec = Motion.base()
                     )
             ) {
                 // FAB OUTLINE TRANSPARAN (2026-08-11, masukan user #3): gaya
@@ -507,8 +507,8 @@ fun ChatScreen(
             // Info transparan: lampiran TIDAK ikut sinkron antar perangkat
             AnimatedVisibility(
                 visible = pendingImagePath != null || pendingFilePath != null,
-                enter = fadeIn(animationSpec = tween(200)),
-                exit = fadeOut(animationSpec = tween(150))
+                enter = fadeIn(animationSpec = Motion.fast()),
+                exit = fadeOut(animationSpec = Motion.quick())
             ) {
                 Text(
                     text = stringResource(R.string.chat_attach_no_sync),
