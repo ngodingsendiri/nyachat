@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (bukan mewarisi 60 s kaskade) & di-skip saat NetworkMonitor melaporkan
   offline (`setNetworkOnline` — sinyal yang sama dengan indikator sync),
   sehingga user tanpa key yang sedang offline tetap langsung ke heuristik.
+- **Auto-deploy Cloud Functions (`deploy-functions.yml`)**: push ke `main`/
+  tag `r*` (atau manual) otomatis set secret `OPENROUTER_API_KEY` &
+  `GEMINI_API_KEY` dari GitHub ke Firebase Functions secrets (Secret Manager)
+  lalu deploy `aiComplete` + `notifyChatMessage` ke project `nyachat-in`.
+  `.firebaserc` menetapkan project default. Butuh secret
+  `FIREBASE_SERVICE_ACCOUNT` (izin cloudfunctions/run/secretmanager admin).
 - **FASE 1 (T3)**: Dekomposisi 3 file raksasa tanpa mengubah behavior:
   - `ChatScreen.kt` (566 baris) — bubble & input bar dipisah ke `ChatBubbles.kt`
     & `ChatInput.kt`;

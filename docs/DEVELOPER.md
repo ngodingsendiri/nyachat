@@ -136,11 +136,30 @@ firebase deploy --only functions
 
 | Secret | Fungsi |
 |---|---|
-| `OPENROUTER_API_KEY` | Key OpenRouter milik server (relay) |
-| `GEMINI_API_KEY` | Key Gemini milik server (relay) |
+| `OPENROUTER_API_KEY` | Key OpenRouter milik server (relay) — dari GitHub ke Firebase Functions secret |
+| `GEMINI_API_KEY` | Key Gemini milik server (relay) — dari GitHub ke Firebase Functions secret |
+| `FIREBASE_SERVICE_ACCOUNT` | (Deploy fungsi) JSON service account dengan izin `cloudfunctions.admin`, `run.admin`, `secretmanager.admin`, `iam.serviceAccountUser` |
 
-> Key ini dipakai di **Cloud Function** (server-side), BUKAN di APK. Aman dari
+> Key AI dipakai di **Cloud Function** (server-side), BUKAN di APK. Aman dari
 > ekstraksi APK.
+
+### Auto-deploy via GitHub Actions (`deploy-functions.yml`)
+
+Push ke `main` / tag `r*` (atau tombol manual **Run workflow**) otomatis:
+
+1. Autentikasi ke Google Cloud via `FIREBASE_SERVICE_ACCOUNT`
+2. Set `OPENROUTER_API_KEY` & `GEMINI_API_KEY` (jika terisi) sebagai Firebase
+   Functions secrets (Google Cloud Secret Manager)
+3. Deploy `functions` (`aiComplete` + `notifyChatMessage`) ke project
+   `nyachat-in`
+
+`.firebaserc` menetapkan project default `nyachat-in` — deploy lokal cukup
+`firebase deploy --only functions` tanpa `--project`.
+
+> ⚠️ **Blaze plan**: Cloud Functions TIDAK tersedia di Spark (gratis). Blaze
+> (pay-as-you-go) tetap punya kuota gratis — 2 juta invocations/bulan, 400rb
+> GB-detik, 5 GB outbound — jadi praktis tidak ditagih pada pemakaian normal.
+> `firebase functions:secrets:set` juga hanya tersedia di Blaze.
 
 ---
 

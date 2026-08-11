@@ -1,0 +1,115 @@
+name: Deploy Cloud Functions
+
+# Deploy otomatis fungsi backend Nyachat (Firebase Cloud Functions):
+#   - aiComplete        (FASE 4: relay AI — key server, auth Firebase)
+#   - notifyChatMessage (notifikasi FCM chat real-time)
+#
+# Trigger:
+#   - push ke main (HANYA jika file fungsi berubah — paths filter) → deploy
+#   - workflow_dispatch → tombol manual "Run workflow" di tab Actions
+#
+# Catatan: trigger TAG r* sengaja TIDAK dipakai — alur rilis (push tag
+# bersamaan dengan main) memicu DUA run sekaligus dan cancel-in-progress
+# bisa memutus deploy pertama di tengah jalan. Fungsi jarang berubah per
+# rilis; deploy dari main + manual sudah cukup.
+#
+# Secrets GitHub yang dipakai:
+#   FIREBASE_SERVICE_ACCOUNT  (WAJIB) — JSON service account dengan izin:
+#       roles/cloudfunctions.admin, roles/run.admin,
+#       roles/secretmanager.admin, roles/iam.serviceAccountUser
+#       (buat di Google Cloud Console → IAM & Admin → Service Accounts)
+#   OPENROUTER_API_KEY  (opsional) — key OpenRouter milik server → menjadi
+#       Firebase Functions secret OPENROUTER_API_KEY (dibaca aiComplete)
+#   GEMINI_API_KEY      (opsional) — key Gemini milik server → menjadi
+#       Firebase Functions secret GEMINI_API_KEY (dibaca aiComplete)
+#
+# Catatan penting:
+#   - Firebase Functions WAJIB paket Blaze (pay-as-you-go) — Spark (gratis)
+#     tidak bisa deploy/menjalankan Cloud Functions. Kuota gratis Blaze tetap
+#     ada: 2 juta invocations/bulan, 400rb GB-detik, 5 GB outbound.
+#   - Key AI hanya disimpan di Google Cloud Secret Manager (server-side),
+#     TIDAK pernah dikompilasi ke APK.
+
+on:
+  push:
+    branches: [main]
+    # Deploy hanya saat kode fungsi/konfigurasi deploy berubah (hemat: push
+    # yang hanya menyentuh docs/CHANGELOG tidak memicu deploy penuh).
+    paths:
+      - "functions/**"
+      - ".github/workflows/deploy-functions.yml"
+      - "firebase.json"
+      - ".firebaserc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Satu deploy dalam satu waktu; push baru membatalkan yang antri.
+concurrency:
+  group: deploy-functions
+  cancel-in-progress: true
+
+jobs:
+  deploy-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      # Pin versi mayor agar perubahan flag/CLI tidak memutus CI mendadak.
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools@13
+
+      - name: Install functions dependencies
+        working-directory: functions
+        run: npm ci
+
+      # Autentikasi via service account JSON (Google Cloud). firebase-tools
+      # membaca GOOGLE_OAUTH_ACCESS_TOKEN yang diset action ini.
+      - name: Authenticate Google Cloud (Firebase)
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      # Set Firebase Functions secrets DARI GitHub secrets (hanya jika diisi).
+      # Secret tersimpan di Google Cloud Secret Manager — aman & bisa
+      # dirotasi tanpa rebuild app.
+      - name: Set OPENROUTER_API_KEY secret
+        env:
+          AI_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -n "$AI_KEY" ]; then
+            # Nilai via stdin pipe (bukan argumen) agar tidak tampil di log;
+            # --force menimpa prompt overwrite. Tanpa --non-interactive karena
+            # flag itu bukan opsi terjamin di semua versi firebase-tools.
+            echo "$AI_KEY" | firebase functions:secrets:set OPENROUTER_API_KEY \
+              --project nyachat-in --force
+            echo "::notice::Secret OPENROUTER_API_KEY diset"
+          else
+            echo "::notice::GitHub secret OPENROUTER_API_KEY kosong — dilewati (relay akan pakai Gemini atau fallback)"
+          fi
+
+      - name: Set GEMINI_API_KEY secret
+        env:
+          AI_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -n "$AI_KEY" ]; then
+            echo "$AI_KEY" | firebase functions:secrets:set GEMINI_API_KEY \
+              --project nyachat-in --force
+            echo "::notice::Secret GEMINI_API_KEY diset"
+          else
+            echo "::notice::GitHub secret GEMINI_API_KEY kosong — dilewati (relay tanpa Gemini)"
+          fi
+
+      - name: Deploy functions
+        working-directory: functions
+        run: firebase deploy --only functions --project nyachat-in --force
