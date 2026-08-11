@@ -68,6 +68,18 @@ class DateLabelsTest {
     }
 
     @Test
+    fun `formatClockTime menampilkan jam menit dua digit`() {
+        val cal = Calendar.getInstance().apply {
+            set(2026, Calendar.AUGUST, 10, 9, 5, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        assertEquals("09:05", formatClockTime(cal.timeInMillis))
+        // Jam 1 digit tetap di-pad (00-23), menit selalu 2 digit.
+        cal.set(2026, Calendar.AUGUST, 10, 7, 0, 0)
+        assertEquals("07:00", formatClockTime(cal.timeInMillis))
+    }
+
+    @Test
     fun `buildTransactionRows daftar kosong`() {
         assertEquals(0, buildTransactionRows(emptyList(), "Hari Ini", "Kemarin").size)
     }

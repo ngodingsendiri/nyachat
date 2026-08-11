@@ -25,7 +25,8 @@ class DataExporterTest {
             loggedBy = "Suami",
             timestamp = 1700000000000L,
             chatMessageId = 1L,
-            cloudId = "tx-1"
+            cloudId = "tx-1",
+            sourceMessageCloudId = "msg-1"
         ),
         FinancialTransaction(
             type = "PEMASUKAN",
@@ -75,6 +76,8 @@ class DataExporterTest {
         assertEquals(25000.0, first.amount, 0.001)
         assertEquals("tx-1", first.cloudId)
         assertEquals(1L, first.chatMessageId)
+        // Relasi cross-device (sourceMessageCloudId) harus bertahan di backup.
+        assertEquals("msg-1", first.sourceMessageCloudId)
 
         // Pesan
         val msg = backup.messages[0]

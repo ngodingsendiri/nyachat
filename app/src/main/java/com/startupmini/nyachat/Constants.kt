@@ -17,7 +17,20 @@ object Constants {
         const val OPENROUTER_API_KEY = "openrouter_api_key"
         const val LAST_UPDATE_CHECK = "last_update_check"
         const val LAST_AUTO_BACKUP = "last_auto_backup"
+        // Status enkripsi FILE backup terakhir yang berhasil dibuat (bukan setting
+        // toggle) — supaya label "Backup terakhir … Terenkripsi" mencerminkan
+        // isi file di Drive, bukan toggle yang berubah setelahnya.
+        const val LAST_BACKUP_ENCRYPTED = "last_backup_encrypted"
         const val BACKUP_ENCRYPTED = "backup_encrypted"
+        // M5: passphrase otomatis untuk backup terenkripsi diam-diam (auto-backup
+        // 24 jam). Disimpan di SecureStorage (Android Keystore), bukan prefs biasa
+        // — passphrase yang dipakai user manual (dialog) TETAP dipakai untuk
+        // backup manual; kunci ini khusus jalur silentBackup.
+        const val BACKUP_AUTO_PASSPHRASE = "backup_auto_passphrase"
+        // 3.7: toggle notifikasi chat (default ON).
+        const val CHAT_NOTIFICATIONS_ENABLED = "chat_notifications_enabled"
+        // 3.7: penanda dialog izin notifikasi sudah pernah ditanya (jangan spam).
+        const val NOTIF_PERMISSION_ASKED = "notif_permission_asked"
     }
 
     // ===== Firestore collection names =====
@@ -57,6 +70,7 @@ object Constants {
         const val DESCRIPTION = "description"
         const val LOGGED_BY = "loggedBy"
         const val CHAT_MESSAGE_ID = "chatMessageId"
+        const val FCM_TOKEN = "fcmToken"
     }
 
     // ===== Peran workspace (wajib sama dengan rules) =====

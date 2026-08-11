@@ -97,7 +97,9 @@ fun AddTransactionDialog(
     }
     var description by remember { mutableStateOf(transaction?.description ?: "") }
     val loggedBy = remember {
-        transaction?.loggedBy ?: initialLoggedBy ?: "Bendahara"
+        // Default netral (L4): jangan asumsi peran "Bendahara" — pakai identitas
+        // pengguna aktif (initialLoggedBy) atau label netral bila tidak diketahui.
+        transaction?.loggedBy ?: initialLoggedBy ?: Constants.Defaults.LABEL
     }
 
     val categories = Constants.Categories.ALL

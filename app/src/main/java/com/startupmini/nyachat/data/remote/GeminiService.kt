@@ -13,6 +13,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
@@ -22,7 +23,10 @@ data class AiChatParseResult(
     val category: String? = null,
     val amount: Double? = null,
     val description: String? = null,
-    val aiReply: String
+    val aiReply: String,
+    // M7: asal deteksi — "AI" (Gemini/OpenRouter) atau "HEURISTIK" (fallback
+    // offline). Disimpan di ChatMessage.detectedBy untuk indikator badge UI.
+    val detectedBy: String? = null
 )
 
 object GeminiService {
@@ -50,6 +54,72 @@ object GeminiService {
      *  beberapa menit (B6). Habis waktu → langsung fallback heuristik offline. */
     internal const val AI_CALL_TIMEOUT_MS = 60_000L
 
+    /** L6: saran cepat statis (fallback saat tanpa key AI / riwayat kosong). */
+    internal val DEFAULT_SUGGESTIONS =
+        listOf("Makan siang 25.000", "Bensin 20.000", "Beli token listrik 50.000")
+
+    /**
+     * Rapikan deskripsi transaksi untuk saran cepat: buang nominal/angka mentah
+     * yang menempel pada deskripsi (hasil parse chat menyimpan teks asli seperti
+     * "beli mie ayam 20000" sehingga fallback lama menghasilkan
+     * "beli mie ayam 20000 20000" — angka dobel), lalu kapitalisasi awal.
+     */
+    internal fun cleanSuggestionDescription(raw: String): String {
+        // NUMBER_UNIT_PATTERN adalah java.util.regex.Pattern — pakai matcher.
+        val cleaned = NUMBER_UNIT_PATTERN.matcher(raw)
+            .replaceAll(" ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return if (cleaned.isEmpty()) {
+            cleaned
+        } else {
+            cleaned.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+        }
+    }
+
+    /** Format nominal untuk saran cepat: 20000.0 → "20.000" (titik ribuan id-ID). */
+    internal fun formatSuggestionAmount(amount: Double): String =
+        String.format(Locale("id", "ID"), "%,d", amount.toLong())
+
+    /**
+     * Fallback offline berbasis riwayat transaksi PENGELUARAN — deskripsi
+     * dibersihkan dari angka & nominal diformat rapi (L6). Hasil dideduplikasi
+     * & dibatasi 4. Pemasukan tidak dijadikan saran pengeluaran (selaras dengan
+     * prompt AI & DEFAULT_SUGGESTIONS yang semuanya pengeluaran).
+     */
+    internal fun buildOfflineSuggestions(transactions: List<FinancialTransaction>): List<String> {
+        val expense = transactions.filter {
+            it.type == Constants.TransactionTypes.EXPENSE
+        }
+        val cleaned = expense
+            .map { trans ->
+                val desc = cleanSuggestionDescription(trans.description)
+                val amount = formatSuggestionAmount(trans.amount)
+                if (desc.isEmpty()) amount else "$desc $amount"
+            }
+            .distinct()
+            .take(4)
+        return cleaned.ifEmpty { DEFAULT_SUGGESTIONS }
+    }
+
+    /**
+     * Sanitasi saran hasil AI: jamin format rapi walau model mengembalikan
+     * angka dobel ("Beli mie ayam 20000 20000") — angka diekstrak ulang,
+     * deskripsi dibersihkan, nominal diformat titik ribuan. Saran tanpa angka
+     * (kreatif) dibiarkan apa adanya.
+     */
+    internal fun sanitizeSuggestion(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return trimmed
+        val amount = extractAmountFromText(trimmed.lowercase())
+        val desc = cleanSuggestionDescription(trimmed)
+        return when {
+            amount != null && desc.isNotEmpty() -> "$desc ${formatSuggestionAmount(amount)}"
+            amount != null -> formatSuggestionAmount(amount)
+            else -> trimmed
+        }
+    }
+
     suspend fun parseChatMessage(
         messageText: String,
         sender: String,
@@ -58,9 +128,9 @@ object GeminiService {
     ): AiChatParseResult = withContext(Dispatchers.IO) {
         // Pesan dengan foto nota → prompt khusus membaca nota; teks biasa → prompt standar.
         val prompt = if (imagePath != null) {
-            buildReceiptPrompt(messageText, sender)
+            buildReceiptPrompt(messageText, sender, recentContext)
         } else {
-            buildParsePrompt(messageText, sender)
+            buildParsePrompt(messageText, sender, recentContext)
         }
 
         // Seluruh jalur AI dibatasi waktu total (B6) — lewat batas, fallback offline.
@@ -88,27 +158,71 @@ object GeminiService {
                         return@withTimeoutOrNull parsed
                     }
                 } catch (e: Exception) {
-                    Log.w("GeminiService", "OpenRouter/parsing gagal, lanjut jalur berikutnya", e)
+                    Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
+                }
+            }
+
+            // 3) Relay server (FASE 4): key AI milik server — dipakai saat user
+            //    belum mengisi kunci sendiri ATAU kunci BYOK-nya gagal. Auth Firebase
+            //    otomatis dilampirkan SDK; server memverifikasi & memanggil AI.
+            val relayText = relayComplete(prompt, imagePath)
+            if (relayText != null) {
+                val parsed = parseJsonResponse(wrapOpenAiText(relayText), messageText, sender)
+                if (parsed != null) {
+                    return@withTimeoutOrNull parsed
                 }
             }
             null
         }
 
-        // 3) Fallback: teks biasa pakai mesin offline; foto nota tanpa AI hanya tersimpan
+        // 4) Fallback: teks biasa pakai mesin offline; foto nota tanpa AI hanya tersimpan
         //    (tidak bisa dibaca tanpa kunci AI vision). Juga dipakai saat habis waktu.
         return@withContext aiParsed ?: offlineHeuristicParse(messageText, sender)
     }
 
+
+    /** L6: true kalau setidaknya satu jalur AI tersedia (OpenRouter/Gemini BYOK
+     *  atau relay server yang belum terbukti mati). */
+    fun isAiAvailable(): Boolean {
+        val key = getApiKey()
+        return OpenRouterService.activeApiKey() != null ||
+            key.isNotBlank() && key != "MY_GEMINI_API_KEY" ||
+            RelayAiService.isAvailable()
+    }
+
+    /** Jalur relay server (FASE 4) — dipakai setelah OpenRouter & Gemini BYOK gagal. */
+    private suspend fun relayComplete(prompt: String, imagePath: String? = null): String? {
+        if (!RelayAiService.isAvailable()) return null
+        return try {
+            val imageBase64 = imagePath?.let { ImageFileUtil.encodeBase64(it) }
+            RelayAiService.completeChat(prompt, imageBase64)
+        } catch (e: Exception) {
+            Log.w("GeminiService", "Relay gagal, lanjut jalur berikutnya", e)
+            null
+        }
+    }
 
     suspend fun generateFrequentTransactionSuggestions(
         transactions: List<FinancialTransaction>
     ): List<String> = withContext(Dispatchers.IO) {
         val apiKey = getApiKey()
         if (transactions.isEmpty()) {
-            return@withContext listOf("Makan siang 25.000", "Bensin 20.000", "Beli token listrik 50.000")
+            return@withContext DEFAULT_SUGGESTIONS
+        }
+        // L6: tanpa key AI, jangan buang waktu/timeout di jalur AI — langsung
+        // fallback offline berbasis riwayat transaksi (personal tetap terjaga),
+        // bukan statis kaku. Jalur AI tetap dilewati → hemat kuota & delay.
+        if (!isAiAvailable()) {
+            return@withContext buildOfflineSuggestions(transactions)
         }
 
-        val transSummary = transactions.take(30).joinToString("\n") {
+        // Hanya PENGELUARAN yang jadi bahan saran (selaras dengan permintaan
+        // user: rekomendasi pengeluaran dari data rekap). Pemasukan dikecualikan.
+        val expense = transactions.filter { it.type == Constants.TransactionTypes.EXPENSE }
+        if (expense.isEmpty()) {
+            return@withContext DEFAULT_SUGGESTIONS
+        }
+        val transSummary = expense.take(30).joinToString("\n") {
             "- [${it.type}] ${it.description} (Rp ${it.amount.toLong()})"
         }
 
@@ -119,13 +233,14 @@ object GeminiService {
             $transSummary
 
             Tugasmu adalah menganalisis kebiasaan transaksi mereka (yang paling berulang/rutin) lalu menghasilkan 4 sampai 5 teks prompt singkat (rekomendasi chat quick-add) yang bisa mereka klik untuk menginput pengeluaran atau pemasukan dengan cepat berdasarkan pola mereka.
+            Tulis saran dalam Bahasa Indonesia yang NATURAL & RAPI: awali dengan huruf kapital, satu nominal di akhir dengan TITIK ribuan (mis. 20000 ditulis 20.000), JANGAN mengulang angka dua kali.
             Contoh output yang diharapkan (sesuaikan dengan isi riwayat transaksi pengguna):
             "Beli bensin 25.000"
             "Makan siang 20.000"
             "Bayar listrik 100.000"
             "Belanja sayur 50.000"
 
-            KEMBALIKAN OUTPUTMU SEBAGAI JSON ARRAY STRING SAJA. Contoh: ["Makan 20k", "Bensin 15k"].
+            KEMBALIKAN OUTPUTMU SEBAGAI JSON ARRAY STRING SAJA. Contoh: ["Makan siang 20.000", "Bensin 15.000"].
             Jangan tambahkan penjelasan apa pun di luar JSON Array.
         """.trimIndent()
 
@@ -141,7 +256,7 @@ object GeminiService {
                         val jsonArray = JSONArray(cleanedText)
                         val suggestions = mutableListOf<String>()
                         for (i in 0 until jsonArray.length()) {
-                            suggestions.add(jsonArray.getString(i))
+                            suggestions.add(sanitizeSuggestion(jsonArray.getString(i)))
                         }
                         if (suggestions.isNotEmpty()) return@withTimeoutOrNull suggestions
                     }
@@ -160,21 +275,37 @@ object GeminiService {
                         val jsonArray = JSONArray(cleanedText)
                         val suggestions = mutableListOf<String>()
                         for (i in 0 until jsonArray.length()) {
-                            suggestions.add(jsonArray.getString(i))
+                            suggestions.add(sanitizeSuggestion(jsonArray.getString(i)))
                         }
                         if (suggestions.isNotEmpty()) return@withTimeoutOrNull suggestions
                     }
                 } catch (e: Exception) {
-                    Log.w("GeminiService", "OpenRouter/parsing gagal, lanjut jalur berikutnya", e)
+                    Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
+                }
+            }
+
+            // 3) Relay server (FASE 4) — saran cepat via key milik server.
+            val relayText = relayComplete(prompt)
+            if (!relayText.isNullOrBlank()) {
+                try {
+                    val cleanedText = relayText.replace("```json", "").replace("```", "").trim()
+                    val jsonArray = JSONArray(cleanedText)
+                    val suggestions = mutableListOf<String>()
+                    for (i in 0 until jsonArray.length()) {
+                        suggestions.add(sanitizeSuggestion(jsonArray.getString(i)))
+                    }
+                    if (suggestions.isNotEmpty()) return@withTimeoutOrNull suggestions
+                } catch (e: Exception) {
+                    Log.w("GeminiService", "Relay/parsing saran gagal", e)
                 }
             }
             null
         }
         if (aiSuggestions != null) return@withContext aiSuggestions
 
-        // 3) Fallback offline heuristic
-        val fallback = transactions.take(4).map { "${it.description} ${it.amount.toLong()}" }
-        return@withContext fallback.ifEmpty { listOf("Makan siang 25000", "Bensin 20000", "Beli token listrik 50000") }
+        // 4) Fallback offline heuristic (L6): deskripsi dibersihkan dari angka
+        //    & nominal diformat rapi — tidak ada lagi "beli mie ayam 20000 20000".
+        return@withContext buildOfflineSuggestions(transactions)
     }
 
     suspend fun generateFinancialAuditReport(
@@ -184,6 +315,11 @@ object GeminiService {
     ): String = withContext(Dispatchers.IO) {
         val apiKey = getApiKey()
         val balance = totalIncome - totalExpense
+
+        // Audit #7: insight terpersonalisasi dari data nyata — dipakai di prompt
+        // AI DAN di fallback offline, supaya rekomendasi menyebut pos/angka milik user.
+        val insights = com.startupmini.nyachat.data.analytics.FinancialInsightsEngine.compute(transactions)
+        val insightLines = com.startupmini.nyachat.data.analytics.FinancialInsightsEngine.describeForPrompt(insights)
 
         val transSummary = transactions.take(20).joinToString("\n") {
             "- [${it.type}] ${it.category}: Rp ${it.amount.toLong()} (${it.description}) oleh ${it.loggedBy}"
@@ -197,10 +333,16 @@ object GeminiService {
             Total Pengeluaran: Rp ${totalExpense.toLong()}
             Sisa Saldo: Rp ${balance.toLong()}
             
+            Insight yang sudah dihitung dari data mereka:
+            $insightLines
+            
             Daftar Transaksi Terakhir:
             $transSummary
             
             Berikan evaluasi kesehatan keuangan ini dalam Bahasa Indonesia yang profesional, obyektif, dan solutif.
+            JANGAN menjawab generik — rujuk POSITIF KONKRET di atas: sebut kategori terbesar,
+            pengeluaran tunggal terbesar, pengguna yang paling banyak membelanjakan, dan arah
+            tren pengeluaran (naik/turun/stagnan) dengan angka yang sesuai.
             Format tanggapanmu secara terstruktur:
             
             📌 **Evaluasi & Analisis Arus Kas**
@@ -237,23 +379,58 @@ object GeminiService {
                         return@withTimeoutOrNull text
                     }
                 } catch (e: Exception) {
-                    Log.w("GeminiService", "OpenRouter/parsing gagal, lanjut jalur berikutnya", e)
+                    Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
                 }
             }
+
+            // 3) Relay server (FASE 4) — laporan audit via key milik server.
+            val relayText = relayComplete(prompt)
+            if (!relayText.isNullOrBlank()) return@withTimeoutOrNull relayText
             null
         }
         if (aiReport != null) return@withContext aiReport
 
-        // 3) Offline Fallback Report
-        return@withContext """
-            📌 **Evaluasi & Analisis Arus Kas**
-            • **Arus Kas**: Total Pemasukan Rp ${totalIncome.toLong()} vs Pengeluaran Rp ${totalExpense.toLong()} (Sisa Saldo: Rp ${balance.toLong()}).
-            • **Tinjauan Obyektif**: ${if (totalExpense > totalIncome && totalIncome > 0) "Pengeluaran melampaui pemasukan! Diperlukan pengetatan pada pos operasional dan belanja non-prioritas." else "Rasio keuangan sehat dan berada dalam batas anggaran aman."}
+        // 4) Offline Fallback Report — berbasis data nyata (bukan template kaku).
+        return@withContext buildOfflineAuditReport(insights, balance)
+    }
 
-            💡 **Rekomendasi Strategis**
-            1. **Optimalisasi Anggaran Rutin**: Tetapkan batas plafon mingguan untuk pos operasional harian agar alokasi kas terprediksi.
-            2. **Alokasi Dana Cadangan**: Sisihkan minimal 10%–15% dari pemasukan ke kas cadangan sebelum memenuhi pengeluaran sekunder.
-        """.trimIndent()
+    /** Laporan offline yang merujuk insight data nyata (audit #7). */
+    private fun buildOfflineAuditReport(
+        ins: com.startupmini.nyachat.data.analytics.FinancialInsights,
+        balance: Double
+    ): String {
+        val sb = StringBuilder()
+        sb.appendLine("📌 **Evaluasi & Analisis Arus Kas**")
+        sb.appendLine("• **Arus Kas**: Pemasukan Rp ${ins.totalIncome.toLong()} vs Pengeluaran Rp ${ins.totalExpense.toLong()} (Saldo: Rp ${balance.toLong()}).")
+        when {
+            ins.totalExpense > ins.totalIncome && ins.totalIncome > 0 ->
+                sb.appendLine("• **Tinjauan**: Pengeluaran melampaui pemasukan (rasio ${(ins.expenseRate * 100).toInt()}%). Perlu pengetatan. 🚨")
+            ins.savingsRate > 0.2 ->
+                sb.appendLine("• **Tinjauan**: Rasio sehat; menabung ${(ins.savingsRate * 100).toInt()}% dari pemasukan. Pertahankan!")
+            else ->
+                sb.appendLine("• **Tinjauan**: Arus kas cukup pas (tabungan ~${(ins.savingsRate * 100).toInt()}%). Waspada perubahan tak terduga.")
+        }
+        ins.topExpenseCategory?.let { cat ->
+            sb.appendLine("• **Pos terbesar**: $cat (Rp ${ins.topExpenseAmount.toLong()}, ${(ins.topExpensePct * 100).toInt()}% pengeluaran).")
+        }
+        ins.biggestSingleDesc?.let { desc ->
+            sb.appendLine("• **Transaksi tunggal terbesar**: \"$desc\" (Rp ${ins.biggestSingleAmount.toLong()}).")
+        }
+        sb.appendLine("• **Tren**: Pengeluaran ${com.startupmini.nyachat.data.analytics.FinancialInsightsEngine.trendText(ins.expenseChangePct)} dalam 30 hari.")
+        if (ins.topSpender != null) {
+            sb.appendLine("• **Pengeluaran terbesar**: ${ins.topSpender} (Rp ${ins.topSpenderAmount.toLong()}).")
+        }
+
+        sb.appendLine("")
+        sb.appendLine("💡 **Rekomendasi Strategis**")
+        sb.appendLine("1. **Kendalikan pos terbesar (${ins.topExpenseCategory ?: "operasional"})**: pasang plafon mingguan ±Rp ${((ins.topExpenseAmount * 0.9) / 4).toLong()} agar pengeluaran turun.")
+        val savingsTarget = if (ins.savingsRate > 0) {
+            ((ins.savingsRate + 0.05) * 100).toInt().coerceAtMost(30)
+        } else {
+            10
+        }
+        sb.appendLine("2. **Dana cadangan**: sisihkan ±$savingsTarget% dari pemasukan tiap bulan ke kas cadangan.")
+        return sb.toString().trim()
     }
 
     /**
@@ -310,14 +487,18 @@ object GeminiService {
                     val text = extractTextFromGeminiResponse(jsonResponse)
                     if (!text.isNullOrBlank()) return@withTimeoutOrNull text
                 } catch (e: Exception) {
-                    Log.w("GeminiService", "OpenRouter/parsing gagal, lanjut jalur berikutnya", e)
+                    Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
                 }
             }
+
+            // 3) Relay server (FASE 4) — analisis bulanan via key milik server.
+            val relayText = relayComplete(prompt)
+            if (!relayText.isNullOrBlank()) return@withTimeoutOrNull relayText
             null
         }
         if (aiReport != null) return@withContext aiReport
 
-        // 3) Laporan offline (tanpa internet / tanpa key / habis waktu) — tetap informatif.
+        // 4) Laporan offline (tanpa internet / tanpa key / habis waktu) — tetap informatif.
         return@withContext buildOfflineMonthlyReport(monthly, transactions)
     }
 
@@ -385,13 +566,17 @@ object GeminiService {
                     val text = extractTextFromGeminiResponse(jsonResponse)
                     if (!text.isNullOrBlank()) return@withTimeoutOrNull text
                 } catch (e: Exception) {
-                    Log.w("GeminiService", "OpenRouter/parsing gagal, lanjut jalur berikutnya", e)
+                    Log.w("GeminiService", "Gemini/parsing gagal, lanjut jalur berikutnya", e)
                 }
             }
+
+            // 3) Relay server (FASE 4) — jawaban AI via key milik server.
+            val relayText = relayComplete(chatPrompt)
+            if (!relayText.isNullOrBlank()) return@withTimeoutOrNull relayText
             null
         }
 
-        // 3) Balasan offline (tanpa internet / tanpa key / habis waktu)
+        // 4) Balasan offline (tanpa internet / tanpa key / habis waktu)
         return@withContext aiReply ?: offlineChatReply(prompt)
     }
 
@@ -411,9 +596,13 @@ object GeminiService {
 
     /** Prompt khusus untuk foto nota/bukti belanja — AI diminta membaca isi foto
      *  lalu mengeluarkan JSON transaksi yang sama dengan parser teks. */
-    private fun buildReceiptPrompt(messageText: String, sender: String): String {
+    private fun buildReceiptPrompt(messageText: String, sender: String, recentContext: List<ChatMessage>): String {
+        val contextBlock = contextBlock(recentContext)
         return """
             Kamu adalah 'Asisten Nyachat' yang bertugas membaca FOTO NOTA / BUKTI BELANJA / STRUK dari $sender.
+            
+            Konteks obrolan terbaru (untuk mencocokkan kategori/deskripsi yang konsisten):
+            ${contextBlock.ifEmpty { "— (riwayat kosong)" }}
             
             Foto yang kamu terima adalah nota belanja. Analisis foto tersebut dan catat TOTAL pengeluarannya.
             Keterangan tambahan dari pengirim: "$messageText"
@@ -447,9 +636,13 @@ object GeminiService {
         """.trimIndent()
     }
 
-    private fun buildParsePrompt(messageText: String, sender: String): String {
+    private fun buildParsePrompt(messageText: String, sender: String, recentContext: List<ChatMessage>): String {
+        val contextBlock = contextBlock(recentContext)
         return """
             Kamu adalah 'Asisten Nyachat' yang bertugas memantau obrolan transaksi finansial pada grup, lembaga, atau rumah tangga.
+            
+            Konteks obrolan terbaru (untuk mencocokkan kategori/deskripsi yang konsisten):
+            ${contextBlock.ifEmpty { "— (riwayat kosong)" }}
             
             Pesan masuk dari $sender: "$messageText"
             
@@ -482,6 +675,17 @@ object GeminiService {
               "aiReply": "Catatan pesan tersimpan dalam ruang obrolan."
             }
         """.trimIndent()
+    }
+
+    /** Format riwayat obrolan terakhir untuk disisipkan ke prompt AI (M11).
+     *  Denga konteks, AI bisa menebak kategori/deskripsi yang konsisten dengan
+     *  transaksi sebelumnya. Pesan tanpa teks ditapis. */
+    private fun contextBlock(recentContext: List<ChatMessage>): String {
+        if (recentContext.isEmpty()) return ""
+        return recentContext
+            .filter { it.messageText.isNotBlank() }
+            .takeLast(6)
+            .joinToString("\n") { "${it.sender}: ${it.messageText.take(120)}" }
     }
 
     private fun callGeminiApi(prompt: String, apiKey: String, imagePath: String? = null): String {
@@ -562,7 +766,9 @@ object GeminiService {
                     category = json.optString("category", "Lain-lain"),
                     amount = json.optDouble("amount", 0.0),
                     description = json.optString("description", originalText),
-                    aiReply = json.optString("aiReply", "Pesan telah dicatat sebagai transaksi.")
+                    aiReply = json.optString("aiReply", "Pesan telah dicatat sebagai transaksi."),
+                    // M7: hasil dari AI (Gemini/OpenRouter) — bukan heuristik lokal.
+                    detectedBy = "AI"
                 )
             } else {
                 AiChatParseResult(
@@ -578,16 +784,22 @@ object GeminiService {
 
     /** Pola angka + satuan opsional: "50rb", "50.000", "2,5jt", "5 juta", "10k".
      *  `(?![a-z])` mencegah huruf biasa terbaca sebagai satuan — mis. 'k' pada
-     *  "2 kopi" bukan satuan ribu. */
+     *  "2 kopi" bukan satuan ribu. `(?:[.,]\d+)*` menangkap SELURUH grup ribuan
+     *  + desimal ("1.500.000", "2,5jt") — bukan cuma satu grup agar nominal
+     *  ≥ 1 juta bertitik tidak terpotong (K1). */
     private val NUMBER_UNIT_PATTERN =
-        Pattern.compile("(\\d+(?:[.,]\\d+)?)\\s*(?:(rb|ribu|k|jt|juta)(?![a-z]))?")
+        Pattern.compile("(\\d+(?:[.,]\\d+)*)\\s*(?:(rb|ribu|k|jt|juta)(?![a-z]))?")
 
     /**
      * Ekstrak nominal Rupiah dari teks bebas. Angka BERSATUAN (rb/ribu/k/jt/juta)
      * diprioritaskan atas angka polos karena jauh lebih mungkin nominal transaksi:
      * "beli 2 kopi 20rb" mengambil 20rb (Rp 20.000), bukan 2 (Rp 2.000).
-     * Tanpa angka bersatuan, fallback ke angka pertama; angka polos kecil
-     * (1–999) dianggap ribuan sesuai kebiasaan chat Indonesia.
+     * Tanpa angka bersatuan, fallback ke angka pertama.
+     *
+     * L2: angka polos dengan < 2 digit (1–9) TANPA satuan ditolak — mis. "makan
+     * 2 kucing" / "beli 3 botol" sebenarnya jumlah item, bukan nominal. Konteks
+     * ini mengurangi false-positive heuristik. Hanya nilai ≥ 10 (dianggap "ribuan"
+     * lewat toRupiah) atau angka bersatuan yang diterima sebagai nominal.
      */
     internal fun extractAmountFromText(textLower: String): Double? {
         val matcher = NUMBER_UNIT_PATTERN.matcher(textLower)
@@ -596,6 +808,8 @@ object GeminiService {
             val numStr = matcher.group(1) ?: continue
             val unit = matcher.group(2)
             if (!unit.isNullOrEmpty()) return toRupiah(numStr, unit)
+            // L2: angka polos 1 digit (0–9) = kuantitas, bukan nominal.
+            if (numStr.count { it.isDigit() } < 2) continue
             if (fallbackNum == null) fallbackNum = numStr
         }
         val num = fallbackNum ?: return null
@@ -603,7 +817,11 @@ object GeminiService {
     }
 
     private fun toRupiah(numStr: String, unit: String?): Double? {
-        val rawNum = numStr.replace(",", ".").toDoubleOrNull() ?: return null
+        // Normalisasi: hapus SEMUA titik ribuan (pemisah ribuan), koma jadi desimal kalau valid
+        val normalized = numStr
+            .replace(".", "")                    // hapus semua titik ribuan
+            .replace(",", ".")                   // koma jadi desimal
+        val rawNum = normalized.toDoubleOrNull() ?: return null
         return when (unit) {
             "rb", "ribu", "k" -> rawNum * 1000
             "jt", "juta" -> rawNum * 1000000
@@ -618,9 +836,32 @@ object GeminiService {
         // pertama — lihat extractAmountFromText.
         val amount = extractAmountFromText(textLower)
 
-        val isIncome = textLower.contains("gaji") || textLower.contains("pemasukan") ||
-                textLower.contains("transfer masuk") || textLower.contains("dapat bonus") ||
-                textLower.contains("dapat komisi") || textLower.contains("uang jajan masuk")
+        // Income: frasa penerimaan dana yang lazim dipakai user Indonesia. Mencakup
+        // kombinasi verba menerima (terima/dapat/menerima/cair/masuk) + sumber dana
+        // (gaji, bonus, komisi, dividen, arisan, rejeki, hadiah, undian) DAN sumber
+        // yang praktis selalu "masuk" berdiri sendiri (gaji, dividen, rejeki,
+        // warisan, hibah, undian). Sebelumnya hanya 6 frasa — "dapat arisan 50jt",
+        // "terima dividen 3jt" dll. tidak terekap (laporan user 2026-08-10).
+        // Catatan: "arisan" sengaja TIDAK mandiri — "bayar/setor arisan" adalah
+        // pengeluaran; hanya "dapat/terima/menang/cair arisan" yang dianggap masuk.
+        val isIncome = listOf(
+            // gaji
+            "terima gaji", "dapat gaji", "menerima gaji", "gaji masuk", "gaji cair", "cair gaji", "gaji",
+            // bonus
+            "terima bonus", "dapat bonus", "menerima bonus", "bonus masuk", "bonus cair", "cair bonus",
+            // komisi
+            "terima komisi", "dapat komisi", "menerima komisi", "komisi masuk", "komisi cair", "cair komisi",
+            // dividen
+            "terima dividen", "dapat dividen", "menerima dividen", "dividen masuk", "dividen cair", "cair dividen", "dividen",
+            // arisan (hanya saat diterima)
+            "terima arisan", "dapat arisan", "menerima arisan", "arisan masuk", "arisan cair", "cair arisan", "menang arisan",
+            // rejeki / uang / hadiah / undian
+            "terima rejeki", "dapat rejeki", "menerima rejeki", "rejeki nomplok", "rejeki",
+            "terima uang", "dapat uang", "menerima uang", "uang masuk", "uang jajan masuk",
+            "terima hadiah", "dapat hadiah", "menerima hadiah", "menang undian", "dapat undian", "undian",
+            // umum
+            "transfer masuk", "pemasukan", "pencairan", "bagi hasil", "warisan", "hibah"
+        ).any { textLower.contains(it) }
 
         val isExpenseTrigger = amount != null && (
                 textLower.contains("beli") || textLower.contains("bayar") ||
@@ -629,7 +870,11 @@ object GeminiService {
                 textLower.contains("sewa") || textLower.contains("pulsa") ||
                 textLower.contains("listrik") || textLower.contains("air") ||
                 textLower.contains("popok") || textLower.contains("susu") ||
-                textLower.contains("makan") || textLower.contains("transaksi")
+                textLower.contains("makan") || textLower.contains("transaksi") ||
+                textLower.contains("bensin") || textLower.contains("taxi") ||
+                textLower.contains("ojek") || textLower.contains("grab") ||
+                textLower.contains("gojek") || textLower.contains("tol") ||
+                textLower.contains("parkir") || textLower.contains("isi")
         )
 
         if (isIncome && amount != null && amount > 0) {
@@ -639,17 +884,19 @@ object GeminiService {
                 category = "Gaji & Pemasukan",
                 amount = amount,
                 description = messageText,
+                // M7: dihasilkan mesin aturan lokal (fallback offline) — bukan AI.
+                detectedBy = "HEURISTIK",
                 aiReply = "Mantap! Aku catat PEMASUKAN sebesar Rp ${amount.toLong()} (${messageText}). Saldo bertambah! 💰"
             )
         } else if (isExpenseTrigger && amount > 0) {
             val category = when {
-                textLower.contains("beras") || textLower.contains("minyak") || textLower.contains("sayur") || textLower.contains("sembako") || textLower.contains("pasar") || textLower.contains("supermarket") -> "Groceries & Sembako"
-                textLower.contains("makan") || textLower.contains("minum") || textLower.contains("kopi") || textLower.contains("bakso") || textLower.contains("snack") -> "Makanan & Minuman"
+                textLower.contains("beras") || textLower.contains("minyak") || textLower.contains("sayur") || textLower.contains("sembako") || textLower.contains("pasar") || textLower.contains("supermarket") || textLower.contains("market") -> "Groceries & Sembako"
+                textLower.contains("makan") || textLower.contains("minum") || textLower.contains("kopi") || textLower.contains("bakso") || textLower.contains("snack") || textLower.contains("nasi") -> "Makanan & Minuman"
                 textLower.contains("listrik") || textLower.contains("air") || textLower.contains("wifi") || textLower.contains("pulsa") || textLower.contains("kontrakan") || textLower.contains("pbb") -> "Tagihan & Utilitas"
                 textLower.contains("popok") || textLower.contains("susu") || textLower.contains("sekolah") || textLower.contains("mainan") || textLower.contains("anak") -> "Kebutuhan Anak"
-                textLower.contains("bensin") || textLower.contains("ojek") || textLower.contains("grab") || textLower.contains("gojek") || textLower.contains("tol") || textLower.contains("parkir") -> "Transportasi"
+                textLower.contains("bensin") || textLower.contains("ojek") || textLower.contains("grab") || textLower.contains("gojek") || textLower.contains("tol") || textLower.contains("parkir") || textLower.contains("taxi") -> "Transportasi"
                 textLower.contains("skincare") || textLower.contains("obat") || textLower.contains("dokter") || textLower.contains("sabun") || textLower.contains("shampoo") -> "Kesehatan & Skincare"
-                textLower.contains("baju") || textLower.contains("sepatu") || textLower.contains("nonton") || textLower.contains("tas") || textLower.contains("shopee") || textLower.contains("tokped") -> "Hiburan & Belanja"
+                textLower.contains("baju") || textLower.contains("sepatu") || textLower.contains("nonton") || textLower.contains("tas") || textLower.contains("shopee") || textLower.contains("tokped") || textLower.contains("belanja") -> "Hiburan & Belanja"
                 else -> "Lain-lain"
             }
 
@@ -659,6 +906,8 @@ object GeminiService {
                 category = category,
                 amount = amount,
                 description = messageText,
+                // M7: hasil mesin heuristik offline.gv
+                detectedBy = "HEURISTIK",
                 aiReply = "Pengeluaran Rp ${amount.toLong()} ($category: $messageText) dicatat oleh $sender."
             )
         }

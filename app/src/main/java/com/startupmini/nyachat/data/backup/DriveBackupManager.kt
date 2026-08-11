@@ -16,11 +16,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/** File backup yang tersimpan di folder privat Google Drive (appDataFolder). */
+/** File backup yang tersimpan di folder privat Google Drive (appDataFolder).
+ *  [encrypted] = apakah FILE backup ini terenkripsi:
+ *  - `true`/`false` → status diketahui dari `appProperties` Drive atau penanda
+ *    nama `.enc.json` (semua backup baru).
+ *  - `null` → backup lama (belum punya metadata) — status harus di-*probe*
+ *    dari isi amplop oleh [DriveBackupController] sebelum ditampilkan. */
 data class DriveBackupFile(
     val fileId: String,
     val name: String,
-    val createdTime: String
+    val createdTime: String,
+    val encrypted: Boolean? = null
 )
 
 /**
@@ -59,6 +65,12 @@ object DriveBackupManager : DriveBackupApi {
             "https://www.googleapis.com/auth/userinfo.profile"
     private const val API_FILES = "https://www.googleapis.com/drive/v3/files"
     private const val UPLOAD_FILES = "https://www.googleapis.com/upload/drive/v3/files"
+
+    /** Penanda nama backup terenkripsi: `Nyachat-backup-<ts>.enc.json`. */
+    const val ENCRYPTED_NAME_SUFFIX = ".enc.json"
+
+    /** Kunci `appProperties` Drive untuk status enkripsi file backup. */
+    private const val PROP_ENCRYPTED = "encrypted"
 
     private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
@@ -103,6 +115,16 @@ object DriveBackupManager : DriveBackupApi {
             val meta = JSONObject()
                 .put("name", fileName)
                 .put("parents", JSONArray().put("appDataFolder"))
+                // appProperties = metadata privat per file (temuan #4): picker
+                // restore tahu status enkripsi TANPA mengunduh isi — bahkan
+                // untuk backup plain yang tidak punya penanda di nama.
+                .put(
+                    "appProperties",
+                    JSONObject().put(
+                        PROP_ENCRYPTED,
+                        if (fileName.endsWith(ENCRYPTED_NAME_SUFFIX)) "true" else "false"
+                    )
+                )
             val req = Request.Builder()
                 .url(API_FILES)
                 .addHeader("Authorization", bearer(token))
@@ -141,7 +163,7 @@ object DriveBackupManager : DriveBackupApi {
         withContext(Dispatchers.IO) {
             val body = runCatching {
                 val req = Request.Builder()
-                    .url("$API_FILES?spaces=appDataFolder&orderBy=createdTime%20desc&fields=files(id,name,createdTime)")
+                    .url("$API_FILES?spaces=appDataFolder&orderBy=createdTime%20desc&fields=files(id,name,createdTime,appProperties)")
                     .addHeader("Authorization", bearer(token))
                     .build()
                 client.newCall(req).execute().use { resp ->
@@ -156,7 +178,11 @@ object DriveBackupManager : DriveBackupApi {
                     DriveBackupFile(
                         fileId = o.optString("id"),
                         name = o.optString("name"),
-                        createdTime = o.optString("createdTime")
+                        createdTime = o.optString("createdTime"),
+                        encrypted = parseEncryptionStatus(
+                            o.optString("name"),
+                            o.optJSONObject("appProperties")
+                        )
                     )
                 }
             }.fold(
@@ -186,7 +212,10 @@ object DriveBackupManager : DriveBackupApi {
             )
         }
 
-    /** Hapus backup lama — sisakan hanya yang terbaru (keep). */
+    /** Hapus backup lama — sisakan hanya yang terbaru (keep).
+     *  L8: error per file sebelumnya ditelan runCatching; kini diagregasi &
+     *  dilaporkan — kalau ada yang gagal dihapus, hasilnya Failure supaya
+     *  backup lama tidak menumpuk diam-diam. */
     override suspend fun pruneOldBackups(context: Context, token: String, keep: Int): BackupResult<Unit> {
         val filesResult = listBackups(context, token)
         return when (filesResult) {
@@ -194,17 +223,23 @@ object DriveBackupManager : DriveBackupApi {
                 val files = filesResult.value
                 if (files.size <= keep) BackupResult.Success(Unit)
                 else {
-                    files.drop(keep).forEach { file ->
+                    val failed = files.drop(keep).mapNotNull { file ->
                         runCatching {
                             val req = Request.Builder()
                                 .url("$API_FILES/${file.fileId}")
                                 .addHeader("Authorization", bearer(token))
                                 .delete()
                                 .build()
-                            client.newCall(req).execute().close()
-                        }
+                            client.newCall(req).execute().use { resp ->
+                                check(resp.isSuccessful) { "HTTP ${resp.code}" }
+                            }
+                        }.exceptionOrNull()
                     }
-                    BackupResult.Success(Unit)
+                    if (failed.isEmpty()) BackupResult.Success(Unit)
+                    else BackupResult.Failure(
+                        "Gagal menghapus ${failed.size} backup lama (${failed.first().message})",
+                        failed.first()
+                    )
                 }
             }
             is BackupResult.Failure, is BackupResult.NotFound, is BackupResult.QuotaExceeded, is BackupResult.ConsentRequired -> filesResult
@@ -212,4 +247,21 @@ object DriveBackupManager : DriveBackupApi {
     }
 
     private fun bearer(token: String) = "Bearer $token"
+}
+
+/**
+ * Status enkripsi file backup dari metadata list Drive:
+ * - penanda nama `.enc.json` → `true`;
+ * - `appProperties.encrypted` → nilai eksplisit (semua backup baru);
+ * - tanpa keduanya (backup lama) → `null` = belum diketahui, harus di-*probe*
+ *   dari isi amplop oleh [DriveBackupController].
+ * Dipisah sebagai fungsi murni (internal) supaya bisa di-*unit test* langsung.
+ */
+internal fun parseEncryptionStatus(name: String, appProperties: JSONObject?): Boolean? {
+    if (name.endsWith(DriveBackupManager.ENCRYPTED_NAME_SUFFIX)) return true
+    return when (appProperties?.optString("encrypted")) {
+        "true" -> true
+        "false" -> false
+        else -> null
+    }
 }

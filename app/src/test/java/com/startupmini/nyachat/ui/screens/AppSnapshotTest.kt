@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
@@ -187,6 +189,65 @@ class AppSnapshotTest {
                     "Beli token listrik 50.000"
                 ),
                 onSuggestionClicked = {}
+            )
+        }
+    }
+
+    @Test
+    fun `composer chat pill kosong`() {
+        // Redesign composer (WhatsApp-style): floating pill + ikon (+) di dalam,
+        // tombol Send circular terpisah — tanpa panel besar pembungkus.
+        capture("chat_composer_pill") {
+            ChatInputBar(
+                value = "",
+                onValueChange = {},
+                isDark = false,
+                canSend = false,
+                onAttachClick = {},
+                onSend = {},
+                onAskAi = {},
+                inputFocusRequester = remember { FocusRequester() }
+            )
+        }
+    }
+
+    @Test
+    fun `composer chat pill terisi`() {
+        // State aktif: teks terisi → tombol Send berwarna primary.
+        capture("chat_composer_pill_active") {
+            ChatInputBar(
+                value = "Beli bakso 15.000",
+                onValueChange = {},
+                isDark = false,
+                canSend = true,
+                onAttachClick = {},
+                onSend = {},
+                onAskAi = {},
+                inputFocusRequester = remember { FocusRequester() }
+            )
+        }
+    }
+
+    @Test
+    fun `composer chat pill dengan reply quote`() {
+        // Quote balasan menempel DI DALAM pill (gaya Telegram): garis aksen kiri,
+        // nama pengirim tebal, snippet 1 baris, tombol ✕ — tombol Send tetap
+        // sejajar dengan baris input.
+        capture("chat_composer_reply_quote") {
+            ChatInputBar(
+                value = "Oke nanti sore",
+                onValueChange = {},
+                isDark = false,
+                canSend = true,
+                onAttachClick = {},
+                onSend = {},
+                onAskAi = {},
+                inputFocusRequester = remember { FocusRequester() },
+                replyTarget = ChatMessage(
+                    sender = "ISTRI",
+                    messageText = "Beli bakso 15.000 di pasar sore ini ya"
+                ),
+                onReplyDismiss = {}
             )
         }
     }

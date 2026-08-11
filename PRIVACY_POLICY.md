@@ -1,6 +1,6 @@
 # Kebijakan Privasi — Nyachat
 
-Terakhir diperbarui: 4 Agustus 2026
+Terakhir diperbarui: 8 Agustus 2026
 
 Kebijakan privasi ini menjelaskan bagaimana aplikasi **Nyachat** ("aplikasi", "kami")
 mengumpulkan, menggunakan, dan melindungi data Anda. Dengan menggunakan aplikasi ini,
@@ -33,12 +33,18 @@ Data digunakan untuk:
 - **Data lokal:** Sebagian besar data (pesan, transaksi, lampiran) disimpan secara
   lokal di perangkat Anda dalam database aplikasi ("Room"). Lampiran (foto/dokumen)
   hanya disimpan di perangkat yang mengirimnya dan **tidak** ikut tersinkron.
+  Lampiran di-namespace per workspace (folder `filesDir/attachments/<PIN>/`) sehingga
+  ganti workspace tidak menghapus lampiran workspace lain.
 - **Cloud (Firebase Firestore):** Jika Anda mengaktifkan sinkronisasi, pesan dan
   transaksi disinkronkan ke cloud Firebase. Cloud dipetakan berdasarkan **PIN keluarga**
   (bukan nama atau identitas pribadi). Akses dilindungi dengan wajib masuk menggunakan
   akun Google dan aturan keamanan Firestore.
+  Sinkronisasi memakai **last-writer-wins deterministik berbasis server timestamp**
+  (`FieldValue.serverTimestamp()`) — immune terhadap selisih jam antar-perangkat.
 - **Google Drive:** Jika Anda memilih backup ke Google Drive, salinan data chat dan
   transaksi disimpan di akun Google Drive Anda.
+  Auto-backup harian sekarang jalan walau enkripsi aktif — pakai passphrase otomatis
+  dari Android Keystore (tidak ada interaksi manual; data tetap terenkripsi saat upload).
 
 ## 4. Akun Google
 
@@ -61,6 +67,9 @@ sendiri") atau kunci yang Anda masukkan di menu Pengaturan untuk penyedia:
 - Aplikasi ini menghasilkan laporan/parsing dengan mengirim isi pesan Anda ke penyedia AI.
   Sebaiknya jangan menulis informasi pribadi sensitif (nomor identitas, data kesehatan,
   data anak di bawah umur) di dalam pesan.
+- **Transparansi asal deteksi:** badge transaksi di chat menampilkan label **"AI"** (diproses
+  Gemini/OpenRouter) atau **"heuristik"** (mesin aturan lokal/offline fallback) — Anda
+  selalu tahu nilai diproses mesin mana.
 
 ## 6. Izin yang Digunakan
 

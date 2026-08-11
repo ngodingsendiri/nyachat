@@ -59,7 +59,8 @@ class PendingOpSerializationTest {
             timestamp = 1700086400000L,
             editedAt = 1700086405000L,
             chatMessageId = 42L,
-            cloudId = "tx-1"
+            cloudId = "tx-1",
+            sourceMessageCloudId = "msg-1"
         )
 
         val json = DataExporter.transactionToJson(tx).toString()
@@ -74,6 +75,8 @@ class PendingOpSerializationTest {
         assertEquals(1700086400000L, restored.timestamp)
         assertEquals(1700086405000L, restored.editedAt)
         assertEquals(42L, restored.chatMessageId)
+        // Relasi cross-device harus bertahan lewat pending-op (retry offline).
+        assertEquals("msg-1", restored.sourceMessageCloudId)
     }
 
     @Test

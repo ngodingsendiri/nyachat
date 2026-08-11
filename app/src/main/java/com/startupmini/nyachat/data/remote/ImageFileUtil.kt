@@ -28,15 +28,29 @@ object ImageFileUtil {
     private const val MAX_DIMENSION = 1600
     private const val JPEG_QUALITY = 85
 
+    /**
+     * M9 — lampiran di-namespace per workspace (PIN). Sebelumnya SEMUA lampiran
+     * disimpan di satu folder global `filesDir/attachments` dan dihapus total saat
+     * ganti workspace → kembali ke workspace lama, foto nota rusak padahal path
+     * masih tersimpan di DB. Kini tiap PIN punya folder sendiri, dan ganti
+     * workspace hanya menghapus folder milik workspace yang ditinggalkan.
+     */
+    private fun attachmentsDir(context: Context, workspace: String?): File {
+        val base = File(context.filesDir, "attachments")
+        if (workspace.isNullOrBlank()) return base
+        val safe = workspace.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        return File(base, safe).apply { mkdirs() }
+    }
+
     /** Salin file dari URI (dokumen PDF/invoice) ke penyimpanan internal. */
-    suspend fun saveFileFromUri(context: Context, uri: Uri): SavedFile? =
+    suspend fun saveFileFromUri(context: Context, uri: Uri, workspace: String? = null): SavedFile? =
         withContext(Dispatchers.IO) {
             runCatching {
                 val originalName = queryDisplayName(context, uri)
                     ?: "file_${System.currentTimeMillis()}"
                 val safeName = originalName.substringAfterLast('/').take(80)
                     .replace(Regex("[^A-Za-z0-9._-]"), "_")
-                val dir = File(context.filesDir, "attachments").apply { mkdirs() }
+                val dir = attachmentsDir(context, workspace)
                 val file = File(dir, "doc_${System.currentTimeMillis()}_$safeName")
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     file.outputStream().use { output -> input.copyTo(output) }
@@ -56,23 +70,24 @@ object ImageFileUtil {
         }.getOrNull()
 
     /** Salin + downscale foto dari URI (galeri/kamera) ke penyimpanan internal. */
-    suspend fun saveImageFromUri(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
-        runCatching {
-            val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input)
-            } ?: return@withContext null
+    suspend fun saveImageFromUri(context: Context, uri: Uri, workspace: String? = null): String? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
+                    BitmapFactory.decodeStream(input)
+                } ?: return@withContext null
 
-            val scaled = scaleDown(bitmap, MAX_DIMENSION)
-            val dir = File(context.filesDir, "attachments").apply { mkdirs() }
-            val file = File(dir, "att_${System.currentTimeMillis()}.jpg")
-            file.outputStream().use { out ->
-                scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
-            }
-            if (scaled !== bitmap) scaled.recycle()
-            bitmap.recycle()
-            file.absolutePath
-        }.getOrNull()
-    }
+                val scaled = scaleDown(bitmap, MAX_DIMENSION)
+                val dir = attachmentsDir(context, workspace)
+                val file = File(dir, "att_${System.currentTimeMillis()}.jpg")
+                file.outputStream().use { out ->
+                    scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+                }
+                if (scaled !== bitmap) scaled.recycle()
+                bitmap.recycle()
+                file.absolutePath
+            }.getOrNull()
+        }
 
     /** Baca bitmap untuk ditampilkan — disampling supaya hemat memori. */
     fun decodeImage(path: String, maxDim: Int = 1024): Bitmap? {
@@ -90,12 +105,33 @@ object ImageFileUtil {
         }.getOrNull()
     }
 
-    /** Enkode file gambar jadi base64 (untuk API AI vision). */
+    /**
+     * Enkode file gambar jadi base64 (untuk API AI vision).
+     *
+     * L5: metode ini membaca SELURUH file ke memori (File.readBytes), jadi batas
+     * aman untuk foto nota yang sudah di-downscale adalah ≤ ~5 MB. Foto yang
+     * melewati [saveImageFromUri] selalu berukuran kecil (max 1600px, JPEG 85);
+     * dokumen PDF TIDAK dikirim ke AI. Untuk file besar di masa depan, ganti
+     * dengan streaming (encode per-chunk) agar tidak memakan memori tinggi.
+     */
     fun encodeBase64(imagePath: String): String? {
         return runCatching {
             val bytes = File(imagePath).readBytes()
             Base64.encodeToString(bytes, Base64.NO_WRAP)
         }.getOrNull()
+    }
+
+    /**
+     * Hapus lampiran milik SATU workspace (folder per-PIN). Dipakai saat ganti
+     * workspace supaya foto workspace lama tidak ikut terhapus (M9).
+     */
+    fun deleteWorkspaceAttachments(context: Context, workspace: String) {
+        if (workspace.isBlank()) return
+        val safe = workspace.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        runCatching {
+            val dir = File(File(context.filesDir, "attachments"), safe)
+            dir.listFiles()?.forEach { file -> runCatching { file.delete() } }
+        }
     }
 
     /** Hapus semua file lampiran (foto nota & dokumen) di penyimpanan internal. */

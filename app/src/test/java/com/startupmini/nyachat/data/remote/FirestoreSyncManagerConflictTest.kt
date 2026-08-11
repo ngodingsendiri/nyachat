@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -72,6 +73,8 @@ class FirestoreSyncManagerConflictTest {
             store.values.firstOrNull { it.cloudId == cloudId }
         override suspend fun getByChatMessageId(chatMessageId: Long): FinancialTransaction? =
             store.values.firstOrNull { it.chatMessageId == chatMessageId }
+        override suspend fun getBySourceMessageCloudId(sourceMessageCloudId: String): FinancialTransaction? =
+            store.values.firstOrNull { it.sourceMessageCloudId == sourceMessageCloudId }
         override suspend fun deleteByCloudId(cloudId: String) {
             store.values.removeAll { it.cloudId == cloudId }
         }
@@ -111,6 +114,69 @@ class FirestoreSyncManagerConflictTest {
     @Test
     fun waktuEfektifJatuhKeTimestampKalauBelumPernahDiedit() {
         assertEquals(100L, FirestoreSyncManager.effectiveSortTime(null, 100L))
+    }
+
+    // ---------- M4: tie-break deterministik serverUpdatedAt ----------
+
+    @Test
+    fun serverTimeCloudLebihBaruMenangWalauWaktuLokalSama() {
+        // Jam perangkat identik tapi edit datang dari cloud dengan server time
+        // lebih baru — server (penulis nyata) yang menentukan, bukan jam lokal.
+        val newer = FirestoreSyncManager.cloudIsNewer(
+            existingEditedAt = 300L, existingTimestamp = 100L, existingServerUpdatedAt = 1000L,
+            cloudEditedAt = 300L, cloudTimestamp = 100L, cloudServerUpdatedAt = 2000L
+        )
+        assertTrue(newer)
+    }
+
+    @Test
+    fun serverTimeCloudLebihTuaTidakMenimpa() = runBlocking {
+        val dao = FakeChatMessageDao()
+        dao.insertMessage(message("m1", "edit lokal", timestamp=100, editedAt = 300).copy(serverUpdatedAt = 2000L))
+
+        FirestoreSyncManager.upsertMessage(
+            dao,
+            CloudMessage(cloudId = "m1", sender = "Suami", messageText = "versi cloud tua",
+                timestamp = 100, editedAt = 100, serverUpdatedAt = com.google.firebase.Timestamp(java.util.Date(1000L)))
+        )
+
+        assertEquals("edit lokal", dao.getByCloudId("m1")?.messageText)
+    }
+
+    @Test
+    fun serverUpdatedAtTimestampDikonversiKeMillisSaatDisimpan() = runBlocking {
+        // BUG-FIX: serverUpdatedAt di cloud adalah Timestamp — DTO harus bisa
+        // menerimanya dan menyimpannya sebagai millis di Room (tanpa crash
+        // "Could not deserialize object").
+        val dao = FakeChatMessageDao()
+
+        FirestoreSyncManager.upsertMessage(
+            dao,
+            CloudMessage(cloudId = "m-ts", sender = "Suami", messageText = "halo",
+                timestamp = 100, serverUpdatedAt = com.google.firebase.Timestamp(java.util.Date(1234567L)))
+        )
+
+        assertEquals(1234567L, dao.getByCloudId("m-ts")?.serverUpdatedAt)
+    }
+
+    @Test
+    fun serverTimeSamaTapiTidakLebihTuaMasihMenerimaCloud() {
+        // Server time identik → pemutus ke waktu efektif, cloud tidak lebih tua
+        // jadi diterima (konvergen) — perilaku lama tetap dipertahankan.
+        val accepted = FirestoreSyncManager.cloudIsNewer(
+            existingEditedAt = 200L, existingTimestamp = 100L, existingServerUpdatedAt = 3000L,
+            cloudEditedAt = 200L, cloudTimestamp = 100L, cloudServerUpdatedAt = 3000L
+        )
+        assertTrue(accepted)
+    }
+
+    @Test
+    fun tanpaServerUpdatedAt_FallbackWaktuLokal() {
+        val newer = FirestoreSyncManager.cloudIsNewer(
+            existingEditedAt = 200L, existingTimestamp = 100L, existingServerUpdatedAt = null,
+            cloudEditedAt = 200L, cloudTimestamp = 100L, cloudServerUpdatedAt = null
+        )
+        assertTrue(newer)
     }
 
     // ---------- Konflik pesan: last-writer-by-time ----------
@@ -167,6 +233,21 @@ class FirestoreSyncManagerConflictTest {
         assertEquals("halo", dao.getByCloudId("m-baru")?.messageText)
     }
 
+    // ---------- M7: detectedBy (asal deteksi) dipertahankan saat upsert ----------
+
+    @Test
+    fun detectedByAiDipertahankanDariCloud() = runBlocking {
+        val dao = FakeChatMessageDao()
+
+        FirestoreSyncManager.upsertMessage(
+            dao,
+            CloudMessage(cloudId = "m-ai", sender = "Suami", messageText = "beli kopi 20rb",
+                timestamp = 50, detectedBy = "AI")
+        )
+
+        assertEquals("AI", dao.getByCloudId("m-ai")?.detectedBy)
+    }
+
     @Test
     fun waktuSamaDiterimaSupayaKeduaPerangkatKonvergen() = runBlocking {
         val dao = FakeChatMessageDao()
@@ -212,7 +293,7 @@ class FirestoreSyncManagerConflictTest {
         assertEquals(250L, merged.editedAt)
     }
 
-    @Test
+@Test
     fun transaksiBaruDariCloudMenyimpanEditedAt() = runBlocking {
         val dao = FakeTransactionDao()
 
@@ -225,6 +306,42 @@ class FirestoreSyncManagerConflictTest {
         val saved = dao.getByCloudId("t-baru")!!
         assertEquals(5000000.0, saved.amount, 0.001)
         assertNull(saved.editedAt)
+    }
+
+    // ---------- Cross-device: relasi chat <-> transaksi lewat sourceMessageCloudId ----------
+
+    @Test
+    fun transaksiMergeDariCloudMempertahankanSourceMessageCloudId() = runBlocking {
+        val dao = FakeTransactionDao()
+
+        // Transaksi dibuat di perangkat lain (chat "beli kopi 20rb", message cloudId "msg-x").
+        FirestoreSyncManager.upsertTransaction(
+            dao,
+            CloudTransaction(cloudId = "t-1", type = "PENGELUARAN", category = "Makanan & Minuman",
+                amount = 20000.0, description = "beli kopi 20rb", loggedBy = "Suami",
+                timestamp = 100, editedAt = null, sourceMessageCloudId = "msg-x")
+        )
+
+        // Di perangkat ini, pesan asal punya cloudId SAMA ("msg-x") meski id lokal
+        // Room-nya beda. Lookup cross-device harus menemukan transaksinya.
+        val tx = dao.getBySourceMessageCloudId("msg-x")
+        assertEquals("t-1", tx?.cloudId)
+        assertEquals(20000.0, tx!!.amount, 0.001)
+    }
+
+    @Test
+    fun transaksiLokalSourceIdDitemukanViaCloudIdPesan() = runBlocking {
+        val dao = FakeTransactionDao()
+        dao.insertTransaction(
+            FinancialTransaction(
+                type = "PENGELUARAN", category = "Makanan & Minuman", amount = 20000.0,
+                description = "kopi", loggedBy = "Suami", timestamp = 100,
+                cloudId = "t-local", sourceMessageCloudId = "msg-lokal"
+            )
+        )
+        // Resolusi yang dipakai MainActivity: msg.cloudId == transaction.sourceMessageCloudId
+        val resolved = dao.store.values.firstOrNull { it.sourceMessageCloudId == "msg-lokal" }
+        assertEquals("t-local", resolved?.cloudId)
     }
 
     // ---------- Restore backup: diff dokumen cloud vs isi backup ----------

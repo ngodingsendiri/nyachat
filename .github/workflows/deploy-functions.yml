@@ -1,0 +1,100 @@
+name: Deploy Cloud Functions
+
+# Deploy otomatis fungsi backend Nyachat (Firebase Cloud Functions):
+#   - aiComplete        (FASE 4: relay AI — key server, auth Firebase)
+#   - notifyChatMessage (notifikasi FCM chat real-time)
+#
+# Trigger:
+#   - push ke main (HANYA jika file fungsi berubah — paths filter) → deploy
+#   - workflow_dispatch → tombol manual "Run workflow" di tab Actions
+#
+# Secrets GitHub yang dipakai:
+#   OPENROUTER_API_KEY  (opsional) — key OpenRouter milik server → menjadi
+#       Firebase Functions secret OPENROUTER_API_KEY (dibaca aiComplete)
+#   GEMINI_API_KEY      (opsional) — key Gemini milik server → menjadi
+#       Firebase Functions secret GEMINI_API_KEY (dibaca aiComplete)
+#
+# Catatan penting:
+#   - Firebase Functions WAJIB paket Blaze (pay-as-you-go) — Spark (gratis)
+#     tidak bisa deploy/menjalankan Cloud Functions. Kuota gratis Blaze tetap
+#     ada: 2 juta invocations/bulan, 400rb GB-detik, 5 GB outbound.
+#   - Key AI hanya disimpan di Google Cloud Secret Manager (server-side),
+#     TIDAK pernah dikompilasi ke APK.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - ".github/workflows/deploy-functions.yml"
+      - "firebase.json"
+      - ".firebaserc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write      # WAJIB ditambahkan untuk autentikasi Workload Identity!
+
+# Satu deploy dalam satu waktu; push baru membatalkan yang antri.
+concurrency:
+  group: deploy-functions
+  cancel-in-progress: true
+
+jobs:
+  deploy-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      # Pin versi mayor agar perubahan flag/CLI tidak memutus CI mendadak.
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools@13
+
+      - name: Install functions dependencies
+        working-directory: functions
+        run: npm ci
+
+      # --- PERUBAHAN DI SINI: Menggunakan Workload Identity (Bebas Kunci JSON) ---
+      - name: Authenticate Google Cloud (Firebase)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/340343053987/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'github-actions@nyachat-in.iam.gserviceaccount.com'
+          token_format: 'access_token'
+
+      # Set Firebase Functions secrets DARI GitHub secrets (hanya jika diisi).
+      - name: Set OPENROUTER_API_KEY secret
+        env:
+          AI_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -n "$AI_KEY" ]; then
+            echo "$AI_KEY" | firebase functions:secrets:set OPENROUTER_API_KEY \
+              --project nyachat-in --force
+            echo "::notice::Secret OPENROUTER_API_KEY diset"
+          else
+            echo "::notice::GitHub secret OPENROUTER_API_KEY kosong — dilewati"
+          fi
+
+      - name: Set GEMINI_API_KEY secret
+        env:
+          AI_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -n "$AI_KEY" ]; then
+            echo "$AI_KEY" | firebase functions:secrets:set GEMINI_API_KEY \
+              --project nyachat-in --force
+            echo "::notice::Secret GEMINI_API_KEY diset"
+          else
+            echo "::notice::GitHub secret GEMINI_API_KEY kosong — dilewati"
+          fi
+
+      - name: Deploy functions
+        working-directory: functions
+        run: firebase deploy --only functions --project nyachat-in --force

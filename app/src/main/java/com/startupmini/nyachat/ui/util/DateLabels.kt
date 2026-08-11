@@ -36,6 +36,10 @@ internal fun dayLabel(timestamp: Long, todayLabel: String, yesterdayLabel: Strin
     }
 }
 
+/** Jam menit "HH:mm" — label detail sinkronisasi "Tersinkron · 14:32" (3.8). */
+internal fun formatClockTime(millis: Long): String =
+    SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(millis))
+
 /** Baris riwayat rekap: header hari atau item transaksi. */
 internal sealed interface TransactionRow {
     data class DayHeader(val label: String, val key: String) : TransactionRow

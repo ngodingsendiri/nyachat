@@ -32,14 +32,19 @@ object OpenRouterService {
 
     private const val BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-    /** Daftar model gratis (divalidasi langsung dari https://openrouter.ai/api/v1/models).
+    /** Daftar model gratis (divalidasi langsung dari https://openrouter.ai/api/v1/models
+     *  per 2026-08-09 — total 14 model `:free` aktif).
      *  Entri terakhir "openrouter/free" adalah router virtual yang otomatis
-     *  memilih model gratis yang sedang tersedia. */
+     *  memilih model gratis yang sedang tersedia.
+     *  Catatan 3.6: `inclusionai/ling-3.0-flash:free` di-retired OpenRouter
+     *  (hanya versi berbayar yang tersisa) → diganti `ling-3.0-tiny:free` dan
+     *  `gemma-4-26b-a4b-it:free` (keduanya terverifikasi aktif & gratis). */
     private val FREE_MODELS = listOf(
-        "inclusionai/ling-3.0-flash:free",
-        "openai/gpt-oss-20b:free",
         "google/gemma-4-31b-it:free",
+        "google/gemma-4-26b-a4b-it:free",
+        "openai/gpt-oss-20b:free",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "inclusionai/ling-3.0-tiny:free",
         "poolside/laguna-xs-2.1:free",
         "openrouter/free",
     )

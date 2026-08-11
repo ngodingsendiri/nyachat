@@ -6,6 +6,7 @@ import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.SetOptions
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.data.backup.DataExporter
@@ -20,10 +21,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -35,13 +40,29 @@ data class CloudMessage(
     val sender: String = "",
     val messageText: String = "",
     val timestamp: Long = 0L,
+    // BUG-1 (P0): property Kotlin Boolean berawalan "is" menghasilkan getter JVM
+    // `isFinancial()` — CustomClassMapper Firestore menurunkan nama field jadi
+    // "financial" (strip prefix "is"), sehingga field cloud "isFinancial" TIDAK
+    // pernah terbaca → toObject() selalu memberi false walau cloud menyimpan true.
+    // Dampak: badge finansial hilang dari bubble ~5-10 detik setelah kirim pesan
+    // (snapshot listener me-merge ulang dari cloud dengan isFinancial=false;
+    // detectedAmount tetap tersimpan karena field-nya tidak kena masalah ini).
+    // @get:PropertyName memaksa nama field eksplisit agar round-trip benar.
+    @get:PropertyName("isFinancial")
     val isFinancial: Boolean = false,
     val detectedAmount: Double? = null,
     val detectedCategory: String? = null,
     val detectedType: String? = null,
     val replyToSender: String? = null,
     val replyToText: String? = null,
-    val editedAt: Long? = null
+    val editedAt: Long? = null,
+    // M7: asal deteksi — "AI" atau "HEURISTIK" (fallback offline).
+    val detectedBy: String? = null,
+    // M4: waktu terakhir ditulis di server Firestore. Tipe Timestamp (bukan Long)
+    // karena serverTimestamp() tersimpan sebagai com.google.firebase.Timestamp di
+    // cloud — Long? membuat toObject() crash dengan "Could not deserialize object".
+    // Dikonversi ke millis (toMillis) saat disimpan ke Room.
+    val serverUpdatedAt: com.google.firebase.Timestamp? = null
 )
 
 /** Representasi dokumen Firestore untuk transaksi. */
@@ -54,7 +75,11 @@ data class CloudTransaction(
     val loggedBy: String = "",
     val timestamp: Long = 0L,
     val chatMessageId: Long? = null,
-    val editedAt: Long? = null
+    val editedAt: Long? = null,
+    val sourceMessageCloudId: String? = null, // Cross-device lookup key
+    // M4: lihat CloudMessage — tipe Timestamp agar toObject() tidak crash;
+    // dikonversi ke millis saat disimpan ke Room.
+    val serverUpdatedAt: com.google.firebase.Timestamp? = null
 )
 
 /** Status sinkronisasi nyata untuk indikator UI (P2-16). */
@@ -91,9 +116,24 @@ object FirestoreSyncManager {
     @Volatile private var pendingDao: PendingOpDao? = null
     @Volatile private var messagesListener: ListenerRegistration? = null
     @Volatile private var transactionsListener: ListenerRegistration? = null
+    // BUG-06 lanjutan (P0): status jaringan dari NetworkMonitor. null = belum
+    // diketahui (app baru mulai / callback belum menembak) → perilaku lama.
+    @Volatile private var networkAvailable: Boolean? = null
     /** Status sinkronisasi yang jujur untuk indikator UI (P2-16). */
     private val _syncStatus = MutableStateFlow(SyncStatus.SYNCED)
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
+    /** Waktu terakhir sinkron berhasil (FASE 3 item 3.8) — banner Rekap menampilkan
+     *  "Tersinkron · HH:mm". null = belum pernah sinkron di sesi ini. */
+    private val _lastSyncedAt = MutableStateFlow<Long?>(null)
+    val lastSyncedAt: StateFlow<Long?> = _lastSyncedAt.asStateFlow()
+    /** Event sekali-jalan saat koneksi pulih (OFFLINE/ERROR → SYNCED) — UI
+     *  menampilkan Snackbar singkat supaya user tahu status merah/kuning sudah
+     *  selesai dan data kembali sinkron (audit #6). */
+    private val _recoveryEvents = MutableSharedFlow<String>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val recoveryEvents: SharedFlow<String> = _recoveryEvents.asSharedFlow()
     /** Sinyal "ada op baru di antrian" — drain tidur di sini (bukan polling 2s). */
     private val opsSignal = Channel<Unit>(Channel.CONFLATED)
     /** Listener dijeda saat app di background (P2-12) — hemat baterai/kuota. */
@@ -155,6 +195,7 @@ object FirestoreSyncManager {
         // logout — kalau tidak, workspace berikutnya sempat menampilkan indikator
         // sinkronisasi yang salah (P2-16).
         _syncStatus.value = SyncStatus.SYNCED
+        _lastSyncedAt.value = null
     }
 
     /**
@@ -264,12 +305,16 @@ object FirestoreSyncManager {
                 return@addSnapshotListener
             }
             snapshot ?: return@addSnapshotListener
-            _syncStatus.value = SyncStatus.SYNCED
+            markSynced()
             scope.launch {
                 val dao = chatDao ?: return@launch
                 for (change in snapshot.documentChanges) {
-                    val cloud = change.document.toObject(CloudMessage::class.java)
                     try {
+                        // M4: serverUpdatedAt tersimpan sebagai Timestamp di cloud —
+                        // toObject langsung memetakannya (tipe DTO = Timestamp).
+                        // toObject di dalam try/catch: skema yang tak dikenal dari
+                        // data lama/backup tidak boleh mematikan proses (crash).
+                        val cloud = change.document.toObject(CloudMessage::class.java)
                         when (change.type) {
                             DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED ->
                                 upsertMessage(dao, cloud)
@@ -306,12 +351,16 @@ object FirestoreSyncManager {
                 return@addSnapshotListener
             }
             snapshot ?: return@addSnapshotListener
-            _syncStatus.value = SyncStatus.SYNCED
+            markSynced()
             scope.launch {
                 val dao = transDao ?: return@launch
                 for (change in snapshot.documentChanges) {
-                    val cloud = change.document.toObject(CloudTransaction::class.java)
                     try {
+                        // M4: serverUpdatedAt tersimpan sebagai Timestamp di cloud —
+                        // toObject langsung memetakannya (tipe DTO = Timestamp).
+                        // toObject di dalam try/catch: skema tak dikenal tidak boleh
+                        // mematikan proses (crash) — log & lanjutkan.
+                        val cloud = change.document.toObject(CloudTransaction::class.java)
                         when (change.type) {
                             DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED ->
                                 upsertTransaction(dao, cloud)
@@ -347,17 +396,66 @@ object FirestoreSyncManager {
      */
     internal fun effectiveSortTime(editedAt: Long?, timestamp: Long): Long = editedAt ?: timestamp
 
+    /**
+     * M4 — tie-break deterministik berbasis waktu SERVER.
+     *
+     * Klien menulis `serverUpdatedAt = FieldValue.serverTimestamp()` setiap sync,
+     * sehingga perbandingan konflik tidak lagi bergantung murni pada jam lokal
+     * (yang bisa selisih antar-perangkat → edit "baru" bisa tampak "tua").
+     * Aturan:
+     *  1) Dua-duanya punya serverUpdatedAt  → bandingkan waktu server (menang yang
+     *     akhir ditulis ke server; sama-sama → terima cloud agar konvergen).
+     *  2) Minimal satu sisi belum punya (data lama / belum pernah sync) → fallback
+     *     ke waktu lokal (perilaku lama, kompatibel dengan data migrasi v10-).
+     */
+    internal fun cloudIsNewer(
+        existingEditedAt: Long?,
+        existingTimestamp: Long,
+        existingServerUpdatedAt: Long?,
+        cloudEditedAt: Long?,
+        cloudTimestamp: Long,
+        cloudServerUpdatedAt: Long?
+    ): Boolean {
+        val localServer = existingServerUpdatedAt
+        val cloudServer = cloudServerUpdatedAt
+        if (localServer != null && cloudServer != null) {
+            if (cloudServer < localServer) return false
+            if (cloudServer > localServer) return true
+            // Server time sama → pemutus deterministik ke waktu efektif (terima
+            // cloud bila tidak lebih tua) supaya dua perangkat berakhir konsisten.
+            return effectiveSortTime(cloudEditedAt, cloudTimestamp) >=
+                effectiveSortTime(existingEditedAt, existingTimestamp)
+        }
+        return effectiveSortTime(cloudEditedAt, cloudTimestamp) >=
+            effectiveSortTime(existingEditedAt, existingTimestamp)
+    }
+
+    internal fun cloudIsNewer(existing: ChatMessage, c: CloudMessage): Boolean =
+        cloudIsNewer(
+            existing.editedAt, existing.timestamp, existing.serverUpdatedAt,
+            c.editedAt, c.timestamp, c.serverUpdatedAt.toMillis()
+        )
+
+    internal fun cloudIsNewer(existing: FinancialTransaction, c: CloudTransaction): Boolean =
+        cloudIsNewer(
+            existing.editedAt, existing.timestamp, existing.serverUpdatedAt,
+            c.editedAt, c.timestamp, c.serverUpdatedAt.toMillis()
+        )
+
+    /** Konversi Timestamp Firestore → millis epoch (null aman). */
+    internal fun com.google.firebase.Timestamp?.toMillis(): Long? = this?.toDate()?.time
+
     internal suspend fun upsertMessage(dao: ChatMessageDao, c: CloudMessage) {
         val existing = dao.getByCloudId(c.cloudId)
         if (existing != null) {
             // Last-writer-by-time: snapshot listener bisa tiba dalam urutan apa
             // pun, jadi versi cloud yang lebih tua tidak boleh menimpa edit
-            // lokal yang lebih baru. Waktu sama → terima (data konvergen).
-            val localTime = effectiveSortTime(existing.editedAt, existing.timestamp)
-            val cloudTime = effectiveSortTime(c.editedAt, c.timestamp)
-            if (cloudTime < localTime) return
+            // lokal yang lebih baru. M4: kalau kedua sisi sudah punya waktu SERVER
+            // (serverUpdatedAt), bandingkan itu dulu — imun terhadap selisih jam
+            // antar-perangkat; kalau belum (data lama), jatuh ke waktu lokal.
+            if (!cloudIsNewer(existing, c)) return
         }
-        val local = if (existing != null) {
+val local = if (existing != null) {
             ChatMessage(
                 id = existing.id,
                 sender = c.sender,
@@ -370,6 +468,8 @@ object FirestoreSyncManager {
                 replyToSender = c.replyToSender,
                 replyToText = c.replyToText,
                 editedAt = c.editedAt,
+                detectedBy = c.detectedBy,
+                serverUpdatedAt = c.serverUpdatedAt.toMillis(),
                 // Lampiran (imagePath/filePath/fileName) TIDAK dikirim ke cloud —
                 // file hanya ada di perangkat yang mengirimnya. Pertahankan path
                 // lokal supaya bubble foto nota/dokumen tidak hilang saat listener
@@ -391,6 +491,8 @@ object FirestoreSyncManager {
                 replyToSender = c.replyToSender,
                 replyToText = c.replyToText,
                 editedAt = c.editedAt,
+                detectedBy = c.detectedBy,
+                serverUpdatedAt = c.serverUpdatedAt.toMillis(),
                 cloudId = c.cloudId
             )
         }
@@ -401,10 +503,9 @@ object FirestoreSyncManager {
         val existing = dao.getByCloudId(c.cloudId)
         if (existing != null) {
             // Sama dengan upsertMessage — konflik edit transaksi dua perangkat
-            // diselesaikan berbasis waktu edit, bukan urutan listener.
-            val localTime = effectiveSortTime(existing.editedAt, existing.timestamp)
-            val cloudTime = effectiveSortTime(c.editedAt, c.timestamp)
-            if (cloudTime < localTime) return
+            // diselesaikan berbasis waktu edit, bukan urutan listener. M4: waktu
+            // server (serverUpdatedAt) diprioritaskan bila tersedia di dua sisi.
+            if (!cloudIsNewer(existing, c)) return
         }
         val local = if (existing != null) {
             FinancialTransaction(
@@ -417,7 +518,9 @@ object FirestoreSyncManager {
                 timestamp = c.timestamp,
                 editedAt = c.editedAt,
                 chatMessageId = c.chatMessageId,
-                cloudId = c.cloudId
+                cloudId = c.cloudId,
+                sourceMessageCloudId = c.sourceMessageCloudId,
+                serverUpdatedAt = c.serverUpdatedAt.toMillis()
             )
         } else {
             FinancialTransaction(
@@ -429,7 +532,9 @@ object FirestoreSyncManager {
                 timestamp = c.timestamp,
                 editedAt = c.editedAt,
                 chatMessageId = c.chatMessageId,
-                cloudId = c.cloudId
+                cloudId = c.cloudId,
+                sourceMessageCloudId = c.sourceMessageCloudId,
+                serverUpdatedAt = c.serverUpdatedAt.toMillis()
             )
         }
         dao.insertTransaction(local)
@@ -471,7 +576,12 @@ object FirestoreSyncManager {
                     "detectedType" to message.detectedType,
                     "replyToSender" to message.replyToSender,
                     "replyToText" to message.replyToText,
-                    "editedAt" to message.editedAt
+                    "editedAt" to message.editedAt,
+                    "detectedBy" to message.detectedBy,
+                    // M4: penanda waktu SERVER — sampai di sini setiap perubahan
+                    // di-push, sehingga konflik di-resolve pakai jam Firestore
+                    // (deterministik) bukan jam perangkat.
+                    "serverUpdatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
             true
@@ -516,7 +626,11 @@ object FirestoreSyncManager {
                     "loggedBy" to transaction.loggedBy,
                     "timestamp" to transaction.timestamp,
                     "editedAt" to transaction.editedAt,
-                    "chatMessageId" to transaction.chatMessageId
+                    "chatMessageId" to transaction.chatMessageId,
+                    "sourceMessageCloudId" to transaction.sourceMessageCloudId,
+                    // M4: penanda waktu SERVER — resolusi konflik deterministik lintas
+                    // perangkat tanpa bergantung kalibrasi jam lokal.
+                    "serverUpdatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
             true
@@ -643,14 +757,137 @@ object FirestoreSyncManager {
         opsSignal.trySend(Unit)
     }
 
+    /**
+     * Klasifikasi kegagalan sinkronisasi untuk indikator UI (BUG-06, audit UX):
+     * OFFLINE saat koneksi putus, ERROR untuk kegagalan lainnya. Sebelumnya error
+     * offline di lapisan bawah (socket/IO, "Failed to resolve", timeout) jatuh ke
+     * ERROR sehingga user offline melihat label merah "Gagal sinkron" yang
+     * menakutkan padahal itu kondisi normal.
+     *
+     * Prioritas (error nyata tidak boleh dikira offline):
+     *  1) Kode Firestore EKSPLISIT non-jaringan — PERMISSION_DENIED, UNAUTHENTICATED,
+     *     RESOURCE_EXHAUSTED (kuota), ABORTED, dll. → ERROR. Cek kode dulu supaya
+     *     isi teks pesan yang kebetulan mirip (mis. "network") tidak menyesatkan.
+     *  2) UNAVAILABLE / DEADLINE_EXCEEDED (timeout) → OFFLINE.
+     *  3) Tanpa kode (exception lapisan bawah): teks offline + penyebab IOException
+     *     (termasuk rantai nested cause) → OFFLINE; selain itu ERROR.
+     */
+    internal fun classifySyncFailure(e: Throwable): SyncStatus {
+        val code = (e as? com.google.firebase.firestore.FirebaseFirestoreException)?.code
+        return classifySyncFailure(
+            networkCode = code == com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE ||
+                code == com.google.firebase.firestore.FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
+            hasExplicitCode = code != null,
+            message = e.message,
+            cause = e.cause
+        )
+    }
+
+    /**
+     * Overload murni — keputusan tanpa enum/objek Firebase. Unit test JVM tidak
+     * bisa mereferensikan [FirebaseFirestoreException.Code] karena static-init-nya
+     * memakai android.util.SparseArray (tidak di-mock di luar Robolectric), jadi
+     * jalur test memasok hasil ekstraksi [code] sebagai boolean.
+     *
+     * @param networkCode true bila kode Firestore UNAVAILABLE/DEADLINE_EXCEEDED
+     *   (koneksi putus / timeout).
+     * @param hasExplicitCode true bila Firestore memberi kode error eksplisit.
+     *   Kode non-jaringan (PERMISSION_DENIED, kuota, dll.) → ERROR, apapun teksnya.
+     */
+    internal fun classifySyncFailure(
+        networkCode: Boolean,
+        hasExplicitCode: Boolean,
+        message: String?,
+        cause: Throwable?
+    ): SyncStatus {
+        // Kode non-jaringan eksplisit → ERROR: error nyata tidak boleh dikira
+        // offline walau isi teks pesan kebetulan mirip (mis. "network").
+        if (hasExplicitCode && !networkCode) return SyncStatus.ERROR
+
+        val msg = message?.lowercase() ?: ""
+        if (msg.contains("offline") ||
+            msg.contains("failed to resolve") ||
+            msg.contains("unable to resolve") ||
+            msg.contains("timed out") ||
+            msg.contains("timeout") ||
+            msg.contains("network") ||
+            msg.contains("unreachable")
+        ) {
+            return SyncStatus.OFFLINE
+        }
+
+        // Firestore membungkus kegagalan socket/SSL sebagai cause — telusuri rantainya.
+        var c: Throwable? = cause
+        while (c != null) {
+            if (c is java.io.IOException) return SyncStatus.OFFLINE
+            c = c.cause
+        }
+        return if (networkCode) SyncStatus.OFFLINE else SyncStatus.ERROR
+    }
+
     /** Status error untuk indikator UI: OFFLINE saat koneksi putus, ERROR lainnya. */
     private fun onSyncFailure(e: Exception) {
-        val code = (e as? com.google.firebase.firestore.FirebaseFirestoreException)?.code
-        _syncStatus.value = if (code == com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE) {
-            SyncStatus.OFFLINE
-        } else {
-            SyncStatus.ERROR
+        _syncStatus.value = classifySyncFailure(e)
+    }
+
+    /**
+     * BUG-06 lanjutan (P0): status jaringan berubah (dipanggil NetworkMonitor).
+     * Jaringan hilang → OFFLINE (walau cache Firestore masih bisa memenuhi
+     * snapshot — markSynced tidak boleh mengembalikan ke SYNCED). Jaringan pulih
+     * → SYNCING sampai snapshot nyata mengonfirmasi (markSynced → SYNCED + event
+     * pemulihan). null → perilaku lama (tanpa deteksi jaringan).
+     */
+    fun setNetworkAvailable(available: Boolean) {
+        networkAvailable = available
+        _syncStatus.value = resolveStatusOnNetworkChange(_syncStatus.value, available)
+    }
+
+    /**
+     * Status indikator saat jaringan berubah (BUG-06 lanjutan) — MURNI untuk
+     * unit test JVM.
+     *  - Jaringan hilang → OFFLINE, apa pun status saat ini.
+     *  - Jaringan pulih dari OFFLINE → SYNCING (menunggu konfirmasi snapshot).
+     *  - Selain itu biarkan status berjalan (ERROR/SYNCING tidak ditimpa).
+     */
+    internal fun resolveStatusOnNetworkChange(current: SyncStatus, networkAvailable: Boolean): SyncStatus =
+        when {
+            !networkAvailable -> SyncStatus.OFFLINE
+            current == SyncStatus.OFFLINE -> SyncStatus.SYNCING
+            else -> current
         }
+
+    /**
+     * Status setelah snapshot listener BERHASIL — murni untuk unit test.
+     * SYNCED hanya bila jaringan diketahui AKTIF; jaringan jelas mati (false)
+     * → OFFLINE (snapshot dari offline cache tidak menyesatkan); null (belum
+     * diketahui) → SYNCED (perilaku lama, tidak mengubah apa pun).
+     */
+    internal fun resolveStatusOnSyncSuccess(networkAvailable: Boolean?): SyncStatus =
+        if (networkAvailable == false) SyncStatus.OFFLINE else SyncStatus.SYNCED
+
+    /**
+     * Status saat drain antrian pending AKTIF (ada op untuk di-retry) — murni
+     * untuk unit test. Jaringan jelas mati → OFFLINE (retry tidak mungkin
+     * sukses; menimpa SYNCING yang menyesatkan); selain itu SYNCING.
+     */
+    internal fun resolveStatusOnDraining(networkAvailable: Boolean?): SyncStatus =
+        if (networkAvailable == false) SyncStatus.OFFLINE else SyncStatus.SYNCING
+
+    /** Set status SYNCED + emit event pemulihan bila sebelumnya error/offline
+     *  (audit #6: indikator jujur + pemberitahuan saat koneksi pulih).
+     *  BUG-06 lanjutan: offline murni + cache — snapshot sukses dari cache tidak
+     *  boleh menyesatkan indikator menjadi "Tersinkron". */
+    private fun markSynced() {
+        if (resolveStatusOnSyncSuccess(networkAvailable) == SyncStatus.OFFLINE) {
+            _syncStatus.value = SyncStatus.OFFLINE
+            return
+        }
+        if (_syncStatus.value != SyncStatus.SYNCED) {
+            _recoveryEvents.tryEmit("Sinkron tersambung kembali.")
+        }
+        _syncStatus.value = SyncStatus.SYNCED
+        // 3.8: setiap snapshot sukses = sinkron aktif → catat waktu terakhir.
+        _lastSyncedAt.value = System.currentTimeMillis()
     }
 
     /** Eksekusi satu op antrian. Return true kalau berhasil (op bisa dihapus). */
@@ -685,13 +922,17 @@ object FirestoreSyncManager {
                 val ops = opDao.getAll()
                 if (ops.isEmpty()) {
                     backoffMs = MIN_RETRY_DELAY_MS
-                    _syncStatus.value = SyncStatus.SYNCED
+                    // BUG-06 lanjutan: antrian kosong ≠ sinkron — kalau jaringan
+                    // jelas mati, indikator tetap OFFLINE (bukan SYNCED palsu).
+                    _syncStatus.value = resolveStatusOnSyncSuccess(networkAvailable)
                     opsSignal.receive()
                     continue
-                }
-                _syncStatus.value = SyncStatus.SYNCING
-                var failed = false
-                for (op in ops) {
+                }                    // BUG-06 lanjutan: dengan jaringan jelas mati, retry tidak
+                    // akan sukses — tampilkan OFFLINE, bukan SYNCING yang
+                    // menyesatkan (reviewer).
+                    _syncStatus.value = resolveStatusOnDraining(networkAvailable)
+                    var failed = false
+                    for (op in ops) {
                     if (familyId.isEmpty()) return@launch
                     if (executeOp(op)) {
                         opDao.deleteById(op.id)

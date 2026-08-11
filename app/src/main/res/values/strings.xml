@@ -61,6 +61,10 @@
     <string name="chat_image_remove">Hapus lampiran</string>
     <string name="chat_ask_ai_desc">Tanya AI</string>
     <string name="chat_ai_thinking">AI sedang memproses...</string>
+    <!-- M7: indikator asal deteksi transaksi di badge finansial pesan -->
+    <string name="badge_detected_ai">AI</string>
+    <string name="badge_detected_ai_desc">Transaksi dikenali oleh AI</string>
+    <string name="badge_detected_heuristic_desc">Transaksi dikenali secara otomatis di perangkat tanpa AI</string>
     <string name="sender_bendahara">Bendahara</string>
     <string name="sender_anggota">Anggota</string>
     <string name="sender_ketua">Ketua</string>
@@ -125,6 +129,8 @@
     <string name="google_not_configured">Google Sign-In belum dikonfigurasi. Aktifkan Google di Firebase Console (Authentication → Sign-in method) &amp; daftarkan SHA-1 penandatangan APK (lihat README → \'Setup Google Sign-In\'), lalu unduh ulang google-services.json dan ganti file di folder app/.</string>
     <string name="login_version_label">Nyachat %1$s · build %2$d</string>
     <string name="pin_name_label">Nama Anda (Cth: Suami / Istri)</string>
+    <!-- BUG-04: tombol clear cepat untuk field nama prefilled dari Google -->
+    <string name="pin_name_clear">Hapus isi nama</string>
     <string name="pin_your_pin">PIN Anda</string>
     <string name="pin_share_hint">Gunakan PIN ini untuk menghubungkan akun pada perangkat lain.</string>
     <string name="pin_copy">Salin PIN</string>
@@ -141,6 +147,8 @@
     <string name="pin_rate_limited">Terlalu banyak percobaan PIN. Coba lagi dalam %1$d detik.</string>
     <string name="pin_role_owner">Pemilik</string>
     <string name="pin_role_member">Anggota</string>
+    <string name="avatar_change_desc">Ganti foto profil</string>
+    <string name="avatar_save_failed">Gagal menyimpan foto profil, coba lagi.</string>
     <string name="logout_dialog_title">Keluar dari akun ini?</string>
     <string name="logout_dialog_message">Data tersinkron tetap aman di cloud selama perangkat lain di workspace masih aktif.\n\n<b>"Keluar &amp; Hapus Data"</b> menghapus data lokal, lampiran, dan data workspace dari cloud — tindakan permanen dan tidak dapat dibatalkan.</string>
     <string name="logout_keep_data">Keluar saja</string>
@@ -236,14 +244,14 @@
     <string name="restore_success">Backup berhasil dipulihkan! Semua chat &amp; transaksi sudah dikembalikan dan disinkronkan ke perangkat lain.</string>
     <string name="restore_cross_family_title">Backup dari workspace lain</string>
     <string name="restore_cross_family_message">Backup ini dibuat di workspace (PIN) yang berbeda. Melanjutkan akan mengganti seluruh data lokal dan menyinkronkan isi backup ke workspace saat ini. Lanjut?</string>
-    <string name="restore_wrong_passphrase">Passphrase salah atau file backup rusak. Coba lagi dengan passphrase yang dipakai saat backup dibuat.</string>
+    <string name="restore_wrong_passphrase_snackbar">Passphrase salah. Coba lagi dengan passphrase yang dipakai saat backup dibuat.</string>
     <string name="backup_passphrase_title">Enkripsi Backup</string>
     <string name="backup_passphrase_message">Backup akan dienkripsi dengan passphrase ini. Passphrase TIDAK disimpan — tanpa passphrase, backup tidak bisa dipulihkan. Pastikan mudah kamu ingat!</string>
     <string name="backup_passphrase_hint">Passphrase (min. 8 karakter)</string>
     <string name="restore_passphrase_title">Backup Terenkripsi</string>
     <string name="restore_passphrase_message">Backup ini terenkripsi. Masukkan passphrase yang dipakai saat backup dibuat untuk membukanya.</string>
     <string name="settings_backup_encrypt">Enkripsi backup Drive</string>
-    <string name="settings_backup_encrypt_desc">Lindungi file backup dengan passphrase (AES-256). Auto-backup harian dijeda saat aktif.</string>
+    <string name="settings_backup_encrypt_desc">Lindungi file backup dengan passphrase (AES-256). Auto-backup harian tetap berjalan terenkripsi otomatis.</string>
     <string name="restore_failed">Gagal mengunduh backup dari Google Drive.</string>
     <string name="restore_failed_parse">File backup tidak valid atau rusak.</string>
 
@@ -260,6 +268,12 @@
     <string name="membership_enter">Masuk Workspace</string>
     <string name="membership_retry">Coba Lagi</string>
     <string name="settings_section_general">Umum</string>
+    <!-- 3.7: notifikasi chat real-time -->
+    <string name="menu_chat_notifications">Notifikasi chat</string>
+    <string name="menu_chat_notifications_desc">Beri tahu saat ada pesan baru dari anggota</string>
+    <string name="chat_notif_default_body">Pesan baru</string>
+    <string name="chat_notif_channel_name">Pesan chat</string>
+    <string name="chat_notif_channel_desc">Notifikasi saat ada pesan baru dari anggota workspace</string>
     <string name="settings_section_ai">AI &amp; API</string>
     <string name="settings_section_account">Akun</string>
     <string name="settings_section_data">Data &amp; Backup</string>
@@ -270,9 +284,16 @@
     <string name="settings_backup_encrypted_yes">Terenkripsi</string>
     <string name="settings_backup_encrypted_no">Tanpa enkripsi</string>
     <string name="sync_status_synced">Tersinkron</string>
+    <!-- 3.8: label detail saat tersinkron — %1$s = jam menit terakhir sinkron -->
+    <string name="sync_status_synced_at">Tersinkron · %1$s</string>
     <string name="sync_status_syncing">Menyinkronkan…</string>
-    <string name="sync_status_offline">Offline</string>
-    <string name="sync_status_error">Gagal sinkron</string>
+    <!-- BUG-06: label netral — "Mode offline" (bukan sekadar "Offline") supaya
+         jelas bahwa ini kondisi normal offline-first, bukan error. -->
+    <string name="sync_status_offline">Mode offline</string>
+    <!-- BUG-06: "Belum sinkron" lebih netral daripada "Gagal sinkron" yang
+         menakutkan padahal sering hanya koneksi sesaat (diperbaiki di
+         onSyncFailure agar offline dipetakan ke OFFLINE, bukan ERROR). -->
+    <string name="sync_status_error">Belum sinkron</string>
     <string name="manage_members_title">Kelola Anggota</string>
     <string name="manage_members_join_requests">Permintaan Bergabung</string>
     <string name="manage_members_no_requests">Tidak ada permintaan bergabung.</string>

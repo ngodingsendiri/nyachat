@@ -1,207 +1,56 @@
-# 💬 Nyachat — Pencatatan Keuangan via Chat + AI
+# 💬 Nyachat
 
 [![Build APK](https://github.com/ngodingsendiri/nyachat/actions/workflows/build-apk.yml/badge.svg)](https://github.com/ngodingsendiri/nyachat/actions/workflows/build-apk.yml)
-![Versi](https://img.shields.io/badge/versi-r1.0.3-brightgreen)
+![Versi](https://img.shields.io/badge/versi-r1.2.0-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Android%207.0%2B-blue)
 
-**Nyachat** adalah aplikasi Android pencatat keuangan keluarga/kelompok yang berbasis **percakapan chat** (seperti WhatsApp) — cukup ketik pesan biasa seperti *"beli kopi 20rb"* atau *"gaji masuk 5 juta"*, dan AI otomatis mencatatnya sebagai transaksi. Dilengkapi rekap visual, analisis AI finansial, dan mode gelap.
+**Nyachat** adalah aplikasi Android pencatat keuangan keluarga/kelompok yang bekerja lewat **percakapan chat** — seperti WhatsApp, tapi otomatis mencatat uang.
 
-> 🎯 **Filosofi app**: *offline-first*, tanpa server sendiri. Data tersimpan di perangkat. AI jalan pakai **key API milik pengguna** (BYOK) — server tidak perlu menyediakan API key.
+Cukup ketik pesan biasa:
 
----
+- 💸 *"beli kopi 20rb"* → tercatat sebagai pengeluaran
+- 💰 *"gaji masuk 5 juta"* → tercatat sebagai pemasukan
 
-## 📥 Download APK
+AI mendeteksi transaksi, nominal, dan kategorinya dari obrolan sehari-hari — lalu semuanya tampil dalam rekap visual yang rapi.
 
-| Versi | File | Link |
-|---|---|---|
-| **r1.0.3** (terbaru) | `app-debug.apk` (debug) / `app-release.apk` (release) | **⬇️ [Download dari GitHub Releases](https://github.com/ngodingsendiri/nyachat/releases/latest)** |
-| Semua versi | — | [Daftar Release](https://github.com/ngodingsendiri/nyachat/releases) |
-| Build mentah (artifact) | `Nyachat-r1.0.3-debug` (zip) | [Actions → Build APK](https://github.com/ngodingsendiri/nyachat/actions/workflows/build-apk.yml) |
+## ✨ Fitur
 
-**Cara install:**
-1. Unduh APK dari link di atas (via HP langsung atau kirim ke HP).
-2. Buka file APK → Android akan minta izin **"Instal dari sumber tidak dikenal"** → izinkan.
-3. Selesai! Buka aplikasi, login, dan mulai catat.
+- 💬 **Catat lewat chat** — AI membaca pesan biasa & mencatat transaksi otomatis
+- 📷 **Foto nota** — lampirkan struk belanja, AI vision membacanya
+- 📊 **Rekap visual** — saldo, diagram donat per kategori, progres anggaran
+- 🤖 **Analisis AI** — evaluasi arus kas + rekomendasi hemat
+- 🔄 **Workspace bersama** — beberapa perangkat tersinkron via PIN
+- ☁️ **Backup Drive** — cadangan terenkripsi, otomatis tiap 24 jam
+- 📤 **Export CSV** — buka di Excel / Google Sheets
+- 🔒 **Offline-first** — data tersimpan di perangkat; AI pakai key Anda sendiri (BYOK)
 
-> ℹ️ **APK debug vs release**: APK debug sudah ditandatangani & bisa langsung diinstall. APK **release** (tanda tangan produksi) otomatis muncul kalau secrets keystore disiapkan di repo (lihat [Release Signing](#release-signing-opsional)).
+## 📥 Install
 
----
+Unduh APK terbaru dari **GitHub Releases**:
 
-## ✨ Fitur Utama
+**⬇️ [Nyachat r1.2.0 — Download](https://github.com/ngodingsendiri/nyachat/releases/latest)**
 
-- 💬 **Pencatatan lewat chat** — ketik pesan biasa, AI mendeteksi transaksi & jumlahnya otomatis
-- 🤖 **AI 3 lapis tanpa server**:
-  1. **OpenRouter** (BYOK) — model gratis dengan **rotasi otomatis** saat kena rate-limit/kuota habis
-  2. **Google Gemini** (BYOK) — pakai key dari akun Google sendiri
-  3. **Mesin offline** — heuristik lokal kalau keduanya tidak ada
-- 📊 **Rekap visual** — saldo total, diagram donat kategori, progress bar alokasi pengeluaran
-- 🧾 **Analisis AI finansial** — evaluasi kesehatan arus kas + rekomendasi strategis
-- ⚡ **Saran cepat** — chip rekomendasi transaksi berdasarkan kebiasaan pengguna
-- 📷 **Foto nota belanja** — lampirkan foto nota/struk (kamera atau galeri), AI vision membacanya & langsung mencatat totalnya
-- 📤 **Export rekapan CSV** — *Pengaturan → Export Rekapan (CSV)* → simpan file yang pas dibuka di Excel/Google Sheets jadi tabel rapi (ringkasan, rekap per kategori, riwayat transaksi, riwayat chat)
-- ☁️ **Backup & restore Google Drive** — *Pengaturan → Backup/Restore* → cadangan lengkap (chat + transaksi) di folder privat Drive app, otomatis menyisakan 5 backup terbaru; restore mengembalikan & menyinkronkan ke perangkat lain
-- 🔗 **PIN bisa disalin** — sekali ketuk PIN tersalin ke clipboard, gampang dibagikan ke pasangan
-- 🔄 **Workspace bersama (PIN)** — beberapa perangkat bisa saling terhubung via PIN unik
-- 👥 **Kelola anggota workspace** — *owner* menyetujui/menolak permintaan bergabung, mengubah peran (owner/member/bendahara/istri/suami), menghapus anggota
-- 🔄 **Sinkronisasi realtime Firestore** — chat & transaksi tersinkron otomatis ke perangkat lain via Firebase Firestore (offline-first tetap jalan)
-- 🌙 **Mode gelap** — nyala/mati manual dari menu pengaturan
-- 🔑 **BYOK (Bring Your Own Key)** — tempel API key sendiri di *Pengaturan → Kunci API*, tersimpan lokal di perangkat
+1. Unduh `app-debug.apk` (atau `app-release.apk`) di HP.
+2. Buka file → izinkan **"Instal dari sumber tidak dikenal"**.
+3. Login dengan Google, buat PIN, dan mulai catat. ✨
 
----
+> Aplikasi langsung jalan **tanpa API key** (mode offline). Mau AI lebih pintar?
+> Tambahkan key Anda sendiri di **Pengaturan → Kunci API** (OpenRouter atau Gemini).
 
-## 🔑 Setup API AI
+## 🧱 Teknologi
 
-Aplikasi **tidak butuh API key apa pun untuk dijalankan** — semua fitur AI punya fallback ke mesin offline. Tapi supaya AI beneran cerdas, isi salah satu (atau keduanya):
+Kotlin · Jetpack Compose (Material 3) · Room · Firebase (Auth, Firestore) · OKHttp · Gradle/AGP modern. Tanpa server sendiri — data di perangkat, AI BYOK.
 
-| Provider | Cara dapat key | Di mana set di app |
-|---|---|---|
-| **OpenRouter** (disarankan) | Gratis di [openrouter.ai/keys](https://openrouter.ai/keys) — format `sk-or-v1-...` | Pengaturan (⋮) → **Kunci OpenRouter API** |
-| **Google Gemini** | Gratis di [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — format `AIza...` | Pengaturan (⋮) → **Kunci Gemini API** |
+## 📚 Dokumentasi
 
-**Urutan prioritas AI:** OpenRouter (user) → Gemini (user) → mesin offline.
-
-> 🛡️ **Buat developer (P1)**: tidak ada API key yang dikompilasi ke APK. Key yang
-> dibakar ke APK bisa diekstrak siapa saja, jadi produksi **murni BYOK** —
-> `BuildConfig.OPENROUTER_API_KEY` sudah dihapus, dan secret `OPENROUTER_API_KEY`
-> di GitHub Actions tidak lagi dipakai.
-
----
-
-## 🔐 Setup Google Sign-In (WAJIB biar login jalan)
-
-Login Google gagal ("gagal login" / "Google Sign-In belum dikonfigurasi") hampir selalu karena **salah satu dari 3 hal ini belum beres di Firebase Console** — bukan karena kode app. Cek satu per satu:
-
-1. **Provider Google aktif** → Firebase Console → project **nyachat-in** → *Build → Authentication → Sign-in method* → **Google → Aktifkan** → simpan.
-2. **SHA-1 penandatangan terdaftar** → *Project settings → Aplikasi Anda* → klik app `com.startupmini.nyachat` → **Tambahkan sidik jari** (SHA-1). **Ini penyebab paling umum**: setiap APK menandatangani dengan kunci berbeda, dan Firebase menolak app yang SHA-1-nya tidak terdaftar.
-3. **google-services.json masih cocok** → pastikan file `app/google-services.json` yang lama masih valid; kalau ragu, unduh ulang dari Firebase Console dan ganti.
-
-### SHA-1 yang harus didaftarkan (kode app pakai ini)
-
-| APK | Keystore | SHA-1 yang harus didaftarkan |
-|---|---|---|
-| **Debug** (dari CI/artifak, sudah stabil sejak v1.2.4) | `debug.keystore` (DI-COMMIT di repo — jangan diganti) | `B5:9D:30:B8:D8:A0:BE:78:1D:D4:89:F6:73:B1:22:C1:45:59:03:B1` |
-| **Release** (bertanda tangan) | keystore `upload` kamu (secret `KEYSTORE_BASE64`) | lihat perintah di bawah ↓ |
-
-> 🔑 **Kenapa SHA-1 debug stabil sejak v1.2.4?** Sebelumnya GitHub Actions membuat `debug.keystore` **acak baru setiap build**, jadi SHA-1 berubah terus dan Google Sign-In selalu ditolak. Sekarang `debug.keystore` di-commit ke repo — SHA-1 selalu sama, cukup didaftarkan **sekali** di Firebase Console dan semua build berikutnya (debug & CI) langsung bisa login.
-
-> ⚠️ **Risiko `debug.keystore` publik (P1)**: karena keystore ini ada di repo publik,
-> siapa pun bisa menandatangani APK debug dengan SHA-1 yang sama → Google Sign-In
-> Firebase memperlakukan APK tersebut sebagai app "resmi". Risiko ini hanya menyentuh
-> **pengguna yang memasang APK debug dari sumber tidak tepercaya**. Mitigasi yang
-> disarankan: aktifkan **Firebase App Check** (menolak instal yang tidak terverifikasi)
-> dan ingatkan pengguna hanya mengunduh dari GitHub Releases resmi.
-
-> 💡 **Sejak v1.2.5, app menampilkan SHA-1 miliknya sendiri di layar error login** — kalau login ditolak Google, pesan errornya langsung menyertakan angka `SHA-1 APK ini: ...` yang siap disalin ke Firebase Console. Jadi tidak perlu cari-cari lagi di mana SHA-1-nya.
-
-### Cek SHA-1 keystore release kamu sendiri
-
-```bash
-# Keystore upload kamu (file .jks / dari secret KEYSTORE_BASE64)
-keytool -exportcert -keystore my-upload-key.jks -alias upload -storepass PASSWORD | sha1sum
-# atau kalau mau format dua-titik yang sama seperti Firebase:
-keytool -list -v -keystore my-upload-key.jks -storepass PASSWORD | grep SHA1
-```
-
-Salin SHA-1-nya ke Firebase Console (poin 2 di atas). Kalau kamu belum punya keystore release, cukup pakai APK **debug** dari Release — login tetap jalan karena `debug.keystore` sudah didaftarkan.
-
----
-
-## 🛠️ Build dari Source
-
-### Prasyarat
-- JDK 21 (wajib — compileSdk 36 & test Robolectric butuh Java 21; JDK 17 membuat unit test Robolectric gagal)
-- Android SDK (compileSdk 36)
-
-### Langkah
-```bash
-# 1. Build APK debug (tidak perlu API key — BYOK di-set lewat UI app)
-./gradlew :app:assembleDebug
-
-# 2. Hasilnya ada di:
-#    app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Release signing (opsional)
-```bash
-export KEYSTORE_PATH=/path/ke/keystore.jks
-export STORE_PASSWORD=...
-export KEY_PASSWORD=...
-./gradlew :app:assembleRelease
-```
-
----
-
-## 🤖 GitHub Actions (CI)
-
-Setiap push ke `main` atau tag `r*` (r1.0.0, r1.0.1, ...) otomatis menjalankan workflow **Build APK**:
-1. Pakai `debug.keystore` yang di-commit (SHA-1 stabil) + unit test + lint + **snapshot UI Roborazzi**
-2. Build APK debug → upload sebagai **artifact** `Nyachat-rX.Y.Z-debug`
-3. Jika secrets keystore tersedia → build + upload APK **release** (bertanda tangan)
-4. Jika push **tag** → buat **GitHub Release** dengan APK terpasang (link permanen)
-
-### Secrets yang dipakai
-| Secret | Fungsi |
+| Dokumen | Isi |
 |---|---|
-| `KEYSTORE_BASE64` | Isi file keystore `.jks` dalam base64 (untuk APK release) |
-| `KEYSTORE_PASSWORD` | Password keystore |
-| `KEY_PASSWORD` | Password key (alias `upload`) |
-
-> `OPENROUTER_API_KEY` sudah **tidak dipakai** sejak P1 (tidak ada key AI yang dibakar ke APK).
-
----
-
-## 🧪 Testing
-
-- **Unit test** (JVM, tanpa emulator): `./gradlew :app:testDebugUnitTest` — logika bisnis (analitik bulanan, exporter backup, parser heuristik AI, gate keanggotaan, badge transaksi).
-- **Snapshot UI** (Roborazzi + Robolectric, P3-3): render komponen inti (bubble chat, item rekap, banner saldo, donut chart) dibandingkan dengan golden file di `app/src/test/snapshots/`. Gagal kalau ada regresi visual.
-  - Verifikasi (sama dengan CI): `./gradlew :app:verifyRoborazziDebug`
-  - Rekam ulang baseline setelah mengubah UI: `./gradlew :app:recordRoborazziDebug` lalu **commit file PNG** yang berubah bersama perubahan kode.
-- **Lint Android**: `./gradlew :app:lintDebug`
-- **Lint Firestore rules**: `npm ci && npm run lint:rules`
+| [📜 Changelog](CHANGELOG.md) | Riwayat perubahan per versi |
+| [🔐 Kebijakan Privasi](PRIVACY_POLICY.md) | Data yang dikumpulkan & cara dipakai |
+| [🛠️ Panduan Developer](docs/DEVELOPER.md) | Setup Firebase/SHA-1, build, CI, testing, arsitektur |
+| [🏪 Checklist Play Store](docs/PLAY_STORE_CHECKLIST.md) | Langkah rilis ke Google Play |
+| [🔒 Enkripsi Backup](docs/backup-encryption.md) | Detail teknis enkripsi backup Drive |
 
 ---
 
-## 🏗️ Arsitektur
-
-```
-┌─ HP Android (app Nyachat) ─────────────────────────┐
-│  Chat + AI → OpenRouter cloud (openrouter.ai)  ← key user  │
-│           → Google Gemini cloud (generativelanguage)  ← key user  │
-│  Data utama → Room (SQLite) di perangkat  ← offline-first │
-│  Sync opsional → Firebase Firestore (butuh google-services.json) │
-└────────────────────────────────────────────────────────┘
-```
-
-- **Tanpa server sendiri** — semua berjalan di perangkat + cloud AI pihak ketiga
-- **Database**: Room/SQLite (transaksi & chat tersimpan lokal)
-- **Sync cloud**: `FirestoreSyncManager` sudah dikoding (opsional, belum aktif)
-
----
-
-## 🧱 Tech Stack
-
-- **Kotlin + Jetpack Compose (Material 3)**
-- Room, OkHttp, Retrofit, Moshi, kotlinx.coroutines
-- Firebase (Auth, Firestore, App Check) — opsional
-- Gradle 9.3.1 · AGP 9.1.1 · Kotlin 2.x
-
----
-
-## 🗺️ Roadmap
-
-- [x] Backup & restore data (Google Drive, v1.2.9)
-- [x] Export rekap CSV (v1.2.9)
-- [x] Workspace bersama + kelola anggota + persetujuan owner (FASE 4, v1.4.0)
-- [x] Sinkronisasi realtime Firestore (FASE 4, v1.4.0)
-- [ ] APK release bertanda tangan di CI (siap upload Play Store)
-- [ ] Grafik bulanan & notifikasi pengingat
-
----
-
-## 📄 Lisensi
-
-Proyek ini dilisensikan di bawah [MIT License](LICENSE) *(jika ada)* — silakan kembangkan, fork, dan bagikan.
-
----
-
-Dibuat dengan ❤️ oleh [@ngodingsendiri](https://github.com/ngodingsendiri) — **Nyachat r1.0.3**
+Dibuat dengan ❤️ oleh [@ngodingsendiri](https://github.com/ngodingsendiri)

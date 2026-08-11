@@ -24,5 +24,14 @@ data class ChatMessage(
     val replyToSender: String? = null, // snapshot pengirim pesan yang dibalas (balasan via swipe)
     val replyToText: String? = null, // snapshot isi pesan yang dibalas
     val editedAt: Long? = null, // timestamp terakhir diedit (null = belum pernah diedit)
-    val cloudId: String? = null // ID dokumen Firestore (unik lintas perangkat)
+    // M7: asal deteksi transaksi — "AI" (Gemini/OpenRouter) atau "HEURISTIK"
+    // (fallback offline). Tampil sebagai label kecil di badge finansial supaya
+    // pengguna tahu nilai itu tidak divalidasi AI (indikator heuristik/offline).
+    val detectedBy: String? = null,
+    // M4: timestamp SERVER (FieldValue.serverTimestamp()) saat dokumen ini
+    // terakhir ditulis ke Firestore — basis resolusi konflik yang imun terhadap
+    // selisih jam antar-perangkat (jenis LWW deterministik).
+    val serverUpdatedAt: Long? = null,
+    val cloudId: String? = null, // ID dokumen Firestore (unik lintas perangkat)
+    val sourceMessageCloudId: String? = null // Cloud Messaging pesan chat asal (untuk cross-device lookup)
 )

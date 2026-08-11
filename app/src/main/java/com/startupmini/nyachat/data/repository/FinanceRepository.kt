@@ -71,12 +71,15 @@ class FinanceRepository(
         replyToText: String? = null
     ): FinancialTransaction? {
         return withContext(Dispatchers.IO) {
+            // Satu sumber waktu untuk pesan & transaksi (L3) — chat dan Rekap
+            // memakai timestamp yang sama supaya urutan tidak melompat-lompat.
+            val now = System.currentTimeMillis()
             // 1. Insert user chat message (cloudId unik lintas perangkat; imagePath = foto
             //    nota lokal; filePath/fileName = dokumen; replyTo* = pesan yang dibalas)
             val initialMsg = ChatMessage(
                 sender = sender,
                 messageText = messageText,
-                timestamp = System.currentTimeMillis(),
+                timestamp = now,
                 imagePath = imagePath,
                 filePath = filePath,
                 fileName = fileName,
@@ -103,9 +106,10 @@ class FinanceRepository(
                     amount = aiResult.amount,
                     description = aiResult.description ?: messageText,
                     loggedBy = sender,
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = now,
                     chatMessageId = msgId,
-                    cloudId = UUID.randomUUID().toString()
+                    cloudId = UUID.randomUUID().toString(),
+                    sourceMessageCloudId = finalMsg.cloudId // Cross-device lookup key
                 )
                 val txId = transactionDao.insertTransaction(trans)
                 createdTx = trans.copy(id = txId)
@@ -116,7 +120,10 @@ class FinanceRepository(
                     isFinancial = true,
                     detectedAmount = aiResult.amount,
                     detectedCategory = aiResult.category,
-                    detectedType = aiResult.type
+                    detectedType = aiResult.type,
+                    // M7: catat asal deteksi (AI atau heuristik offline) untuk
+                    // indikator transparansi di badge financisial.
+                    detectedBy = aiResult.detectedBy
                 )
                 chatMessageDao.insertMessage(finalMsg)
 
@@ -155,7 +162,9 @@ class FinanceRepository(
                 isFinancial = isFinancial,
                 detectedAmount = if (isFinancial) aiResult.amount else null,
                 detectedCategory = if (isFinancial) aiResult.category else null,
-                detectedType = if (isFinancial) aiResult.type else null
+                detectedType = if (isFinancial) aiResult.type else null,
+                // M7: perbarui asal deteksi juga saat edit.
+                detectedBy = if (isFinancial) aiResult.detectedBy else null
             )
             chatMessageDao.updateMessage(updated)
 
@@ -187,7 +196,8 @@ class FinanceRepository(
                         loggedBy = existing.sender,
                         timestamp = existing.timestamp,
                         chatMessageId = messageId,
-                        cloudId = UUID.randomUUID().toString()
+                        cloudId = UUID.randomUUID().toString(),
+                        sourceMessageCloudId = existing.cloudId // Cross-device lookup key
                     )
                     transactionDao.insertTransaction(trans)
                     FirestoreSyncManager.syncTransaction(trans)
@@ -397,7 +407,8 @@ internal fun ChatMessage.clearFinancialBadge(): ChatMessage =
         isFinancial = false,
         detectedAmount = null,
         detectedCategory = null,
-        detectedType = null
+        detectedType = null,
+        detectedBy = null
     )
 
 /**

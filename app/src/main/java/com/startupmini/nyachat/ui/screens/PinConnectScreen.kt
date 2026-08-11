@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -21,12 +22,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -78,7 +77,6 @@ fun PinConnectScreen(
     var isSigningIn by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
     var signedInEmail by rememberSaveable { mutableStateOf<String?>(null) }
-    val clipboard = LocalClipboardManager.current
     var pinCopied by rememberSaveable { mutableStateOf(false) }
     // Rate limiting percobaan join (anti brute-force PIN): catat waktu tiap
     // percobaan; setelah batas terlampaui, tombol join dikunci sementara.
@@ -90,23 +88,36 @@ fun PinConnectScreen(
     val defaultName = stringResource(R.string.pin_default_name)
     val defaultGoogleName = stringResource(R.string.pin_default_google_name)
 
+    // Lint LocalContextGetResourceValueCall (compose-bom 2026.06): jangan query
+    // resource via LocalContext di dalam fungsi non-composable/coroutine — resolve
+    // di composable scope via stringResource; template berargumen pakai .format().
+    val strGoogleNotConfigured = stringResource(R.string.google_not_configured)
+    val strGoogleSignInFailed = stringResource(R.string.google_sign_in_failed)
+    val strSha1Hint = stringResource(R.string.google_err_sha1_hint)
+    val strCredentialProvider = stringResource(R.string.google_err_credential_provider)
+    val strProviderNotEnabled = stringResource(R.string.google_err_provider_not_enabled)
+    val strInvalidCredential = stringResource(R.string.google_err_invalid_credential)
+    val strNetworkError = stringResource(R.string.google_err_network)
+    val strUnknownError = stringResource(R.string.google_err_unknown)
+    val strRateLimited = stringResource(R.string.pin_rate_limited)
+
     // Web client ID (default_web_client_id) — dihasilkan plugin google-services dari
     // oauth_client web di google-services.json. Dibaca lewat getIdentifier() supaya
     // app tetap KOMPIL walau google-services.json minimal (oauth_client kosong, mis.
     // saat project Firebase baru belum didaftarkan SHA-1). Saat resource ada, nilainya
     // dipertahankan di APK release via tools:keep (app/src/main/res/values/keep.xml).
-    val webClientId = remember {
-        runCatching {
-            // Referensi STATIS via R.string: jeda resource shrinker bahwa resource ini
-            // dipakai, sehingga default_web_client_id TIDAK dibuang dari APK release.
-            // (Sebelumnya dibaca via context.getIdentifier() yang bukan referensi
-            // kompil-dilihat shrinker → resource hilang di release → login Google
-            // gagal dng "Google Sign-In belum dikonfigurasi" walau Firebase sudah
-            // aktif & SHA-1 sudah didaftarkan. getString pakai resource yang TIDAK
-            // mungkin kosong karena plugin google-services selalu men-generate-nya.)
-            context.getString(R.string.default_web_client_id)
-        }.getOrNull()
-    }
+    // Referensi STATIS via R.string: jeda resource shrinker bahwa resource ini
+    // dipakai, sehingga default_web_client_id TIDAK dibuang dari APK release.
+    // (Sebelumnya dibaca via context.getIdentifier() yang bukan referensi
+    // kompil-dilihat shrinker → resource hilang di release → login Google
+    // gagal dng "Google Sign-In belum dikonfigurasi" walau Firebase sudah
+    // aktif & SHA-1 sudah didaftarkan. getString pakai resource yang TIDAK
+    // mungkin kosong karena plugin google-services selalu men-generate-nya.)
+    // runCatching: stringResource melempar jika resource absen (project Firebase
+    // baru) — aman ditangkap, sama seperti getString lama di dalam remember.
+    val webClientId = runCatching {
+        stringResource(R.string.default_web_client_id)
+    }.getOrNull()
 
     // Pulihkan sesi Google yang masih aktif (misal app ditutup tanpa logout).
     LaunchedEffect(Unit) {
@@ -136,7 +147,7 @@ fun PinConnectScreen(
     fun startGoogleSignIn() {
         val clientId = webClientId
         if (clientId == null) {
-            authError = context.getString(R.string.google_not_configured)
+            authError = strGoogleNotConfigured
             return
         }
         scope.launch {
@@ -173,11 +184,11 @@ fun PinConnectScreen(
                             if (myName.isBlank()) myName = it
                         }
                     } else {
-                        authError = context.getString(R.string.google_sign_in_failed)
+                        authError = strGoogleSignInFailed
                     }
                 } else {
                     // Kredensial bukan Google ID Token (mis. passkey) — tidak dipakai untuk login Google.
-                    authError = context.getString(R.string.google_sign_in_failed)
+                    authError = strGoogleSignInFailed
                 }
             } catch (e: GetCredentialCancellationException) {
                 // User membatalkan dialog Google — bukan error, biarkan tenang.
@@ -190,30 +201,26 @@ fun PinConnectScreen(
                 // di Firebase Console tanpa perlu mencari-cari.
                 val sha1 = signingCertSha1(context)
                 val hint = if (sha1 != null) {
-                    context.getString(R.string.google_err_sha1_hint, sha1)
+                    strSha1Hint.format(sha1)
                 } else {
                     ""
                 }
-                authError = context.getString(
-                    R.string.google_err_credential_provider,
-                    e.type
-                ) + hint
+                authError = strCredentialProvider.format(e.type) + hint
             } catch (e: FirebaseAuthException) {
                 // Tampilkan penyebab sebenarnya supaya user tahu harus apa.
                 authError = when (e.errorCode) {
                     "auth/operation-not-allowed" ->
-                        context.getString(R.string.google_err_provider_not_enabled)
+                        strProviderNotEnabled
                     "auth/invalid-credential", "auth/invalid-id-token",
                     "auth/user-disabled", "auth/user-not-found" ->
-                        context.getString(R.string.google_err_invalid_credential)
+                        strInvalidCredential
                     "auth/network-request-failed" ->
-                        context.getString(R.string.google_err_network)
+                        strNetworkError
                     else ->
-                        context.getString(R.string.google_err_unknown, e.message ?: e.errorCode)
+                        strUnknownError.format(e.message ?: e.errorCode)
                 }
             } catch (e: Exception) {
-                authError = context.getString(
-                    R.string.google_err_unknown,
+                authError = strUnknownError.format(
                     e.message ?: e.javaClass.simpleName
                 )
             } finally {
@@ -246,7 +253,7 @@ fun PinConnectScreen(
         ) {
             Column(
                 modifier = Modifier
-                    .align(Alignment.Center)
+                    .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(24.dp),
                 verticalArrangement = Arrangement.Center,
@@ -294,6 +301,16 @@ fun PinConnectScreen(
                         value = myName,
                         onValueChange = { myName = it },
                         label = { Text(stringResource(R.string.pin_name_label)) },
+                        trailingIcon = {
+                            if (myName.isNotBlank()) {
+                                IconButton(onClick = { myName = "" }) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = stringResource(R.string.pin_name_clear)
+                                    )
+                                }
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         singleLine = true,
@@ -346,11 +363,15 @@ fun PinConnectScreen(
 
                                         Spacer(modifier = Modifier.height(16.dp))
 
-                                        // PIN bisa disalin ke clipboard — biar gampang dikirim ke pasangan
+                                        // PIN bisa disalin ke clipboard — biar gampang dikirim ke pasangan.
+                                        // L7: pakai ClipData dengan label agar app lain tidak bisa membaca
+                                        // isi clipboard tanpa izin (clipboard overlay/privacy API ≥ 31) —
+                                        // setText(AnnotatedString) lama tidak menyertakan label.
                                         OutlinedButton(
                                             onClick = {
                                                 generatedPin?.let {
-                                                    clipboard.setText(AnnotatedString(it))
+                                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Nyachat PIN", it))
                                                     pinCopied = true
                                                     scope.launch {
                                                         delay(2000)
@@ -413,8 +434,7 @@ fun PinConnectScreen(
                                         // percobaan dan tampilkan sisa waktu tunggu.
                                         val now = System.currentTimeMillis()
                                         if (PinAttemptLimiter.lockoutEndsAt(pinAttempts, now) != null) {
-                                            pinRateError = context.getString(
-                                                R.string.pin_rate_limited,
+                                            pinRateError = strRateLimited.format(
                                                 PinAttemptLimiter.remainingLockSeconds(pinAttempts, now)
                                             )
                                         } else if (inputPin.length >= Constants.Defaults.PIN_MIN_LEGACY_LENGTH) {

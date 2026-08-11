@@ -10,15 +10,20 @@ service cloud.firestore {
 
     // Data keanggotaan diri sendiri (members/uid). Digunakan oleh semua rules
     // untuk mengecek "apakah pengguna sudah jadi anggota/owner".
-    function memberDoc(familyId) {
-      return get(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid));
+    // PENTING (BUG-08): memakai fungsi `exists()` — bukan `get(...).exists` —
+    // karena pada produksi, get() dari dalam aturan terhadap dokumen members
+    // mengembalikan resource null sehingga evaluasi menolak SEMUA operasi
+    // (sinkronisasi "Gagal sinkron") walau member valid. exists() dievaluasi
+    // server-side tanpa membaca resource.
+    function memberPath(familyId) {
+      return /databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid);
     }
     function isMember(familyId) {
-      return memberDoc(familyId).exists;
+      return exists(memberPath(familyId));
     }
     function isOwner(familyId) {
-      let m = memberDoc(familyId);
-      return m.exists && m.data.role == 'owner';
+      return isMember(familyId)
+        && get(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)).data.role == 'owner';
     }
 
     // Dokumen workspace keluarga (document id = PIN). Hanya berisi ownerId +
@@ -52,7 +57,12 @@ service cloud.firestore {
         && (isOwner(familyId)
             || (request.auth.uid == uid
                 && get(/databases/$(database)/documents/families/$(familyId)).data.ownerId == request.auth.uid));
-      allow update, delete: if signedInGoogle() && isOwner(familyId);
+      // 3.7: selain owner, setiap anggota boleh meng-update HANYA field fcmToken
+      // miliknya sendiri — sinkronisasi token FCM untuk notifikasi chat real-time.
+      allow update: if signedInGoogle() && (isOwner(familyId)
+        || (request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken'])));
+      allow delete: if signedInGoogle() && isOwner(familyId);
     }
 
     // Permintaan bergabung: pemohon boleh membuat/mengubah/mencabut permintaan
@@ -61,12 +71,30 @@ service cloud.firestore {
     //   - create/update hanya jika keluarga benar-benar ADA (exists()),
     //   - dan (kecuali owner) pemohon BELUM menjadi anggota — mencegah request
     //     ulang berulang / duplikasi.
+    // M6 (audit): batas laju sisi server —
+    //   - `requestedAt` wajib berada di jendela wajar relatif `request.time`
+    //     (maks ~24 jam lalu) sehingga pemohon tidak bisa mengirim timestamp
+    //     palsu/time-travel untuk melewati cooldown;
+    //   - request ulang (update) oleh pemohon sendiri dibatasi minimal 5 menit
+    //     sejak permintaan sebelumnya (dibandingkan via resource.data.requestedAt);
+    //     owner tidak dibatasi. Ini melengkapi PinAttemptLimiter sisi klien
+    //     (yang hanyabisa di-bypass di sisi server).
     match /families/{familyId}/joinRequests/{uid} {
-      allow create, update: if signedInGoogle()
-        && (request.auth.uid == uid || isOwner(familyId))
+      allow create: if signedInGoogle()
+        && request.auth.uid == uid
         && exists(/databases/$(database)/documents/families/$(familyId))
+        && !isMember(familyId)
+        && !exists(/databases/$(database)/documents/families/$(familyId)/joinRequests/$(request.auth.uid))
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.requestedAt is number
+        && request.resource.data.requestedAt <= request.time.toMillis()
+        && request.resource.data.requestedAt >= request.time.toMillis() - 90000000;
+      allow update: if signedInGoogle()
         && (isOwner(familyId)
-            || !get(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)).exists);
+            || (request.auth.uid == uid
+                && request.resource.data.requestedAt is number
+                && resource.data.requestedAt is number
+                && request.resource.data.requestedAt >= resource.data.requestedAt + 300000));
       allow delete: if signedInGoogle() && (request.auth.uid == uid || isOwner(familyId));
       allow read: if signedInGoogle() && (request.auth.uid == uid || isOwner(familyId));
     }
@@ -74,11 +102,49 @@ service cloud.firestore {
     // PENTING: rules Firestore TIDAK menurun ke subkoleksi.
     // Subkoleksi messages & transactions WAJIB di-match eksplisit.
     // Hanya ANGGOTA (yang sudah disetujui owner) yang bisa baca/tulis.
+    // M3 (audit): validasi skema — cloudId wajib == docId, text tidak kosong,
+    // timestamps bertipe number (bukan string), supaya anggota tidak bisa
+    // menulis dokumen tak valid yang merusak data keluarga lain.
     match /families/{familyId}/messages/{docId} {
-      allow read, write: if signedInGoogle() && isMember(familyId);
+      allow read: if signedInGoogle() && isMember(familyId);
+      allow create: if signedInGoogle() && isMember(familyId)
+        && request.resource.data.cloudId == docId
+        && request.resource.data.sender is string
+        && request.resource.data.sender.size() > 0
+        && request.resource.data.messageText is string
+        && request.resource.data.timestamp is number;
+      allow update: if signedInGoogle() && isMember(familyId)
+        && request.resource.data.cloudId == docId
+        && request.resource.data.sender is string
+        && request.resource.data.messageText is string
+        && request.resource.data.timestamp is number;
+      allow delete: if signedInGoogle() && isMember(familyId);
     }
+
+    // Transaksi: selain validasi dasar, amount wajib angka positif (bukan
+    // negatif/NaN) dan di bawah batas kewajaran — mencegah data korup dari
+    // klien tak patuh.
     match /families/{familyId}/transactions/{docId} {
-      allow read, write: if signedInGoogle() && isMember(familyId);
+      allow read: if signedInGoogle() && isMember(familyId);
+      allow create: if signedInGoogle() && isMember(familyId)
+        && request.resource.data.cloudId == docId
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.amount < 1000000000000
+        && request.resource.data.type in ['PEMASUKAN', 'PENGELUARAN']
+        && request.resource.data.category is string
+        && request.resource.data.category.size() > 0
+        && request.resource.data.timestamp is number;
+      allow update: if signedInGoogle() && isMember(familyId)
+        && request.resource.data.cloudId == docId
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.amount < 1000000000000
+        && request.resource.data.type in ['PEMASUKAN', 'PENGELUARAN']
+        && request.resource.data.category is string
+        && request.resource.data.category.size() > 0
+        && request.resource.data.timestamp is number;
+      allow delete: if signedInGoogle() && isMember(familyId);
     }
   }
 }

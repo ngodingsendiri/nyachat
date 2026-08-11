@@ -16,6 +16,7 @@ import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.data.repository.FinanceRepository
 import com.startupmini.nyachat.data.remote.FinanceAiService
+import com.startupmini.nyachat.data.remote.GeminiService
 import com.startupmini.nyachat.data.remote.ImageFileUtil
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -43,8 +44,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         /** Cooldown saran cepat — batasi panggilan AI agar tidak boros kuota BYOK (P2-8). */
         private const val QUICK_SUGGESTIONS_COOLDOWN_MS = 15 * 60 * 1000L
 
-        private val DEFAULT_SUGGESTIONS =
-            listOf("Makan siang 25.000", "Bensin 20.000", "Beli token listrik 50.000")
+        // Satu sumber kebenaran saran statis: GeminiService.DEFAULT_SUGGESTIONS
+        // (L6). Hindari duplikasi literal yang bisa melenceng antar file.
+        private val DEFAULT_SUGGESTIONS = GeminiService.DEFAULT_SUGGESTIONS
     }
 
     private val repository: FinanceRepository
@@ -133,9 +135,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         return@collect
                     }
                     val now = System.currentTimeMillis()
-                    if (now - lastSuggestionsAt < QUICK_SUGGESTIONS_COOLDOWN_MS) return@collect
+                    if (now - lastSuggestionsAt < QUICK_SUGGESTIONS_COOLDOWN_MS) {
+                        return@collect
+                    }
                     try {
-                        _quickSuggestions.value = repository.getFrequentTransactionSuggestions(list)
+                        val suggestions = repository.getFrequentTransactionSuggestions(list)
+                        _quickSuggestions.value = suggestions
                         lastSuggestionsAt = now
                     } catch (e: Exception) {
                         Log.w("MainViewModel", "Operasi gagal", e)

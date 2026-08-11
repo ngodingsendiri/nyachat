@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.EnhancedEncryption
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Settings
@@ -47,8 +48,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
@@ -76,8 +80,15 @@ fun SettingsSheet(
     backupBusy: Boolean,
     isBackupEncrypted: Boolean,
     lastBackupMillis: Long,
+    // Status enkripsi FILE backup terakhir yang berhasil dibuat (bukan setting
+    // toggle [isBackupEncrypted]) — label "Backup terakhir" harus mencerminkan
+    // isi file di Drive.
+    lastBackupEncrypted: Boolean,
     onDismiss: () -> Unit,
     onToggleDarkMode: () -> Unit,
+    // 3.7: toggle notifikasi chat real-time.
+    chatNotificationsEnabled: Boolean = true,
+    onToggleChatNotifications: () -> Unit = {},
     onToggleBackupEncryption: () -> Unit,
     onCheckUpdate: () -> Unit,
     onGeminiKey: () -> Unit,
@@ -87,7 +98,10 @@ fun SettingsSheet(
     onBackup: () -> Unit,
     onRestore: () -> Unit,
     onClearData: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    // Audit #2: foto profil + aksi ganti foto (null = tidak ada aksi).
+    avatarPath: String? = null,
+    onPickAvatar: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
@@ -133,7 +147,13 @@ fun SettingsSheet(
             }
 
             // Kartu identitas workspace (item 8): siapa yang login di workspace ini.
-            IdentityCard(userName = userName, workspaceRole = workspaceRole, workspacePin = workspacePin)
+            IdentityCard(
+                userName = userName,
+                workspaceRole = workspaceRole,
+                workspacePin = workspacePin,
+                avatarPath = avatarPath,
+                onPickAvatar = onPickAvatar
+            )
 
             // ── UMUM ──
             SectionLabel(stringResource(R.string.settings_section_general))
@@ -141,6 +161,17 @@ fun SettingsSheet(
                 icon = if (isDarkMode) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
                 title = stringResource(if (isDarkMode) R.string.menu_mode_light else R.string.menu_mode_dark),
                 onClick = onToggleDarkMode
+            )
+            // 3.7: notifikasi chat real-time (FCM) — off hanya menyembunyikan
+            // tampilan di perangkat ini; cloud tetap mengirim (di-filter di app).
+            SettingRow(
+                icon = Icons.Rounded.Notifications,
+                title = stringResource(R.string.menu_chat_notifications),
+                subtitle = stringResource(R.string.menu_chat_notifications_desc),
+                onClick = onToggleChatNotifications,
+                trailing = {
+                    Switch(checked = chatNotificationsEnabled, onCheckedChange = { onToggleChatNotifications() })
+                }
             )
             SettingRow(
                 icon = Icons.Rounded.SystemUpdate,
@@ -190,8 +221,10 @@ fun SettingsSheet(
                 enabled = !backupBusy,
                 onClick = onRestore
             )
-            // Enkripsi backup (Sprint-2): passphrase diminta saat backup/restore,
-            // tidak pernah disimpan. Auto-backup harian dijeda saat aktif.
+            // Enkripsi backup (Sprint-2): passphrase diminta saat backup/restore
+            // MANUAL, tidak pernah disimpan. M5: auto-backup harian TETAP
+            // berjalan saat enkripsi aktif — memakai passphrase otomatis Keystore
+            // (BACKUP_AUTO_PASSPHRASE) jadi tidak ada prompt tengah malam.
             SettingRow(
                 icon = Icons.Rounded.EnhancedEncryption,
                 title = stringResource(R.string.settings_backup_encrypt),
@@ -202,10 +235,11 @@ fun SettingsSheet(
                 }
             )
             // Status backup terakhir (item 9) — informatif, bukan aksi.
+            // Pakai [lastBackupEncrypted] (status file AKTUAL), bukan toggle.
             SettingRow(
                 icon = Icons.Rounded.CloudUpload,
                 title = stringResource(R.string.settings_last_backup_title),
-                subtitle = lastBackupSubtitle(lastBackupMillis, isBackupEncrypted),
+                subtitle = lastBackupSubtitle(lastBackupMillis, lastBackupEncrypted),
                 onClick = null
             )
 
@@ -230,9 +264,11 @@ fun SettingsSheet(
     }
 }
 
-/** Label "Backup terakhir: …" + status enkripsi untuk baris status (item 9). */
+/** Label "Backup terakhir: …" + status enkripsi untuk baris status (item 9).
+ *  [isLastBackupEncrypted] = status enkripsi FILE backup aktual (bukan setting
+ *  toggle) — dipisah dari toggle supaya label tidak menyesatkan. */
 @Composable
-private fun lastBackupSubtitle(lastBackupMillis: Long, isBackupEncrypted: Boolean): String {
+private fun lastBackupSubtitle(lastBackupMillis: Long, isLastBackupEncrypted: Boolean): String {
     val whenLabel = if (lastBackupMillis > 0) {
         val date = Date(lastBackupMillis)
         val dateFmt = SimpleDateFormat("d MMM yyyy", Locale.forLanguageTag("id-ID"))
@@ -242,7 +278,7 @@ private fun lastBackupSubtitle(lastBackupMillis: Long, isBackupEncrypted: Boolea
         stringResource(R.string.settings_last_backup_never)
     }
     val encLabel = stringResource(
-        if (isBackupEncrypted) R.string.settings_backup_encrypted_yes
+        if (isLastBackupEncrypted) R.string.settings_backup_encrypted_yes
         else R.string.settings_backup_encrypted_no
     )
     return "$whenLabel · $encLabel"
@@ -253,16 +289,25 @@ private fun maskPin(pin: String): String =
     "•".repeat((pin.length - 4).coerceAtLeast(0)) + pin.takeLast(4)
 
 /**
- * Kartu identitas workspace (item 8): avatar inisial + nama + peran + PIN
- * tersamar. Memberi konteks "siapa & di workspace mana" sebelum daftar aksi.
+ * Kartu identitas workspace (item 8): avatar (foto atau inisial) + nama + peran
+ * + PIN tersamar. Memberi konteks "siapa & di workspace mana" sebelum daftar aksi.
+ * Avatar bisa di-tap untuk mengganti foto profil (audit #2) bila [onPickAvatar]
+ * tidak null.
  */
 @Composable
-private fun IdentityCard(userName: String?, workspaceRole: String?, workspacePin: String?) {
+private fun IdentityCard(
+    userName: String?,
+    workspaceRole: String?,
+    workspacePin: String?,
+    avatarPath: String? = null,
+    onPickAvatar: (() -> Unit)? = null
+) {
     val displayName = userName ?: stringResource(R.string.pin_default_name)
     val roleLabel = stringResource(
         if (workspaceRole == Constants.Roles.OWNER) R.string.pin_role_owner
         else R.string.pin_role_member
     )
+    val avatarChangeDesc = stringResource(R.string.avatar_change_desc)
     Surface(
         shape = RoundedCornerShape(Constants.Ui.CORNER_L.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -276,17 +321,38 @@ private fun IdentityCard(userName: String?, workspaceRole: String?, workspacePin
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
+                    .then(
+                        if (onPickAvatar != null) {
+                            Modifier.clickable(onClick = onPickAvatar)
+                        } else Modifier
+                    )
+                    .semantics { contentDescription = avatarChangeDesc }
             ) {
-                Text(
-                    text = displayName.take(1).uppercase(Locale.ROOT),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                com.startupmini.nyachat.ui.util.AvatarImage(
+                    name = displayName,
+                    size = 44,
+                    photoPath = avatarPath,
+                    backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                    textColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    textStyle = MaterialTheme.typography.titleMedium
                 )
+                if (onPickAvatar != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "✚",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {

@@ -1,6 +1,6 @@
 # Checklist Rilis ke Google Play (Nyachat)
 
-Checklist langkah demi langkah untuk mengirim **Nyachat** (r1.0.3 / versionCode 23)
+Checklist langkah demi langkah untuk mengirim **Nyachat** (r1.2.0 / versionCode 27)
 ke Google Play Console. Dibuat untuk memastikan tidak ada item yang terlewat.
 
 ---
@@ -20,8 +20,8 @@ ke Google Play Console. Dibuat untuk memastikan tidak ada item yang terlewat.
 
 1. Pastikan semua secret di atas tersedia (khususnya keystore upload).
 2. Buka tab **Actions → Build APK**.
-3. Jalankan build (Workflow dispatch), atau `push` tag `r*` (r1.0.3, ...).
-4. Unduh artifact **`Nyachat-r1.0.3-release-aab`** → file `app-release.aab`.
+3. Jalankan build (Workflow dispatch), atau `push` tag `r*` (r1.2.0, ...).
+4. Unduh artifact **`Nyachat-r1.2.0-release-aab`** → file `app-release.aab`.
    - Artifact debug (`...-debug.apk`) & release APK juga dibuat.
 5. *(Opsional lokal)* `./gradlew :app:bundleRelease` — butuh `KEYSTORE_PATH`/`STORE_PASSWORD`/`KEY_PASSWORD`.
 
@@ -78,7 +78,7 @@ Screenshot wajib (ukuran), sangat disarankan di perangkat nyata:
 - **Phone (mandatory):** 1 screenshot ≥ 640×480 & ≤ 8192×8192, minimal 2.
 - Gunakan **applicationId `com.startupmini.nyachat`** di emulator/perangkat.
 - Saran 6–8 screenshot: layar login, obrolan transaksi, rekap (donut), analisis
-  bulanan, kelola anggota, pengaturan/backup.
+  bulanan, kelola anggota, pengaturan/backup, **badge provenance AI/heuristik**, **workspace switch**.
 - **Icon:** 512×512 (logo aplikasi) + adaptive icon 32-bit.
 - **Feature graphic (opsional tapi disarankan):** 1024×500.
 - **Video promo (opsional):** YouTube link.
@@ -128,7 +128,7 @@ Formulir "Data safety" di Console → **Kebijakan → Data safety & content rati
 1. Console → **Release → Production → Buat rilis baru** → buat release tracks
    (Production, atau Internal Testing untuk uji awal).
 2. Unggah `app-release.aab`.
-3. Catatan rilis: versi `r1.0.3` – `Perbaikan Google Sign-In di release, redesign layar login (logo + nama + tagline), sembunyikan navigasi saat login, dialog update tersedia di semua build.`
+3. Catatan rilis: versi `r1.2.0` – `T3 dekomposisi 3 file raksasa (ChatScreen/RekapScreen/MainActivity), upgrade dependensi (compose-bom 2026.06, lifecycle 2.10, okhttp 5.4), deteksi jaringan → indikator "Mode offline" jujur, chips saran cepat fix (BUG-05), draf chat bertahan antar-tab (BUG-2), badge finansial bertahan (BUG-1), badge 🔒 file backup terenkripsi, snackbar "Passphrase salah", model AI OpenRouter diperbarui.`
 4. Terbitkan → tunggu review Google (biasanya jam–hari).
 
 ---
@@ -156,6 +156,9 @@ pemilik lewat layar **Kelola Anggota** (alur PIN + persetujuan).
 - [ ] Setujui/tolak permintaan di Kelola Anggota
 - [ ] Ubah label & peran anggota
 - [ ] Catat transaksi via chat (AI & offline)
+- [ ] **Badge transaksi tampil "AI" atau "heuristik" (M7)**
 - [ ] Rekap evaluasi + analisis Bulanan
 - [ ] Export CSV, backup/restore Drive
+- [ ] **Auto-backup terenkripsi jalan tanpa prompt (M5)**
+- [ ] **Ganti workspace → lampiran workspace lama tidak terhapus (M9)**
 - [ ] Mode gelap

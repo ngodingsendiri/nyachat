@@ -8,10 +8,11 @@ plugins {
   alias(libs.plugins.google.firebase.crashlytics)
 }
 
-// E1: versionName dari git tag (via CI property) atau default.
-// CI bisa set via -Papp.version=X.Y.Z. Local build fallback = r1.0.0.
+// L11: versi & versionCode dari gradle.properties (satu sumber kebenaran).
+// CI & lokal bisa override via -PappVersion=... -PappVersionCode=... tanpa edit file.
 // Skema rilis: tag r* (r1.0.0, r1.0.1, ...) — lihat GitHubUpdateChecker.
-private val appVersion: String = project.findProperty("appVersion") as String? ?: "r1.0.3"
+private val appVersion: String = project.findProperty("appVersion") as String? ?: "r1.1.3"
+private val appVersionCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 26
 
 android {
   namespace = "com.startupmini.nyachat"
@@ -21,7 +22,7 @@ android {
     applicationId = "com.startupmini.nyachat"
     minSdk = 24
     targetSdk = 36
-    versionCode = 23
+    versionCode = appVersionCode
     versionName = appVersion
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -80,6 +81,14 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  // M12: migration test Room membaca skema historis dari app/schemas. Skema
+  // ditambahkan ke aset debug (bukan test sourceSet) karena MigrationTestHelper
+  // di Robolectric membaca lewat context instrumentation/app — aset unit test
+  // SDK tidak di-merge oleh AGP. Debug assets mudah-mudahan tidak berdampak ke
+  // APK release (R8/shrink menghapusnya di buildType release).
+  sourceSets {
+    getByName("debug").assets.srcDirs("$projectDir/schemas")
+  }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
@@ -116,8 +125,14 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   // implementation(libs.androidx.security.crypto)  // REMOVED: migrasi ke SecureStorage (Android Keystore)
   implementation(libs.firebase.firestore)
+  // Relay AI server (FASE 4): memanggil Cloud Function aiComplete — SDK ini
+  // otomatis melampirkan Firebase Auth ID token (user login) ke callable.
+  implementation(libs.firebase.functions)
   implementation(libs.firebase.auth)
   implementation(libs.firebase.crashlytics)
+  // 3.7: notifikasi chat real-time — FCM data message ditampilkan
+  // FirebaseMessagingService (versi dikelola firebase-bom).
+  implementation(libs.firebase.messaging)
   implementation(libs.androidx.credentials)
   implementation(libs.googleid)
   implementation(libs.androidx.credentials.play.services.auth)
@@ -130,6 +145,7 @@ dependencies {
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
   testImplementation(libs.junit)
+  testImplementation(libs.androidx.room.testing)
   testImplementation(libs.org.json)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.robolectric)

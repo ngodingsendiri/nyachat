@@ -49,15 +49,14 @@ jobs:
       # kali — kalau berubah, Google Sign-In Firebase menolak APK
       # ("gagal login"). Jangan ganti/hapus debug.keystore.
 
-      # versionName kini diambil dari property appVersion (default 1.0.0) —
-      # bukan lagi literal di blok defaultConfig. Grep keduanya untuk
-      # kompatibilitas ke depan.
+      # L11: versionName dibaca dari gradle.properties (satu sumber kebenaran),
+      # fallback ke literal di build.gradle.kts untuk kompatibilitas.
       - name: Read version
         id: version
         run: |
-          VERSION=$(grep -oP 'appVersion: String = project\.findProperty\("appVersion"\) as String\? \?: "\K[^"]+' app/build.gradle.kts | head -1)
+          VERSION=$(grep -oP '^appVersion=\K.*' gradle.properties | head -1)
           if [ -z "$VERSION" ]; then
-            VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts | head -1)
+            VERSION=$(grep -oP 'appVersion: String = project\.findProperty\("appVersion"\) as String\? \?: "\K[^"]+' app/build.gradle.kts | head -1)
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
