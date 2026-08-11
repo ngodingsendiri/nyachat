@@ -16,6 +16,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -196,6 +197,8 @@ fun ChatMessageBubble(
             imagePath?.let { ImageFileUtil.decodeImage(it, 1100) }
         }
     }
+    // Snapshot lokal supaya smart-cast berfungsi (imageBitmap = delegated property).
+    val mediaBitmap = imageBitmap
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -257,7 +260,9 @@ fun ChatMessageBubble(
             color = bubbleColor,
             shadowElevation = if (isMe) 0.dp else 1.dp,
             modifier = Modifier
-                .widthIn(min = 60.dp, max = 300.dp)
+                // Media (foto) lebih lebar dari teks — screenshot/nota perlu ruang
+            // baca; teks tetap 300dp agar nyaman dibaca.
+            .widthIn(min = 60.dp, max = if (mediaBitmap != null) 340.dp else 300.dp)
                 .offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { swipeOffsetX.value.toDp() })
                 // P1-2 (audit keyboard): onClick = menu aksi (bukan kosong) supaya
                 // keyboard (Enter) & TalkBack bisa membuka menu balas/edit/salin/hapus —
@@ -304,6 +309,24 @@ fun ChatMessageBubble(
                 )
                 .testTag("chat_bubble_${message.id}")
         ) {
+            if (mediaBitmap != null) {
+                // ===== MEDIA MESSAGE (WhatsApp/Telegram): gambar = bubble =====
+                // Layout terpisah dari pesan teks: TANPA padding generik bubble
+                // (14/10dp), gambar mengisi hampir seluruh container, sudut
+                // di-clip oleh shape Surface (radius tunggal, bukan ganda).
+                ChatMediaBubbleContent(
+                    message = message,
+                    imageBitmap = mediaBitmap,
+                    isMe = isMe,
+                    bubbleColor = bubbleColor,
+                    textColor = textColor,
+                    timeColor = timeColor,
+                    senderColor = senderColor,
+                    timeDisplay = timeDisplay,
+                    onOpenFile = onOpenFile,
+                    onOpenTransaction = onOpenTransaction
+                )
+            } else {
             Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 // Kutipan pesan yang dibalas (swipe kanan / menu Balas)
                 message.replyToText?.takeIf { it.isNotBlank() }?.let { quoted ->
@@ -408,85 +431,251 @@ fun ChatMessageBubble(
                 // Financial Tag Badge inside message — warna pastel lebih lembut
                 if (message.isFinancial && message.detectedAmount != null) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    val isIncome = message.detectedType == Constants.TransactionTypes.INCOME
-                    // Token semantik sudah mode-aware: di dark mode teks memakai
-                    // varian terang (audit P0: sebelumnya teks hijau gelap di atas
-                    // latar hijau gelap ≈1.5:1 — gagal WCAG berat).
-                    val tagBg = if (isIncome) semantic.moneyTagIncomeBg else semantic.moneyTagExpenseBg
-                    val tagColor = if (isIncome) semantic.income else semantic.expense
+                    FinancialBadge(
+                        message = message,
+                        onOpenTransaction = onOpenTransaction
+                    )
+                }
+            }
+            }
+        }
+    }
+}
 
-                    val formatRp = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
-                        maximumFractionDigits = 0
-                    }.format(message.detectedAmount)
+/**
+ * Badge finansial (pengeluaran/pemasukan) di dalam bubble — dipakai pesan teks
+ * DAN pesan media. Warna pastel mode-aware; tap membuka transaksi di Rekap.
+ */
+@Composable
+private fun FinancialBadge(
+    message: ChatMessage,
+    modifier: Modifier = Modifier,
+    onOpenTransaction: (() -> Unit)? = null
+) {
+    val semantic = LocalSemanticColors.current
+    val isIncome = message.detectedType == Constants.TransactionTypes.INCOME
+    // Token semantik sudah mode-aware: di dark mode teks memakai varian terang
+    // (audit P0: sebelumnya teks hijau gelap di atas latar hijau gelap ≈1.5:1).
+    val tagBg = if (isIncome) semantic.moneyTagIncomeBg else semantic.moneyTagExpenseBg
+    val tagColor = if (isIncome) semantic.income else semantic.expense
 
-                    // Badge bisa di-tap untuk membuka transaksi di Rekap (item 5)
-                    // — inner clickable menang atas combinedClickable bubble.
-                    // Label aksesibilitas di-hoist: semantics {} bukan context composable.
-                    val badgeDesc = stringResource(R.string.chat_open_transaction_desc)
-                    val badgeClickModifier = if (onOpenTransaction != null) {
-                        Modifier
-                            .clickable(onClick = onOpenTransaction)
-                            .semantics {
-                                contentDescription = badgeDesc
-                                role = Role.Button
-                            }
-                    } else Modifier
+    val formatRp = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
+        maximumFractionDigits = 0
+    }.format(message.detectedAmount)
 
-                    Surface(
-                        // Badge ringkas (2026-08-10): padding ramping + indikator sumber
-                        // jadi ikon kecil (AI teks 2 huruf / ⚡ heuristik) — sebelumnya
-                        // teks "heuristik" (9 huruf) bikin badge memanjang & memakan tempat.
-                        shape = RoundedCornerShape(8.dp),
-                        color = tagBg,
-                        modifier = badgeClickModifier.testTag("financial_badge_${message.id}")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (isIncome) Icons.Rounded.CheckCircle else Icons.Rounded.Receipt,
-                                contentDescription = null,
-                                tint = tagColor,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "${if (isIncome) "+" else "-"} $formatRp · ${message.detectedCategory}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Medium,
-                                color = tagColor
-                            )
-                            // M7: indikator sumber deteksi (AI vs heuristik offline).
-                            // Ringkas: "AI" = teks pendek; heuristik = ikon ⚡ (OfflineBolt).
-                            message.detectedBy?.let { source ->
-                                if (source.equals("HEURISTIK", ignoreCase = true) ||
-                                    source.equals("AI", ignoreCase = true)
-                                ) {
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    val isAi = source.equals("AI", ignoreCase = true)
-                                    if (isAi) {
-                                        val indicatorDesc = stringResource(R.string.badge_detected_ai_desc)
-                                        Text(
-                                            text = stringResource(R.string.badge_detected_ai),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = tagColor.copy(alpha = 0.7f),
-                                            modifier = Modifier.semantics { contentDescription = indicatorDesc }
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Rounded.OfflineBolt,
-                                            contentDescription = stringResource(R.string.badge_detected_heuristic_desc),
-                                            tint = tagColor.copy(alpha = 0.7f),
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
+    // Badge bisa di-tap untuk membuka transaksi di Rekap — inner clickable
+    // menang atas combinedClickable bubble. Label aksesibilitas di-hoist.
+    val badgeDesc = stringResource(R.string.chat_open_transaction_desc)
+    val badgeClickModifier = if (onOpenTransaction != null) {
+        Modifier
+            .clickable(onClick = onOpenTransaction)
+            .semantics {
+                contentDescription = badgeDesc
+                role = Role.Button
+            }
+    } else Modifier
+
+    Surface(
+        // Badge ringkas (2026-08-10): padding ramping + indikator sumber jadi
+        // ikon kecil (AI teks 2 huruf / ⚡ heuristik) — bukan teks "heuristik".
+        shape = RoundedCornerShape(8.dp),
+        color = tagBg,
+        modifier = badgeClickModifier.then(modifier).testTag("financial_badge_${message.id}")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isIncome) Icons.Rounded.CheckCircle else Icons.Rounded.Receipt,
+                contentDescription = null,
+                tint = tagColor,
+                modifier = Modifier.size(12.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "${if (isIncome) "+" else "-"} $formatRp · ${message.detectedCategory}",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = tagColor
+            )
+            // M7: indikator sumber deteksi (AI vs heuristik offline).
+            // Ringkas: "AI" = teks pendek; heuristik = ikon ⚡ (OfflineBolt).
+            message.detectedBy?.let { source ->
+                if (source.equals("HEURISTIK", ignoreCase = true) ||
+                    source.equals("AI", ignoreCase = true)
+                ) {
+                    Spacer(modifier = Modifier.width(5.dp))
+                    val isAi = source.equals("AI", ignoreCase = true)
+                    if (isAi) {
+                        val indicatorDesc = stringResource(R.string.badge_detected_ai_desc)
+                        Text(
+                            text = stringResource(R.string.badge_detected_ai),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = tagColor.copy(alpha = 0.7f),
+                            modifier = Modifier.semantics { contentDescription = indicatorDesc }
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.OfflineBolt,
+                            contentDescription = stringResource(R.string.badge_detected_heuristic_desc),
+                            tint = tagColor.copy(alpha = 0.7f),
+                            modifier = Modifier.size(12.dp)
+                        )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Konten MEDIA message (gaya WhatsApp/Telegram) — gambar MENJADI bubble-nya
+ * sendiri: tanpa padding generik bubble, gambar mengisi hampir seluruh
+ * container, sudut di-clip oleh shape Surface (radius tunggal, bukan "frame di
+ * dalam frame"). Caption/waktu/badge di bawah memakai padding kecil sendiri.
+ */
+@Composable
+private fun ChatMediaBubbleContent(
+    message: ChatMessage,
+    imageBitmap: Bitmap,
+    isMe: Boolean,
+    bubbleColor: Color,
+    textColor: Color,
+    timeColor: Color,
+    senderColor: Color,
+    timeDisplay: String,
+    onOpenFile: (() -> Unit)?,
+    onOpenTransaction: (() -> Unit)?
+) {
+    val semantic = LocalSemanticColors.current
+    Column {
+        // Kutipan balasan (swipe kanan / menu Balas) — padding sendiri, rapat
+        message.replyToText?.takeIf { it.isNotBlank() }?.let { quoted ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = bubbleColor.copy(alpha = 0.8f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text(
+                        text = message.replyToSender ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = senderColor
+                    )
+                    Text(
+                        text = quoted,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color = textColor.copy(alpha = 0.85f)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        // File dokumen (PDF/nota) — jarang bersamaan dengan foto
+        if (message.filePath != null) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isMe) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                modifier = Modifier
+                    .widthIn(max = 230.dp)
+                    .combinedClickable(onClick = { onOpenFile?.invoke() })
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PictureAsPdf,
+                        contentDescription = null,
+                        tint = if (isMe) Color.White else semantic.expense,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = message.fileName ?: stringResource(R.string.chat_pdf_attached),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = textColor,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = stringResource(R.string.chat_pdf_attached),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = timeColor
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        // Gambar — EDGE-TO-EDGE: lebar mengikuti bubble (max 340dp via widthIn
+        // di Surface), tinggi mengikuti aspect ratio, TANPA clip sendiri (sudut
+        // di-clip shape Surface). Tidak ada frame/padding di sekeliling gambar.
+        //
+        // CATATAN (2026-08-11): fillMaxWidth SAJA tidak cukup — Composer Image
+        // menerapkan sizeToIntrinsics (ukuran intrinsic bitmap dalam px) yang
+        // bisa mengalahkan width luar, sehingga gambar tampil menyusut (≈px
+        // asli) dan menyisakan frame bubble hijau di sisi kiri/kanan. Solusi:
+        // aspectRatio eksplisit → ukuran ditentukan penuh oleh fillMaxWidth +
+        // rasio asli gambar (proporsi terjaga, tanpa crop/stretch).
+        val mediaAspect = imageBitmap.width.toFloat() / imageBitmap.height.toFloat()
+        Image(
+            bitmap = imageBitmap.asImageBitmap(),
+            contentDescription = stringResource(R.string.chat_image_desc),
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(mediaAspect),
+            contentScale = ContentScale.Fit
+        )
+
+        // Bagian bawah: caption + waktu + badge finansial — padding kecil
+        val hasCaption = message.messageText.isNotBlank()
+        val hasBadge = message.isFinancial && message.detectedAmount != null
+        if (hasCaption || hasBadge) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                if (hasCaption) {
+                    Text(
+                        text = message.messageText,
+                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                        color = textColor
+                    )
+                }
+                if (isMe) {
+                    Text(
+                        text = timeDisplay,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = timeColor,
+                        modifier = Modifier
+                            .align(Alignment.End)
+                            .padding(top = 4.dp)
+                    )
+                }
+                if (hasBadge) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FinancialBadge(
+                        message = message,
+                        onOpenTransaction = onOpenTransaction
+                    )
+                }
+            }
+        } else if (isMe) {
+            // Media murni milik sendiri — waktu tetap tampil (padding ramping)
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                Text(
+                    text = timeDisplay,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = timeColor,
+                    modifier = Modifier.align(Alignment.End)
+                )
             }
         }
     }
