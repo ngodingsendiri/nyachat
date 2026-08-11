@@ -14,9 +14,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -318,7 +318,6 @@ fun ChatMessageBubble(
                     message = message,
                     imageBitmap = mediaBitmap,
                     isMe = isMe,
-                    bubbleColor = bubbleColor,
                     textColor = textColor,
                     timeColor = timeColor,
                     senderColor = senderColor,
@@ -356,59 +355,19 @@ fun ChatMessageBubble(
 
                 // File dokumen (PDF/invoice/nota) — ketuk untuk membuka
                 if (message.filePath != null) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isMe) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                        modifier = Modifier
-                            .widthIn(max = 230.dp)
-                            .combinedClickable(onClick = { onOpenFile?.invoke() })
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.PictureAsPdf,
-                                contentDescription = null,
-                                tint = if (isMe) Color.White else semantic.expense,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = message.fileName ?: stringResource(R.string.chat_pdf_attached),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = textColor,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = stringResource(R.string.chat_pdf_attached),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = timeColor
-                                )
-                            }
-                        }
-                    }
+                    AttachedFileCard(
+                        message = message,
+                        isMe = isMe,
+                        textColor = textColor,
+                        timeColor = timeColor,
+                        onOpenFile = onOpenFile
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // Foto lampiran (nota belanja) — proporsional, tidak memenuhi lebar chat
-                imageBitmap?.let { b ->
-                    Image(
-                        bitmap = b.asImageBitmap(),
-                        contentDescription = stringResource(R.string.chat_image_desc),
-                        modifier = Modifier
-                            .widthIn(max = 220.dp)
-                            .clip(RoundedCornerShape(12.dp)),
-                        contentScale = ContentScale.Fit
-                    )
-                    if (message.messageText.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                }
-
+                // Catatan: pesan ber-foto SELALU lewat jalur media di atas
+                // (mediaBitmap != null) — blok gambar lama di jalur teks tidak
+                // lagi diperlukan (tidak akan pernah ter-render).
                 if (message.messageText.isNotBlank()) {
                     Text(
                         text = message.messageText,
@@ -437,6 +396,56 @@ fun ChatMessageBubble(
                     )
                 }
             }
+            }
+        }
+    }
+}
+
+/**
+ * Kartu lampiran dokumen (PDF/invoice/nota) di dalam bubble — dipakai jalur
+ * teks DAN media. Ketuk membuka file lewat aplikasi eksternal.
+ */
+@Composable
+private fun AttachedFileCard(
+    message: ChatMessage,
+    isMe: Boolean,
+    textColor: Color,
+    timeColor: Color,
+    onOpenFile: (() -> Unit)?
+) {
+    val semantic = LocalSemanticColors.current
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (isMe) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+        modifier = Modifier
+            .widthIn(max = 230.dp)
+            .combinedClickable(onClick = { onOpenFile?.invoke() })
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PictureAsPdf,
+                contentDescription = null,
+                tint = if (isMe) Color.White else semantic.expense,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = message.fileName ?: stringResource(R.string.chat_pdf_attached),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = textColor,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stringResource(R.string.chat_pdf_attached),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = timeColor
+                )
             }
         }
     }
@@ -541,7 +550,6 @@ private fun ChatMediaBubbleContent(
     message: ChatMessage,
     imageBitmap: Bitmap,
     isMe: Boolean,
-    bubbleColor: Color,
     textColor: Color,
     timeColor: Color,
     senderColor: Color,
@@ -549,16 +557,26 @@ private fun ChatMediaBubbleContent(
     onOpenFile: (() -> Unit)?,
     onOpenTransaction: (() -> Unit)?
 ) {
-    val semantic = LocalSemanticColors.current
     Column {
-        // Kutipan balasan (swipe kanan / menu Balas) — padding sendiri, rapat
+        // Kutipan balasan (swipe kanan / menu Balas) — TANPA panel bersarang:
+        // garis aksen kiri (gaya Telegram) supaya pola "panel di dalam panel"
+        // tidak hidup lagi di bubble media.
         message.replyToText?.takeIf { it.isNotBlank() }?.let { quoted ->
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = bubbleColor.copy(alpha = 0.8f),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(senderColor.copy(alpha = 0.6f))
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = message.replyToSender ?: "",
                         style = MaterialTheme.typography.labelSmall,
@@ -574,46 +592,18 @@ private fun ChatMediaBubbleContent(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
         }
 
         // File dokumen (PDF/nota) — jarang bersamaan dengan foto
         if (message.filePath != null) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (isMe) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                modifier = Modifier
-                    .widthIn(max = 230.dp)
-                    .combinedClickable(onClick = { onOpenFile?.invoke() })
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.PictureAsPdf,
-                        contentDescription = null,
-                        tint = if (isMe) Color.White else semantic.expense,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = message.fileName ?: stringResource(R.string.chat_pdf_attached),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = textColor,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = stringResource(R.string.chat_pdf_attached),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = timeColor
-                        )
-                    }
-                }
-            }
+            AttachedFileCard(
+                message = message,
+                isMe = isMe,
+                textColor = textColor,
+                timeColor = timeColor,
+                onOpenFile = onOpenFile
+            )
             Spacer(modifier = Modifier.height(6.dp))
         }
 
@@ -627,7 +617,9 @@ private fun ChatMediaBubbleContent(
         // asli) dan menyisakan frame bubble hijau di sisi kiri/kanan. Solusi:
         // aspectRatio eksplisit → ukuran ditentukan penuh oleh fillMaxWidth +
         // rasio asli gambar (proporsi terjaga, tanpa crop/stretch).
-        val mediaAspect = imageBitmap.width.toFloat() / imageBitmap.height.toFloat()
+        // Guard rasio ekstrem (bitmap 0/1px) — aspectRatio wajib finite & > 0.
+        val mediaAspect = imageBitmap.width.toFloat() /
+            imageBitmap.height.coerceAtLeast(1).toFloat()
         Image(
             bitmap = imageBitmap.asImageBitmap(),
             contentDescription = stringResource(R.string.chat_image_desc),
