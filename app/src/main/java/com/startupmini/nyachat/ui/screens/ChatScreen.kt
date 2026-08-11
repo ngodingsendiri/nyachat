@@ -60,8 +60,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -237,6 +239,10 @@ fun ChatScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            // Tekstur grid halus di area chat (2026-08-11) — pola kotak-kotak
+            // sangat tipis & alpha rendah supaya background hampir terlihat
+            // polos tapi ada depth; tetap di belakang semua elemen chat.
+            .chatGridBackground(isDark)
             .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -638,6 +644,35 @@ fun ChatScreen(
                 }
             )
         }
+    }
+}
+
+// ---- Tekstur background chat ----
+
+/**
+ * Grid kotak-kotak halus untuk area chat (2026-08-11) — tekstur subtle,
+ * bukan wallpaper. Garis 0.5dp dengan alpha sangat rendah (mode-aware)
+ * sehingga background hampir terlihat polos; grid digambar lewat drawBehind
+ * (sekali per ukuran layar, efisien — tidak ada bitmap pattern).
+ */
+private fun Modifier.chatGridBackground(isDark: Boolean): Modifier = this.drawBehind {
+    // Warna garis menyatu dengan tema: gelap-tipis di light, terang-tipis di dark.
+    val gridLine = if (isDark) {
+        Color.White.copy(alpha = 0.06f)
+    } else {
+        Color.Black.copy(alpha = 0.05f)
+    }
+    val cellSize = 32.dp.toPx()
+    val stroke = 0.5.dp.toPx()
+    var x = 0f
+    while (x <= size.width) {
+        drawLine(gridLine, Offset(x, 0f), Offset(x, size.height), strokeWidth = stroke)
+        x += cellSize
+    }
+    var y = 0f
+    while (y <= size.height) {
+        drawLine(gridLine, Offset(0f, y), Offset(size.width, y), strokeWidth = stroke)
+        y += cellSize
     }
 }
 
