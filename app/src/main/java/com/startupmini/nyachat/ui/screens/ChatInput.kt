@@ -4,13 +4,14 @@ import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -59,7 +60,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -117,6 +117,7 @@ fun QuickSuggestionRow(
     // sehingga chips bergeser halus ke kanan saat FAB muncul, bukan lompat.
     startPadding: Dp = 0.dp
 ) {
+    val semantic = LocalSemanticColors.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -148,34 +149,58 @@ fun QuickSuggestionRow(
             // → ada slack ~8dp di bawah. CenterVertically agar seimbang.
             verticalAlignment = Alignment.CenterVertically
         ) {
-            suggestions.forEach { text ->
-                // Chip FLOATING frame-only (2026-08-10): fill TRANSPARAN, cukup
-                // border outline — sebelumnya fill surfaceVariant (alpha 0.3/0.5)
-                // membuat 3-4 chip tampak sebagai area/panel yang menutupi chat di
-                // atas keyboard ("teks chat ketutup separuh layar"). Sekarang hanya
-                // frame tombol yang terlihat, latar halaman tetap transparan.
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    // P2-4 (audit touch target): tinggi chip minimal 40dp — sebelumnya
-                    // hanya ~28dp, di bawah rekomendasi Android (48dp).
-                    modifier = Modifier
-                        .heightIn(min = 40.dp)
-                        .widthIn(max = 180.dp)
-                        .clickable { onSuggestionClicked(text) }
-                ) {
-                    Box(
-                        modifier = Modifier.padding(horizontal = 14.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = text,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+            suggestions.forEachIndexed { index, text ->
+                // ANIMASI MASUK (2026-08-12, permintaan user): chip masuk satu per
+                // satu dari arah KANAN seperti kereta — slide horizontal + fade,
+                // stagger index*45ms — saat baris pertama muncul (bukan pop instan).
+                // Berhenti saat user mengetik (baris dibuang), lalu muncul lagi dari
+                // kanan saat draf dikosongkan.
+                AnimatedVisibility(
+                    visible = true,
+                    enter = slideInHorizontally(
+                        initialOffsetX = { it },
+                        animationSpec = tween(
+                            durationMillis = Motion.BASE_MS,
+                            delayMillis = index * 45,
+                            easing = Motion.STANDARD
                         )
+                    ) + fadeIn(
+                        animationSpec = tween(
+                            durationMillis = Motion.BASE_MS,
+                            delayMillis = index * 45,
+                            easing = Motion.STANDARD
+                        )
+                    )
+                ) {
+                    // Chip FLOATING BERLATAR (2026-08-12, permintaan user): tombol
+                    // harus terbaca sebagai tombol → fill surfaceVariant (satu
+                    // keluarga dengan pill composer), tanpa border. Background BARIS
+                    // tetap transparan — jangan pernah panel full-width (regresi
+                    // lama yang menutupi chat di atas keyboard).
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(
+                            alpha = if (semantic.isDark) 0.9f else 0.55f
+                        ),
+                        // P2-4 (audit touch target): tinggi chip minimal 40dp — sebelumnya
+                        // hanya ~28dp, di bawah rekomendasi Android (48dp).
+                        modifier = Modifier
+                            .heightIn(min = 40.dp)
+                            .widthIn(max = 180.dp)
+                            .clickable { onSuggestionClicked(text) }
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }

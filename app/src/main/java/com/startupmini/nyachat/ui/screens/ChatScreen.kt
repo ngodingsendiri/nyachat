@@ -14,7 +14,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
@@ -484,19 +483,20 @@ fun ChatScreen(
                         animationSpec = Motion.base()
                     )
             ) {
-                // FAB OUTLINE TRANSPARAN (2026-08-11, masukan user #3): gaya
-                // DISERAGAMKAN dengan chip rekomendasi — transparan + border
-                // outlineVariant 1dp (bukan fill solid, BUKAN shadow). Alasan
-                // user: FAB berada di area yang sama dengan baris chips, jadi
-                // wajib gaya/ukuran/tinggi yang sama (40dp). Ikon panah primary
-                // tetap menjadi penanda tombol. Ripple ter-clip lingkaran
-                // (clip sebelum clickable); border digambar di atas ripple.
+                // FAB BERLATAR (2026-08-12, permintaan user): gaya DISERAGAMKAN
+                // dengan chip rekomendasi & pill composer — tombol harus terbaca
+                // sebagai tombol → fill surfaceVariant (bukan frame transparan,
+                // BUKAN shadow). Ikon panah primary tetap penanda aksi. Ripple
+                // ter-clip lingkaran (clip sebelum clickable).
+                val fabFill = MaterialTheme.colorScheme.surfaceVariant.copy(
+                    alpha = if (isDark) 0.9f else 0.55f
+                )
                 Box(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
+                        .background(fabFill, CircleShape)
                         .clickable { coroutineScope.launch { listState.animateScrollToItem(rows.size - 1) } }
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                         .testTag("jump_to_bottom"),
                     contentAlignment = Alignment.Center
                 ) {

@@ -181,16 +181,30 @@ class AppSnapshotTest {
 
     @Test
     fun `saran cepat quick add`() {
-        capture("quick_suggestions") {
-            QuickSuggestionRow(
-                suggestions = listOf(
-                    "Makan siang 25.000",
-                    "Bensin 20.000",
-                    "Beli token listrik 50.000"
-                ),
-                onSuggestionClicked = {}
-            )
+        // Chip kini BERLATAR (fill surfaceVariant) & masuk dengan animasi kereta
+        // dari kanan (2026-08-12) — settle animasi dulu supaya snapshot
+        // menangkap posisi akhir (chip sudah masuk semua).
+        composeRule.setContent {
+            CoupleFinanceTheme {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
+                        .padding(8.dp)
+                ) {
+                    QuickSuggestionRow(
+                        suggestions = listOf(
+                            "Makan siang 25.000",
+                            "Bensin 20.000",
+                            "Beli token listrik 50.000"
+                        ),
+                        onSuggestionClicked = {}
+                    )
+                }
+            }
         }
+        composeRule.mainClock.advanceTimeBy(1_000)
+        composeRule.onRoot().captureRoboImage("src/test/snapshots/screens/quick_suggestions.png")
     }
 
     @Test
