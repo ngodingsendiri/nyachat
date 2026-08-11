@@ -161,7 +161,13 @@ exports.aiComplete = onCall(
       for (const model of FREE_MODELS) {
         try {
           const text = await callOpenRouter(orKey, model, prompt, imageBase64);
-          if (text) return { text };
+          if (text) {
+            // Log singkat untuk debug: model mana yang berhasil & cuplikan output
+            // (tanpa bocorkan isi prompt penuh).
+            logger.info('Relay OK model=' + model +
+              ' len=' + text.length + ' head=' + JSON.stringify(text.slice(0, 100)));
+            return { text };
+          }
         } catch (e) {
           logger.warn('Relay OpenRouter gagal: ' + model, e);
         }
