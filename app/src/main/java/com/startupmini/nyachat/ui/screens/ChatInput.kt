@@ -99,12 +99,21 @@ private val CHAT_BAR_HEIGHT = 52.dp
 private val CHAT_FIELD_MIN_HEIGHT = CHAT_BAR_HEIGHT - 4.dp
 
 /**
- * Tinggi total baris saran cepat (pad atas 4dp + row 48dp + pad bawah 4dp =
- * 56dp) — dipakai ChatScreen untuk MERESERVE ruang yang sama saat baris saran
- * tidak tampil (quickSuggestions kosong) tetapi FAB jump-to-bottom tampil,
- * supaya FAB overlay tidak menimpa pesan terakhir yang masih terbaca.
+ * Fill chip rekomendasi & FAB jump-to-bottom (2026-08-12): lebih transparan dari
+ * pill composer (0.9/0.55) karena baris chips kini melayang DI ATAS daftar pesan
+ * (list scroll sampai kolom input) — alpha diturunkan supaya pesan yang scroll di
+ * belakangnya tetap samar terbaca ("sedikit memudar").
  */
-internal val QUICK_SUGGESTION_ROW_HEIGHT = 56.dp
+internal const val CHIP_FILL_ALPHA_DARK = 0.75f
+internal const val CHIP_FILL_ALPHA_LIGHT = 0.45f
+
+/**
+ * Tinggi total baris chips saran cepat (pad atas 4dp + row 48dp + pad bawah 4dp =
+ * 56dp). Satu sumber kebenaran: dipakai ChatScreen untuk menghitung contentPadding
+ * bottom LazyColumn (CHIP_ROW_HEIGHT + 8dp) supaya pesan terakhir berhenti tepat
+ * di atas zona chips — jika tinggi chips diubah di sini, padding list ikut mengikuti.
+ */
+internal val CHIP_ROW_HEIGHT = 56.dp
 
 @Composable
 fun QuickSuggestionRow(
@@ -115,11 +124,15 @@ fun QuickSuggestionRow(
     // tersembunyi di balik FAB dan tetap bisa diketuk. 0.dp saat FAB tidak
     // tampil. Nilai berubah dengan ANIMASI (animateDpAsState di pemanggil)
     // sehingga chips bergeser halus ke kanan saat FAB muncul, bukan lompat.
-    startPadding: Dp = 0.dp
+    startPadding: Dp = 0.dp,
+    // Overlay (2026-08-12): baris chips kini melayang DI ATAS daftar pesan (list
+    // scroll sampai ke kolom input) — pemanggil mengatur posisi, mis.
+    // Modifier.align(Alignment.BottomCenter) di dalam Box daftar.
+    modifier: Modifier = Modifier
 ) {
     val semantic = LocalSemanticColors.current
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
     ) {
@@ -180,7 +193,9 @@ fun QuickSuggestionRow(
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(
-                            alpha = if (semantic.isDark) 0.9f else 0.55f
+                            // Memudar (2026-08-12): chips kini melayang DI ATAS pesan —
+                            // alpha diturunkan supaya pesan di belakang tetap terbaca.
+                            alpha = if (semantic.isDark) CHIP_FILL_ALPHA_DARK else CHIP_FILL_ALPHA_LIGHT
                         ),
                         // P2-4 (audit touch target): tinggi chip minimal 40dp — sebelumnya
                         // hanya ~28dp, di bawah rekomendasi Android (48dp).

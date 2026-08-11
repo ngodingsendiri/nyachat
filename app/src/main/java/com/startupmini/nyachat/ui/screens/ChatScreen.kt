@@ -259,20 +259,31 @@ fun ChatScreen(
             .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Daftar chat + tombol lompat ke bawah sebagai OVERLAY transparan
-            // frame-only di pojok kanan-bawah daftar (bukan di flow composer):
-            // chat dapat scroll penuh di belakang frame (tanpa ruang layout
-            // terbuang), dan FAB tidak pernah menutupi composer/tombol Send.
+            // TELEGRAM-STYLE (2026-08-12): daftar pesan mengisi SELURUH Box
+            // (fillMaxSize) — batas scroll TURUN ke kolom input, bukan lagi di atas
+            // chips. Chips saran & FAB jump-to-bottom melayang sebagai OVERLAY di
+            // dasar Box, DI ATAS pesan yang lewat di belakangnya (chips & FAB dibuat
+            // memudar — CHIP_FILL_ALPHA — supaya pesan tetap samar terbaca).
+            //
+            // contentPadding bottom DINAMIS: CHIP_ROW_HEIGHT + 8dp saat draf kosong
+            // (pesan terakhir berhenti tepat di atas zona chips/FAB → selalu terbaca
+            // penuh, dan FAB tak pernah menutupi bubble terakhir), 16dp saat mengetik
+            // (chips tersembunyi → pesan terakhir rapat ke input, tanpa gap kosong).
+            // ANIMASI (reviewer 2026-08-12): padding di-animasi supaya peralihan
+            // 64↔16dp saat mulai/berhenti mengetik tidak "lompat" — sinkron dengan
+            // naik/turunnya chips & keyboard (motion language: soft, tidak snap).
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                // Kolom dalam Box: daftar pesan (weight 1f) + baris saran chips di
-                // bawahnya. Tombol lompat (FAB) adalah overlay Box di pojok kanan-
-                // bawah — tepat DI ATAS baris chips — sehingga pesan (yang berhenti
-                // di tepi atas chips) TIDAK PERNAH tertutup FAB saat scroll.
-                Column(modifier = Modifier.fillMaxSize()) {
+                val listBottomPadding by animateDpAsState(
+                    targetValue = if (draftText.isBlank()) CHIP_ROW_HEIGHT + 8.dp else 16.dp,
+                    animationSpec = Motion.base(),
+                    label = "listBottomPadding"
+                )
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 24.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 12.dp, end = 12.dp, top = 12.dp, bottom = listBottomPadding
+                    )
                 ) {
                 if (messages.isEmpty() && !isAiThinking) {
                     item {
@@ -397,14 +408,15 @@ fun ChatScreen(
                 }
                 }
 
-                // Chips saran cepat — dipindah KE DALAM Box daftar (di bawah list)
-                // agar FAB bisa melayang di atas baris chips, bukan di atas pesan
-                // (2026-08-10: FAB yang menutupi bubble terakhir saat scroll).
-                // BUG-05 (r1.2.0): AnimatedVisibility dari compose-bom 2026.06
-                // meng-komposisi content tapi TIDAK me-layout-nya — dipakai if biasa.
+                // Chips saran cepat — kini OVERLAY di dasar Box (align
+                // BottomCenter), MELAYANG DI ATAS daftar pesan (Telegram-style):
+                // pesan scroll penuh di belakangnya dan tetap samar terbaca karena
+                // chips memudar (CHIP_FILL_ALPHA). BUG-05 (r1.2.0): AnimatedVisibility
+                // dari compose-bom 2026.06 meng-komposisi content tapi TIDAK
+                // me-layout-nya — dipakai if biasa.
                 //
-                // ANIMASI GESER (r1.2.0): FAB jump-to-bottom pindah ke ujung KIRI
-                // baris chips. Saat FAB muncul, chips bergeser ELASTIS ke kanan
+                // ANIMASI GESER (r1.2.0): FAB jump-to-bottom di ujung KIRI baris
+                // chips. Saat FAB muncul, chips bergeser ELASTIS ke kanan
                 // (startPadding 0 → 64dp) dengan spring — bukan lompat instan —
                 // sehingga FAB dan chips saling memberi ruang tanpa menimpa.
                 val chipShift by animateDpAsState(
@@ -422,31 +434,22 @@ fun ChatScreen(
                     QuickSuggestionRow(
                         suggestions = quickSuggestions,
                         onSuggestionClicked = { onDraftChange(it) },
-                        startPadding = chipShift
+                        startPadding = chipShift,
+                        modifier = Modifier.align(Alignment.BottomCenter)
                     )
-                } else if (shouldShowJumpButton && draftText.isBlank()) {
-                    // FAB tampil TANPA baris saran (quickSuggestions kosong):
-                    // reserve tinggi baris chips (56dp) supaya FAB overlay di
-                    // ujung kiri-bawah TIDAK menimpa pesan terakhir yang masih
-                    // terbaca saat scroll (masukan user 2026-08-11). Tanpa ini,
-                    // LazyColumn memanjang sampai dasar Box dan FAB menutupi
-                    // bubble terakhir di area kiri-bawah.
-                    Spacer(modifier = Modifier.height(QUICK_SUGGESTION_ROW_HEIGHT))
                 }
-            } // end Column dalam Box (list + chips)
 
             // Tombol lompat ke pesan terbaru (muncul saat scroll ke atas) —
-            // OVERLAY di pojok KIRI-bawah Box, sejajar baris chips. Karena baris
-            // chips ada DI DALAM Box (di bawah list), FAB melayang di ujung kiri
-            // baris chips — pesan berhenti di tepi atas chips, jadi FAB tidak
-            // pernah menutupi bubble chat saat scroll; chips bergeser ke kanan
-            // (startPadding animasi) memberi ruang, jadi tidak saling menimpa.
+            // OVERLAY di pojok KIRI-bawah Box, sejajar baris chips (keduanya
+            // melayang DI ATAS daftar pesan, Telegram-style). Saat FAB muncul,
+            // chips bergeser elastis ke kanan (startPadding animasi) memberi
+            // ruang — jadi tidak saling menimpa. Pesan yang scroll di belakangnya
+            // tetap samar terbaca karena fill-nya memudar (CHIP_FILL_ALPHA).
             //
             // Desain (2026-08-11, masukan user): FAB di ujung KIRI baris chips,
-            // GAYA SERAGAM dengan chip rekomendasi — transparan + border outline
-            // 1dp, ukuran 40dp (= tinggi chip), pusat SEJAJAR baris chips (bukan
-            // lebih rendah). Posisi kiri karena chips mengalir dari kiri ke kanan
-            // — FAB tidak "memaksa" di ujung kanan.
+            // ukuran 40dp (= tinggi chip), pusat SEJAJAR baris chips (bukan lebih
+            // rendah). Posisi kiri karena chips mengalir dari kiri ke kanan — FAB
+            // tidak "memaksa" di ujung kanan.
             // Catatan: pakai nama lengkap (bukan import) untuk memaksa overload
             // generik tanpa receiver — di dalam Box, resolver Kotlin justru memilih
             // ColumnScope.AnimatedVisibility dari receiver Column di luar dan gagal
@@ -483,13 +486,14 @@ fun ChatScreen(
                         animationSpec = Motion.base()
                     )
             ) {
-                // FAB BERLATAR (2026-08-12, permintaan user): gaya DISERAGAMKAN
-                // dengan chip rekomendasi & pill composer — tombol harus terbaca
-                // sebagai tombol → fill surfaceVariant (bukan frame transparan,
-                // BUKAN shadow). Ikon panah primary tetap penanda aksi. Ripple
-                // ter-clip lingkaran (clip sebelum clickable).
+                // FAB BERLATAR & MEMUDAR (2026-08-12, permintaan user): gaya
+                // DISERAGAMKAN dengan chip rekomendasi — fill surfaceVariant
+                // dengan alpha SAMA (CHIP_FILL_ALPHA) karena keduanya kini
+                // melayang DI ATAS pesan yang scroll di belakangnya (bukan frame
+                // transparan, BUKAN shadow). Ikon panah primary tetap penanda
+                // aksi. Ripple ter-clip lingkaran (clip sebelum clickable).
                 val fabFill = MaterialTheme.colorScheme.surfaceVariant.copy(
-                    alpha = if (isDark) 0.9f else 0.55f
+                    alpha = if (isDark) CHIP_FILL_ALPHA_DARK else CHIP_FILL_ALPHA_LIGHT
                 )
                 Box(
                     modifier = Modifier
