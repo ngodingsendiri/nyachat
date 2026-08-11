@@ -5,6 +5,7 @@ package com.startupmini.nyachat
 import com.startupmini.nyachat.Constants
 
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -60,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.backup.DriveBackupController
+import com.startupmini.nyachat.data.local.AvatarStore
 import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.data.local.SecureStorage
 import com.startupmini.nyachat.ui.MainAppDialogs
@@ -77,7 +79,9 @@ import com.startupmini.nyachat.ui.screens.RekapScreen
 import com.startupmini.nyachat.ui.theme.CoupleFinanceTheme
 import java.text.NumberFormat
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -158,6 +162,12 @@ class MainActivity : ComponentActivity() {
                 // Non-secret dari appPrefs
                 var workspaceRole by remember { mutableStateOf(appPrefs.getString(Constants.Prefs.WORKSPACE_ROLE, Constants.Defaults.ROLE)) }
                 var userName by remember { mutableStateOf(appPrefs.getString(Constants.Prefs.USER_NAME, null)) }
+                // Profil & Akun (r1.2.1): sumber avatar (null=auto→google bila ada,
+                // google/custom), path avatar ter-resolve, email akun Google
+                // (snapshot — FirebaseAuth bisa null setelah logout).
+                var avatarSource by remember { mutableStateOf(appPrefs.getString(Constants.Prefs.AVATAR_SOURCE, null)) }
+                var avatarPath by remember { mutableStateOf<String?>(null) }
+                var userEmail by remember { mutableStateOf(appPrefs.getString(Constants.Prefs.USER_EMAIL, null)) }
                 // Secret dari SecureStorage — dibaca ASYNC (P2-14): dekripsi Keystore
                 // jangan diblokir di komposisi. Sementara menunggu, secretsLoaded
                 // false → UI menampilkan layar loading singkat (hindari kedip layar PIN).
@@ -215,6 +225,80 @@ class MainActivity : ComponentActivity() {
                             duration = if (onAction != null) SnackbarDuration.Long else SnackbarDuration.Short
                         )
                         if (result == SnackbarResult.ActionPerformed) onAction?.invoke()
+                    }
+                }
+
+                // ---- Profil & Akun (r1.2.1) ----
+                // Resolve path avatar berdasarkan sumber. Foto Google hanya di-CACHE
+                // lokal (google_<uid>.jpg) sebagai avatar aplikasi — akun Google
+                // tidak pernah diubah. custom → custom.jpg; google/auto → cache
+                // Google bila tersedia (diunduh sekali lalu dipakai offline).
+                val resolveAvatar = {
+                    val auth = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    val uid = auth?.uid
+                    val savedEmail = appPrefs.getString(Constants.Prefs.USER_EMAIL, null)
+                    val email = auth?.email ?: savedEmail
+                    if (email != null && email != savedEmail) {
+                        appPrefs.edit().putString(Constants.Prefs.USER_EMAIL, email).apply()
+                    }
+                    userEmail = email
+                    if (avatarSource == Constants.AvatarSources.CUSTOM) {
+                        avatarPath = AvatarStore.getCustomAvatarPath(context)
+                    } else {
+                        val cached = uid?.let { AvatarStore.getCachedGooglePhoto(context, it) }
+                        if (cached != null) {
+                            avatarPath = cached
+                        } else if (auth?.photoUrl != null && uid != null) {
+                            val url = auth.photoUrl.toString()
+                            scope.launch {
+                                val p = withContext(Dispatchers.IO) {
+                                    AvatarStore.cacheGooglePhoto(context, url, uid)
+                                }
+                                // Jangan menimpa foto custom yang dipilih user saat unduhan selesai.
+                                if (p != null && avatarSource != Constants.AvatarSources.CUSTOM) avatarPath = p
+                            }
+                        } else {
+                            avatarPath = null
+                        }
+                    }
+                }
+                // Re-resolve saat workspace connect, login, atau sumber avatar berubah.
+                LaunchedEffect(firebaseReady, workspacePin, avatarSource) {
+                    if (workspacePin != null && firebaseReady) resolveAvatar()
+                }
+
+                val avatarSaveFailedLabel = stringResource(R.string.avatar_save_failed)
+                val handleAvatarSourceChanged: (String?) -> Unit = { source ->
+                    avatarSource = source
+                    if (source == null) {
+                        appPrefs.edit().remove(Constants.Prefs.AVATAR_SOURCE).apply()
+                    } else {
+                        appPrefs.edit().putString(Constants.Prefs.AVATAR_SOURCE, source).apply()
+                    }
+                    resolveAvatar()
+                }
+                val handleCustomAvatarPicked: (Uri) -> Unit = { uri ->
+                    scope.launch {
+                        val path = AvatarStore.saveCustomAvatar(context, uri)
+                        if (path != null) {
+                            avatarPath = path
+                            avatarSource = Constants.AvatarSources.CUSTOM
+                            appPrefs.edit()
+                                .putString(Constants.Prefs.AVATAR_SOURCE, Constants.AvatarSources.CUSTOM)
+                                .apply()
+                        } else {
+                            showSnack(avatarSaveFailedLabel, null, null)
+                        }
+                    }
+                }
+                val handleRenameUser: (String) -> Unit = { newName ->
+                    if (newName.isNotBlank()) {
+                        userName = newName
+                        appPrefs.edit().putString(Constants.Prefs.USER_NAME, newName).apply()
+                        // Nama tersimpan user TIDAK ditimpa lagi oleh nama Google
+                        // (Google hanya default saat onboarding) — setSender memakai
+                        // nilai prefs yang sudah diedit ini.
+                        viewModel.setSender(newName)
                     }
                 }
 
@@ -344,10 +428,14 @@ driveController.getAutoPassphrase = {
                     secureStorage.clearAll(context)
                     workspaceRole = Constants.Defaults.ROLE
                     userName = null
+                    avatarSource = null
+                    avatarPath = null
+                    userEmail = null
                     workspacePin = null
                     geminiKey = null
                     openRouterKey = null
                     dialogs.showSettingsSheet = false
+                    dialogs.showProfileAccount = false
                     // BUG-2 lanjutan (reviewer): draf yang di-hoist tidak boleh bocor
                     // ke workspace berikutnya — dibersihkan saat logout.
                     chatDraft = ""
@@ -616,6 +704,13 @@ driveController.getAutoPassphrase = {
                                 },
                                 onGeminiKeySaved = { geminiKey = it },
                                 onOpenRouterKeySaved = { openRouterKey = it },
+                                userEmail = userEmail,
+                                avatarPath = avatarPath,
+                                hasGooglePhoto = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.photoUrl != null,
+                                avatarSource = avatarSource,
+                                onAvatarSourceChanged = handleAvatarSourceChanged,
+                                onCustomAvatarPicked = handleCustomAvatarPicked,
+                                onRenameUser = handleRenameUser,
                                 onPerformLogoutCleanup = { performLogoutCleanup() }
                             )
                         }

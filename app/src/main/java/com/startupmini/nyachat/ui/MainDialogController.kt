@@ -25,6 +25,8 @@ class MainDialogController {
     // draf chat user yang diketik sebelum pindah tab.
     var resetChatOnDialogClose by mutableStateOf(false)
     var showSettingsSheet by mutableStateOf(false)
+    // Profil & Akun (r1.2.1): halaman profil dibuka dari kartu profil Settings.
+    var showProfileAccount by mutableStateOf(false)
     var showManageMembers by mutableStateOf(false)
     var showGeminiKeyDialog by mutableStateOf(false)
     var showLogoutDialog by mutableStateOf(false)

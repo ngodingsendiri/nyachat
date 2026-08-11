@@ -3,9 +3,15 @@ package com.startupmini.nyachat.ui
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.activity.compose.ManagedActivityResultLauncher
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
@@ -19,11 +25,13 @@ import com.startupmini.nyachat.ui.screens.ApiKeyDialog
 import com.startupmini.nyachat.ui.screens.ConfirmClearDataDialog
 import com.startupmini.nyachat.ui.screens.LogoutDialog
 import com.startupmini.nyachat.ui.screens.PinDisplayDialog
+import com.startupmini.nyachat.ui.screens.ProfileAccountSheet
 import com.startupmini.nyachat.ui.screens.SettingsSheet
 import com.startupmini.nyachat.ui.screens.timestampForFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import android.net.Uri
+import java.io.File
 
 /**
  * TASK-1.3 lanjutan — blok SEMUA dialog lapisan konten utama, diekstrak dari
@@ -64,9 +72,32 @@ fun MainAppDialogs(
     onToggleBackupEncryption: () -> Unit,
     onGeminiKeySaved: (String) -> Unit,
     onOpenRouterKeySaved: (String) -> Unit,
+    // Profil & Akun (r1.2.1).
+    userEmail: String?,
+    avatarPath: String?,
+    hasGooglePhoto: Boolean,
+    avatarSource: String?,
+    onAvatarSourceChanged: (String?) -> Unit,
+    onCustomAvatarPicked: (Uri) -> Unit,
+    onRenameUser: (String) -> Unit,
     onPerformLogoutCleanup: () -> Unit
 ) {
     val backupBusy by driveController.busy.collectAsStateWithLifecycle()
+
+    // Launcher pilih foto profil (r1.2.1) — Galeri & Kamera, pola sama seperti
+    // lampiran chat di ChatScreen. File hasil kamera lewat FileProvider ke
+    // cacheDir, lalu MainActivity yang menyimpan ke AvatarStore (custom.jpg).
+    var cameraTempUri by remember { mutableStateOf<Uri?>(null) }
+    val profileCameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        val uri = cameraTempUri
+        cameraTempUri = null
+        if (success && uri != null) onCustomAvatarPicked(uri)
+    }
+    val profileGalleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> if (uri != null) onCustomAvatarPicked(uri) }
 
     if (dialogs.showAddDialog) {
         AddTransactionDialog(
@@ -150,7 +181,36 @@ fun MainAppDialogs(
             onLogout = {
                 dialogs.showSettingsSheet = false
                 dialogs.showLogoutDialog = true
+            },
+            avatarPath = avatarPath,
+            onOpenProfile = {
+                dialogs.showSettingsSheet = false
+                dialogs.showProfileAccount = true
             }
+        )
+    }
+
+    // Profil & Akun (r1.2.1) — dibuka dari kartu profil Settings.
+    if (dialogs.showProfileAccount) {
+        ProfileAccountSheet(
+            displayName = userName ?: stringResource(R.string.pin_default_name),
+            email = userEmail,
+            workspaceRole = workspaceRole,
+            avatarPath = avatarPath,
+            hasGooglePhoto = hasGooglePhoto,
+            avatarSource = avatarSource,
+            onDismiss = { dialogs.showProfileAccount = false },
+            onPickGallery = { profileGalleryLauncher.launch("image/*") },
+            onPickCamera = {
+                val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+                val file = File(dir, "avatar_${System.currentTimeMillis()}.jpg")
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                cameraTempUri = uri
+                runCatching { profileCameraLauncher.launch(uri) }
+            },
+            onUseGooglePhoto = { onAvatarSourceChanged(Constants.AvatarSources.GOOGLE) },
+            onResetAvatar = { onAvatarSourceChanged(null) },
+            onRename = onRenameUser
         )
     }
 

@@ -1,8 +1,6 @@
 package com.startupmini.nyachat.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -25,6 +22,7 @@ import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.EnhancedEncryption
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Pin
@@ -52,7 +50,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
@@ -99,9 +96,10 @@ fun SettingsSheet(
     onRestore: () -> Unit,
     onClearData: () -> Unit,
     onLogout: () -> Unit,
-    // Audit #2: foto profil + aksi ganti foto (null = tidak ada aksi).
+    // Audit #2 + r1.2.1: foto profil (Google/custom/inisial). Tap kartu profil
+    // membuka halaman Profil & Akun (null = kartu tidak bisa di-tap).
     avatarPath: String? = null,
-    onPickAvatar: (() -> Unit)? = null
+    onOpenProfile: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
@@ -152,7 +150,7 @@ fun SettingsSheet(
                 workspaceRole = workspaceRole,
                 workspacePin = workspacePin,
                 avatarPath = avatarPath,
-                onPickAvatar = onPickAvatar
+                onOpenProfile = onOpenProfile
             )
 
             // ── UMUM ──
@@ -291,8 +289,8 @@ private fun maskPin(pin: String): String =
 /**
  * Kartu identitas workspace (item 8): avatar (foto atau inisial) + nama + peran
  * + PIN tersamar. Memberi konteks "siapa & di workspace mana" sebelum daftar aksi.
- * Avatar bisa di-tap untuk mengganti foto profil (audit #2) bila [onPickAvatar]
- * tidak null.
+ * r1.2.1: SELURUH kartu bisa di-tap membuka halaman Profil & Akun bila
+ * [onOpenProfile] tidak null (chevron ditampilkan sebagai penanda navigasi).
  */
 @Composable
 private fun IdentityCard(
@@ -300,60 +298,41 @@ private fun IdentityCard(
     workspaceRole: String?,
     workspacePin: String?,
     avatarPath: String? = null,
-    onPickAvatar: (() -> Unit)? = null
+    onOpenProfile: (() -> Unit)? = null
 ) {
     val displayName = userName ?: stringResource(R.string.pin_default_name)
     val roleLabel = stringResource(
         if (workspaceRole == Constants.Roles.OWNER) R.string.pin_role_owner
         else R.string.pin_role_member
     )
-    val avatarChangeDesc = stringResource(R.string.avatar_change_desc)
+    val profileDesc = stringResource(R.string.profile_title)
     Surface(
         shape = RoundedCornerShape(Constants.Ui.CORNER_L.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
+            .then(
+                if (onOpenProfile != null) {
+                    Modifier
+                        .clip(RoundedCornerShape(Constants.Ui.CORNER_L.dp))
+                        .clickable(onClick = onOpenProfile)
+                        .semantics { contentDescription = profileDesc }
+                } else Modifier
+            )
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .then(
-                        if (onPickAvatar != null) {
-                            Modifier.clickable(onClick = onPickAvatar)
-                        } else Modifier
-                    )
-                    .semantics { contentDescription = avatarChangeDesc }
-            ) {
-                com.startupmini.nyachat.ui.util.AvatarImage(
-                    name = displayName,
-                    size = 44,
-                    photoPath = avatarPath,
-                    backgroundColor = MaterialTheme.colorScheme.primaryContainer,
-                    textColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    textStyle = MaterialTheme.typography.titleMedium
-                )
-                if (onPickAvatar != null) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "✚",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            fontSize = 9.sp
-                        )
-                    }
-                }
-            }
+            com.startupmini.nyachat.ui.util.AvatarImage(
+                name = displayName,
+                size = 44,
+                photoPath = avatarPath,
+                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                textColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                textStyle = MaterialTheme.typography.titleMedium
+            )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -381,6 +360,14 @@ private fun IdentityCard(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
+            }
+            if (onOpenProfile != null) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

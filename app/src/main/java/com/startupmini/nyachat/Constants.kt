@@ -31,6 +31,21 @@ object Constants {
         const val CHAT_NOTIFICATIONS_ENABLED = "chat_notifications_enabled"
         // 3.7: penanda dialog izin notifikasi sudah pernah ditanya (jangan spam).
         const val NOTIF_PERMISSION_ASKED = "notif_permission_asked"
+        // Profil & Akun (r1.2.1): sumber avatar user (null/google/custom).
+        // Path avatar TIDAK disimpan — selalu diturunkan dari sumbernya
+        // (custom → AvatarStore.getCustomAvatarPath(), google → cache lokal
+        // google_<uid>.jpg). Foto Google hanya di-cache lokal, akun Google
+        // tidak pernah diubah. null = auto (google bila ada, else inisial).
+        const val AVATAR_SOURCE = "avatar_source"
+        // Email akun Google yang dipakai login — untuk ditampilkan di Profil
+        // & Akun (FirebaseAuth bisa null setelah logout, jadi di-snapshot).
+        const val USER_EMAIL = "user_email"
+    }
+
+    // ===== Sumber foto profil (nilai AVATAR_SOURCE) =====
+    object AvatarSources {
+        const val GOOGLE = "google"
+        const val CUSTOM = "custom"
     }
 
     // ===== Firestore collection names =====

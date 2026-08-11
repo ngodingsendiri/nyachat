@@ -149,6 +149,26 @@
     <string name="pin_role_member">Anggota</string>
     <string name="avatar_change_desc">Ganti foto profil</string>
     <string name="avatar_save_failed">Gagal menyimpan foto profil, coba lagi.</string>
+
+    <!-- Profil &amp; Akun (r1.2.1) -->
+    <string name="profile_title">Profil &amp; Akun</string>
+    <string name="profile_photo_change">Ganti foto profil</string>
+    <string name="profile_photo_title">Foto profil</string>
+    <string name="profile_photo_google">Gunakan foto Google</string>
+    <string name="profile_photo_google_desc">Foto dari akun Google-mu</string>
+    <string name="profile_photo_gallery">Pilih dari Galeri</string>
+    <string name="profile_photo_camera">Ambil Foto</string>
+    <string name="profile_photo_reset">Avatar bawaan</string>
+    <string name="profile_photo_reset_desc">Kembali ke foto Google atau inisial</string>
+    <string name="profile_photo_active">Aktif</string>
+    <string name="profile_name_title">Nama</string>
+    <string name="profile_name_dialog_title">Ubah Nama</string>
+    <string name="profile_name_hint">Nama tampilan (mis. Suami / Istri)</string>
+    <string name="profile_name_empty_error">Nama tidak boleh kosong</string>
+    <string name="profile_email_label">Akun Google</string>
+    <string name="profile_status_label">Status akun</string>
+    <string name="profile_account_desc">Masuk dengan Google</string>
+    <string name="profile_email_empty">Belum ada akun Google</string>
     <string name="logout_dialog_title">Keluar dari akun ini?</string>
     <string name="logout_dialog_message">Data tersinkron tetap aman di cloud selama perangkat lain di workspace masih aktif.\n\n<b>"Keluar &amp; Hapus Data"</b> menghapus data lokal, lampiran, dan data workspace dari cloud — tindakan permanen dan tidak dapat dibatalkan.</string>
     <string name="logout_keep_data">Keluar saja</string>
