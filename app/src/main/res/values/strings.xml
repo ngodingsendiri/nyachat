@@ -249,8 +249,12 @@
     <string name="export_csv_failed">Gagal menyimpan file CSV. Coba lagi.</string>
     <string name="backup_success">Backup berhasil diunggah ke Google Drive:\n%1$s\n(berisi riwayat chat &amp; transaksi)</string>
     <string name="backup_failed">Backup gagal diunggah ke Google Drive. Periksa koneksi internet lalu coba lagi.</string>
-    <string name="backup_progress">Memproses…</string>
     <string name="backup_please_wait">Menyiapkan data &amp; menghubungkan Google Drive, mohon tunggu…</string>
+    <!-- UI backup (audit 2026-08-12): jendela backup dibuat lebih informatif:
+         judul jelas, tahapan upload, dan daftar file restore dengan tanggal. -->
+    <string name="backup_progress_title">Membuat Backup</string>
+    <string name="backup_progress_detail">Mengunggah riwayat chat &amp; transaksi ke Google Drive…</string>
+    <string name="restore_pick_newest_badge">Terbaru</string>
     <string name="backup_info_title">Informasi</string>
     <string name="drive_err_not_signed_in">Kamu belum masuk dengan akun Google. Masuk dulu di layar awal, lalu coba lagi.</string>
     <string name="drive_err_token">Tidak bisa mendapatkan akses Google Drive: %1$s</string>

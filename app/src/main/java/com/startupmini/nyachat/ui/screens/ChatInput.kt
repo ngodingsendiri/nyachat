@@ -52,6 +52,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -627,8 +628,14 @@ fun ChatAttachmentSheet(
     onPdf: () -> Unit
 ) {
     val semantic = LocalSemanticColors.current
+    // Audit motion (2026-08-12): semua ModalBottomSheet app pakai
+    // skipPartiallyExpanded = true (langsung buka penuh dari bawah, satu motion
+    // language) — sheet lampiran sebelumnya default (bisa jeda setengah), tidak
+    // konsisten dengan Settings/Transaksi/AI Report/Profil.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         // Sheet berada di area konten (di atas NavigationBar) — padding
         // navbar bawaan sheet dinolkan agar tidak muncul celah.

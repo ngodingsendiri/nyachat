@@ -146,7 +146,11 @@ fun ManageMembersScreen(
                                 )
                             }
                         } else {
-                            items(joinRequests, key = { it.uid }) { request ->
+                            // Key harus unik di SELURUH LazyColumn (bukan per section):
+                            // saat approve, member sudah masuk ke daftar `members`
+                            // sementara join request-nya masih ada di `joinRequests`
+                            // → UID sama muncul 2x → crash "Key was already used".
+                            items(joinRequests, key = { "join_${it.uid}" }) { request ->
                                 JoinRequestCard(
                                     request = request,
                                     onApprove = {
@@ -176,7 +180,7 @@ fun ManageMembersScreen(
                             )
                         }
                     } else {
-                        items(members, key = { it.uid }) { member ->
+                        items(members, key = { "member_${it.uid}" }) { member ->
                             MemberCard(
                                 member = member,
                                 isSelf = member.uid == myUid,

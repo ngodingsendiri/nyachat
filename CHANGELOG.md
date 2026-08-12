@@ -70,6 +70,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FAB_SPRING_STIFFNESS` diekstrak agar FAB & chipShift selalu sinkron;
   reserve tinggi baris chips (56dp) saat FAB tampil tanpa saran cepat —
   FAB tidak lagi menimpa pesan terakhir.
+- **Avatar & warna profil tampil di bubble chat (2026-08-12, BUG live)**:
+  lingkaran avatar di header pesan sebelumnya pakai latar `alpha 0.16`
+  (16% opasitas — nyaris transparan, terbukti via analisis piksel
+  `rgb(251,253,249)` = SAMA dengan background, sehingga seolah "profil &
+  warna belum muncul"). Kini **solid** mengikuti `avatarColorFor` (8 warna
+  unik per orang, konsisten dengan topbar & kartu anggota). Inisial teks
+  **adaptif WCAG** (luminance > 0.22 → gelap `#202124`, else putih) dipakai
+  di KEDUA jalur — foto (saat gagal decode) & fallback lingkaran inisial
+  (sebelumnya jalur foto masih `senderColor` ≈ 3:1 di bawah standar 4.5:1).
+  Golden `chat_bubble_income_other` & `chat_bubble_reply` di-record ulang.
+- **Shadow bubble di light mode dihapus (2026-08-12)**: bubble chat di mode
+  terang terasa "ada bayangan" — konsistensi tanpa shadow kini menyeluruh
+  (bubble, pill composer, chip, FAB, preview) di kedua mode.
+- **Fix crash approve join request (2026-08-12)**: `IllegalArgumentException:
+  Key was already used` saat owner menyetujui permintaan gabung — UID yang
+  sama muncul di 2 section LazyColumn (join request belum terhapus sementara
+  member baru sudah masuk). Key kini di-prefix per section
+  (`join_${uid}` / `member_${uid}`) — unik di seluruh list.
 
 ### Changed
 - **Audit & rapikan SEMUA animasi (2026-08-11)**: satu motion language
@@ -103,6 +121,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     preview dihapus (konsistensi tanpa shadow), `NumberFormat` di-remember;
     urutan import ASCII; aksen bar quote media pakai
     `IntrinsicSize.Min` mengikuti tinggi konten.
+
+- **Redesign jendela Backup & Restore (2026-08-12, audit live HP)**: dialog
+  progres backup kini informatif — ikon 22dp + judul + detail, tombol lebar;
+  daftar file di dialog Restore dirapikan: badge "Terbaru" untuk file
+  terakhir + badge 🔒 "Terenkripsi" + waktu format lokal per file (lebih
+  jelas & konsisten dengan chip UI lain). +unit test `BackupDialogsTest`.
+- **Motion bottom sheet satu bahasa (2026-08-12, audit motion)**: sheet
+  lampiran (`ChatAttachmentSheet`) kini `skipPartiallyExpanded = true` —
+  langsung buka penuh dari bawah, konsisten dengan 4 sheet lain (Settings,
+  Catat Transaksi, AI Report, Profil & Akun). Tidak ada lagi sheet yang bisa
+  berhenti di posisi setengah.
 
 ### CI / Infra
 - `deploy-functions.yml`: tambah `--force` agar cleanup policy artifact

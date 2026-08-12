@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -230,13 +231,26 @@ fun ChatMessageBubble(
                 // Avatar pengirim — FOTO bila tersedia (P1), else lingkaran inisial
                 // berwarna unik (P0). Dekoratif (nama sudah di sampingnya);
                 // disembunyikan dari pembaca layar (P3-2).
+                // Audit avatar (2026-08-12): latar 0.16 alpha nyaris tak terlihat
+                // di atas background chat (piksel = background murni) — dijadikan
+                // SOLID supaya lingkaran warna identitas per orang tampak jelas,
+                // konsisten dengan topbar & kartu identitas.
+                // Teks inisial adaptif (audit WCAG, pola MainTopBar): bg avatar
+                // terang (orange/sky/hijau) → inisial gelap; bg gelap (indigo/
+                // ungu/crimson) → putih. Dipakai KEDUA jalur (fallback foto &
+                // inisial) supaya kontras konsisten walau foto gagal di-decode.
+                val avatarFg = if (senderAvatarBase.luminance() > 0.22f) {
+                    Color(0xFF202124)
+                } else {
+                    Color.White
+                }
                 if (senderAvatarPath != null) {
                     AvatarImage(
                         name = senderLabel,
                         size = 24,
                         photoPath = senderAvatarPath,
-                        backgroundColor = senderAvatarBase.copy(alpha = 0.16f),
-                        textColor = senderColor,
+                        backgroundColor = senderAvatarBase,
+                        textColor = avatarFg,
                         textStyle = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.clearAndSetSemantics {}
                     )
@@ -245,7 +259,7 @@ fun ChatMessageBubble(
                         modifier = Modifier
                             .size(24.dp)
                             .clip(CircleShape)
-                            .background(senderAvatarBase.copy(alpha = 0.16f))
+                            .background(senderAvatarBase)
                             .clearAndSetSemantics {},
                         contentAlignment = Alignment.Center
                     ) {
@@ -253,7 +267,7 @@ fun ChatMessageBubble(
                             text = senderLabel.take(1).uppercase(Locale.ROOT),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = senderColor
+                            color = avatarFg
                         )
                     }
                 }
@@ -287,8 +301,12 @@ fun ChatMessageBubble(
                 bottomStart = if (isMe) 20.dp else 4.dp,
                 bottomEnd = if (isMe) 4.dp else 20.dp
             ),
+            // Tanpa shadow untuk SEMUA bubble (2026-08-12): sisa shadow 1.dp
+            // khusus bubble incoming membuat "bayangan" di mode terang — tidak
+            // konsisten dengan prinsip tanpa-bayangan di seluruh app (composer
+            // pill, chip, FAB, Rekap). Hierarki tetap jelas lewat warna bubble.
             color = bubbleColor,
-            shadowElevation = if (isMe) 0.dp else 1.dp,
+            shadowElevation = 0.dp,
             modifier = Modifier
                 // Media (foto) lebih lebar dari teks — screenshot/nota perlu ruang
             // baca; teks tetap 300dp agar nyaman dibaca.
