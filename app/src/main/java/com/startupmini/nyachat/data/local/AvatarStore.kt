@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.startupmini.nyachat.data.remote.ImageFileUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -181,10 +182,12 @@ object AvatarStore {
             BitmapFactory.decodeStream(it, null, opts)
         }
         if (opts.outWidth <= 0 || opts.outHeight <= 0) return null
-        var sample = 1
-        while (opts.outWidth / (sample * 2) >= maxDim && opts.outHeight / (sample * 2) >= maxDim) {
-            sample *= 2
-        }
+        // P2 (audit performa 2026-08-12): loop lama memakai `&&` — gambar rasio
+        // ekstrem (mis. 10000×100) berhenti sampling segera (satu sisi sudah di
+        // bawah maxDim) → sample=1 → decode penuh 10000px! Satu sumber
+        // kebenaran: computeSampleSize ImageFileUtil (`||` — sisi TERPANJANG
+        // yang jadi patokan), sudah di-cover unit test sampling.
+        val sample = ImageFileUtil.computeSampleSize(opts.outWidth, opts.outHeight, maxDim)
         val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
         val bmp = context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, decodeOpts)

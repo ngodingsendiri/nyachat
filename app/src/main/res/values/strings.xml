@@ -45,6 +45,11 @@
     <string name="action_cancel">Batal</string>
     <string name="action_save">Simpan</string>
     <string name="api_key_label">API Key</string>
+    <!-- Audit response (2026-08-12): konfirmasi simpan kunci API. -->
+    <string name="api_key_saved">Kunci disimpan</string>
+    <!-- Audit response (2026-08-12): error laporan AI — Problem → Cause → Action. -->
+    <string name="rekap_ai_failed">Gagal memuat laporan audit. Periksa koneksi internet lalu coba lagi.</string>
+    <string name="rekap_monthly_failed">Gagal memuat analisis bulanan. Periksa koneksi internet lalu coba lagi.</string>
     <string name="gemini_key_hint">Masukkan API key Gemini milik akun Google-mu (bikin gratis di aistudio.google.com/apikey). Key dipakai langsung dari perangkatmu — server tidak perlu menyediakan API key.</string>
     <string name="openrouter_key_hint">Masukkan API key OpenRouter-mu (bikin gratis di openrouter.ai/keys). Aplikasi otomatis memakai model GRATIS OpenRouter dan pindah ke model gratis lain kalau satu kena rate limit. Key tersimpan lokal di perangkat — server tidak menyediakan API key.</string>
 
@@ -120,13 +125,18 @@
     <string name="google_sign_out_desc">Keluar dari akun Google</string>
     <string name="google_signed_in_as">Masuk sebagai %1$s</string>
     <string name="google_sign_in_failed">Gagal masuk dengan Google. Coba lagi.</string>
-    <string name="google_err_provider_not_enabled">Google Sign-In belum diaktifkan di project Firebase-mu. Buka Firebase Console → Authentication → Sign-in method → Google → Aktifkan, lalu coba lagi. (auth/operation-not-allowed)</string>
-    <string name="google_err_invalid_credential">Kredensial Google tidak valid. Biasanya karena SHA-1 kunci penandatangan APK ini belum terdaftar di Firebase Console → Pengaturan project → Aplikasi Anda → Tambahkan sidik jari SHA-1 (lihat README → \'Setup Google Sign-In\'). (auth/invalid-credential)</string>
-    <string name="google_err_network">Tidak bisa terhubung ke server Google. Periksa koneksi internet, lalu coba lagi. (auth/network-request-failed)</string>
-    <string name="google_err_unknown">Gagal masuk dengan Google: %1$s</string>
-    <string name="google_err_credential_provider">Google menolak permintaan masuk (kode %1$s). Biasanya SHA-1 kunci penandatangan APK ini belum terdaftar di Firebase Console → Pengaturan project → Aplikasi Anda → Tambahkan sidik jari SHA-1 (lihat README → \'Setup Google Sign-In\').</string>
-    <string name="google_err_sha1_hint">\n\nSHA-1 APK ini: %1$s\nSalin angka ini, lalu daftarkan di Firebase Console → Pengaturan project → Aplikasi Anda → Tambahkan sidik jari. Login mulai berjalan ±5 menit setelah didaftarkan.</string>
-    <string name="google_not_configured">Google Sign-In belum dikonfigurasi. Aktifkan Google di Firebase Console (Authentication → Sign-in method) &amp; daftarkan SHA-1 penandatangan APK (lihat README → \'Setup Google Sign-In\'), lalu unduh ulang google-services.json dan ganti file di folder app/.</string>
+    <!-- Audit (2026-08-12): pesan error Google dibersihkan dari detail developer
+         (SHA-1, instruksi Firebase Console, kode error mentah) — informasi teknis
+         hanya ke logcat & build DEBUG (PinConnectScreen). User publik cukup
+         melihat penyebab + langkah yang bisa dilakukan. -->
+    <string name="google_err_provider_not_enabled">Masuk dengan Google sedang tidak tersedia. Coba lagi nanti.</string>
+    <string name="google_err_invalid_credential">Gagal memverifikasi akun Google. Coba lagi.</string>
+    <string name="google_err_network">Tidak bisa terhubung ke server Google. Periksa koneksi internet, lalu coba lagi.</string>
+    <string name="google_err_unknown">Gagal masuk dengan Google. Coba lagi.</string>
+    <string name="google_err_credential_provider">Google menolak permintaan masuk. Pastikan koneksi internet stabil, lalu coba lagi.</string>
+    <!-- Hanya dipakai di build DEBUG (PinConnectScreen): detail teknis buat developer. -->
+    <string name="google_err_sha1_hint">\n\nSHA-1 APK ini: %1$s\nDaftarkan di Firebase Console → Pengaturan project → Aplikasi Anda → Tambahkan sidik jari.</string>
+    <string name="google_not_configured">Masuk dengan Google belum siap di aplikasi ini. Coba lagi nanti.</string>
     <string name="login_version_label">Nyachat %1$s · build %2$d</string>
     <string name="pin_name_label">Nama Anda (Cth: Suami / Istri)</string>
     <!-- BUG-04: tombol clear cepat untuk field nama prefilled dari Google -->
@@ -142,8 +152,8 @@
     <string name="pin_use">Gunakan PIN</string>
     <string name="pin_default_name">Pengguna</string>
     <string name="pin_default_google_name">Anggota</string>
-    <string name="pin_create_warning">PIN ini adalah kata sandi bersama workspace. Siapa pun yang memilikinya dapat melihat &amp; mengubah data keuangan keluarga. Bagikan hanya lewat jalur pribadi yang Anda percaya.</string>
-    <string name="pin_join_warning">PIN adalah kata sandi bersama workspace. Hanya masukkan PIN dari anggota yang Anda percaya — pemegang PIN dapat melihat &amp; mengubah seluruh data keuangan.</string>
+    <string name="pin_create_warning">PIN ini adalah kata sandi bersama workspace. Bagikan hanya ke orang yang Anda percaya.</string>
+    <string name="pin_join_warning">Masukkan PIN dari anggota yang Anda percaya.</string>
     <string name="pin_rate_limited">Terlalu banyak percobaan PIN. Coba lagi dalam %1$d detik.</string>
     <string name="pin_role_owner">Pemilik</string>
     <string name="pin_role_member">Anggota</string>
@@ -199,6 +209,9 @@
     <!-- Feedback transaksi tercatat (audit P1.2) -->
     <string name="tx_recorded">Tercatat: %1$s</string>
     <string name="action_undo">Urungkan</string>
+    <!-- Audit response (2026-08-12): undo untuk hapus — sejajar dengan undo create. -->
+    <string name="chat_tx_deleted">Transaksi dihapus</string>
+    <string name="chat_message_deleted">Pesan dihapus</string>
 
     <!-- Laporan AI -->
     <string name="report_title">Laporan Evaluasi Keuangan AI</string>
@@ -227,6 +240,9 @@
     <string name="chat_jump_bottom_desc">Ke pesan terbaru</string>
     <string name="chat_save_edit">Simpan Perubahan</string>
     <string name="chat_attach_no_sync">Lampiran hanya disimpan di perangkat ini — tidak ikut tersinkron ke anggota lain di workspace.</string>
+    <!-- Audit response (2026-08-12): umpan balik saat menyimpan lampiran (foto/PDF) —
+         sebelumnya tidak ada loading, user menunggu tanpa tahu proses sedang berjalan. -->
+    <string name="chat_attach_saving">Menyimpan lampiran…</string>
 
     <!-- Update otomatis dari GitHub Release -->
     <string name="update_available_title">Update Tersedia 🚀</string>
@@ -257,7 +273,8 @@
     <string name="restore_pick_newest_badge">Terbaru</string>
     <string name="backup_info_title">Informasi</string>
     <string name="drive_err_not_signed_in">Kamu belum masuk dengan akun Google. Masuk dulu di layar awal, lalu coba lagi.</string>
-    <string name="drive_err_token">Tidak bisa mendapatkan akses Google Drive: %1$s</string>
+    <!-- Audit (2026-08-12): tanpa detail teknis — errorMessage mentah hanya di logcat. -->
+    <string name="drive_err_token">Tidak bisa mendapatkan akses Google Drive. Periksa koneksi internet lalu coba lagi.</string>
     <string name="drive_consent_cancelled">Akses Google Drive dibatalkan. Izinkan saat diminta untuk memakai fitur backup/restore.</string>
     <string name="restore_no_backup">Belum ada backup di Google Drive. Jalankan "Backup ke Google Drive" dulu.</string>
     <string name="restore_pick_title">Pilih Backup</string>

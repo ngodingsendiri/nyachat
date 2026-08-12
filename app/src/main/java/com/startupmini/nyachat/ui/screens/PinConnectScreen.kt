@@ -2,6 +2,11 @@ package com.startupmini.nyachat.ui.screens
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.util.Log
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -45,11 +50,16 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
+import com.startupmini.nyachat.ui.theme.Motion
 import java.security.MessageDigest
 import java.security.SecureRandom
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+
+// Audit (2026-08-12): tag logcat untuk detail teknis login Google — detail
+// (SHA-1, kode error) hanya ke logcat + build DEBUG, bukan ke user publik.
+private const val TAG_LOG = "PinConnect"
 
 /**
  * Onboarding: wajib masuk dengan akun Google, lalu buat/masukkan PIN untuk
@@ -71,8 +81,11 @@ fun PinConnectScreen(
     var generatedPin by rememberSaveable { mutableStateOf<String?>(null) }
     var inputPin by rememberSaveable { mutableStateOf("") }
     var myName by rememberSaveable { mutableStateOf("") }
-    // State alur PIN tanpa animasi (AnimatedContent sebelumnya sering macet & tombol
-    // bertumpuk): 0 = pilih Buat/Gunakan PIN, 1 = gabung PIN, 2 = PIN tergenerate.
+    // State alur PIN: 0 = pilih Buat/Gunakan PIN, 1 = gabung PIN,
+    // 2 = PIN tergenerate. Audit motion (2026-08-12): transisi antar step
+    // memakai CROSSFADE RINGAN (fade saja, fast 200ms) — AnimatedContent lama
+    // dengan slide/scale pernah macet & menumpuk tombol, jadi sengaja dibatasi
+    // ke fade murni (paling aman, rollback mudah bila terulang).
     var pinFlowState by rememberSaveable { mutableIntStateOf(0) }
     var isSigningIn by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
@@ -193,21 +206,22 @@ fun PinConnectScreen(
             } catch (e: GetCredentialCancellationException) {
                 // User membatalkan dialog Google — bukan error, biarkan tenang.
             } catch (e: GetCredentialException) {
-                // Google Play Services menolak request (mis. SHA-1/package belum
-                // terdaftar di Firebase Console, atau app tidak dipercaya). Kode
-                // 10/15 = "Developer console is not set up correctly" — artinya
-                // sidik jari penandatangan belum terdaftar, bukan provider mati.
-                // Tampilkan SHA-1 asli APK ini supaya user tinggal salin & daftarkan
-                // di Firebase Console tanpa perlu mencari-cari.
+                // Play Services menolak (mis. SHA-1/package belum terdaftar di
+                // Firebase Console, atau app tidak dipercaya). Detail teknis
+                // (kode error & SHA-1) TIDAK untuk user publik — cukup di
+                // logcat + build DEBUG. User diberi pesan ramah yang jelas.
                 val sha1 = signingCertSha1(context)
-                val hint = if (sha1 != null) {
+                Log.w(TAG_LOG, "Login Google ditolak (type=${e.type}, sha1=$sha1)")
+                val debugDetail = if (BuildConfig.DEBUG && sha1 != null) {
                     strSha1Hint.format(sha1)
                 } else {
                     ""
                 }
-                authError = strCredentialProvider.format(e.type) + hint
+                authError = strCredentialProvider + debugDetail
             } catch (e: FirebaseAuthException) {
-                // Tampilkan penyebab sebenarnya supaya user tahu harus apa.
+                // Penyebab teknis (errorCode) cukup di logcat; UI menampilkan
+                // pesan ramah sesuai jenis kegagalan.
+                Log.w(TAG_LOG, "Login Google gagal (${e.errorCode}): ${e.message}")
                 authError = when (e.errorCode) {
                     "auth/operation-not-allowed" ->
                         strProviderNotEnabled
@@ -217,12 +231,12 @@ fun PinConnectScreen(
                     "auth/network-request-failed" ->
                         strNetworkError
                     else ->
-                        strUnknownError.format(e.message ?: e.errorCode)
+                        strUnknownError
                 }
             } catch (e: Exception) {
-                authError = strUnknownError.format(
-                    e.message ?: e.javaClass.simpleName
-                )
+                // Gagal tak terduga — detail hanya di logcat, UI ramah.
+                Log.w(TAG_LOG, "Login Google gagal tak terduga", e)
+                authError = strUnknownError
             } finally {
                 isSigningIn = false
             }
@@ -322,7 +336,15 @@ fun PinConnectScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    when (pinFlowState) {
+                    AnimatedContent(
+                        targetState = pinFlowState,
+                        transitionSpec = {
+                            fadeIn(animationSpec = Motion.fast()) togetherWith
+                                fadeOut(animationSpec = Motion.fast())
+                        },
+                        label = "pinFlow"
+                    ) { state ->
+                        when (state) {
                         2 -> {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
@@ -523,6 +545,7 @@ fun PinConnectScreen(
                                     Text(stringResource(R.string.pin_use), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
+                        }
                     }
                 }
             }

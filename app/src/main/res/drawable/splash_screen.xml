@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash statis untuk API < 31 (Android 12+ pakai windowSplashScreen di
+     values-v31). Background menyatu dengan tema app; logo Nyachat di tengah
+     supaya cold start tidak tampil kosong lalu "melompat" ke UI. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item
+        android:width="120dp"
+        android:height="114dp"
+        android:drawable="@drawable/ic_logo"
+        android:gravity="center" />
+</layer-list>

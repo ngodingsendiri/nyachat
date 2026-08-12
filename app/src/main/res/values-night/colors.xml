@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Splash screen dark mode (2026-08-12): menyatu dengan tema app gelap
+         supaya cold start tidak tampil terang lalu "melompat" ke UI gelap. -->
+    <color name="splash_background">#191C1B</color>
+</resources>

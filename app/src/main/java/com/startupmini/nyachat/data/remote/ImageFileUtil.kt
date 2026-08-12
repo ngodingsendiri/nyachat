@@ -165,8 +165,13 @@ object ImageFileUtil {
      * decode (dipakai [decodeImage] & [saveImageFromUri] — satu sumber kebenaran,
      * audit performa 2026-08-12). Nilai 0/negatif (bounds gagal) → 1 (tanpa
      * sampling, aman).
+     *
+     * P2 (audit performa 2026-08-12): dibuat `internal` supaya bisa di-cover
+     * unit test murni JVM ([ImageFileUtilSamplingTest]) — logika ini paling
+     * rawan bug (rasio ekstrem, bounds gagal, sample 0) dan dipakai 3 jalur
+     * decode (chat media, avatar, simpan foto).
      */
-    private fun computeSampleSize(width: Int, height: Int, maxDim: Int): Int {
+    internal fun computeSampleSize(width: Int, height: Int, maxDim: Int): Int {
         if (width <= 0 || height <= 0 || maxDim <= 0) return 1
         var sample = 1
         while (width / (sample * 2) >= maxDim || height / (sample * 2) >= maxDim) {

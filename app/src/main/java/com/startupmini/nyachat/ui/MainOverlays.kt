@@ -84,27 +84,52 @@ fun BoxScope.MainOverlays(
     // Gate keanggotaan: setelah PIN dimasukkan, sebelum data terbuka.
     // Owner menyiapkan workspace; anggota kirim permintaan & menunggu
     // persetujuan pemilik. Layar penuh menimpa semua konten lain.
-    dialogs.connectGate?.let { (pin, role, name) ->
-        MembershipGateScreen(
-            pin = pin,
-            role = role,
-            onReady = {
-                dialogs.connectGate = null
-                onApplyPinConnect(pin, role, name)
-            },
-            onCancel = { dialogs.connectGate = null }
-        )
+    // Audit motion startup (2026-08-12): muncul LEMBUT (fade + zoom) —
+    // sebelumnya langsung pop instan di tengah alur pembukaan.
+    androidx.compose.animation.AnimatedVisibility(
+        visible = dialogs.connectGate != null,
+        enter = androidx.compose.animation.fadeIn(animationSpec = Motion.base()) +
+            androidx.compose.animation.scaleIn(
+                initialScale = 0.97f,
+                animationSpec = Motion.base()
+            ),
+        exit = androidx.compose.animation.fadeOut(animationSpec = Motion.quick())
+    ) {
+        dialogs.connectGate?.let { (pin, role, name) ->
+            MembershipGateScreen(
+                pin = pin,
+                role = role,
+                onReady = {
+                    dialogs.connectGate = null
+                    onApplyPinConnect(pin, role, name)
+                },
+                onCancel = { dialogs.connectGate = null }
+            )
+        }
     }
 
     // Layar kelola anggota & permintaan bergabung (owner/member).
     // Guard `workspacePin != null` di atas → smart cast aman (audit ketahanan:
     // hilangkan `!!` yang berisiko NPE bila alur berubah di masa depan).
-    if (dialogs.showManageMembers && workspacePin != null) {
-        ManageMembersScreen(
-            pin = workspacePin,
-            isOwner = (workspaceRole == Constants.Roles.OWNER),
-            onDismiss = { dialogs.showManageMembers = false }
-        )
+    // Audit motion (2026-08-12): layar penuh ini sebelumnya HARD CUT (muncul
+    // instan) — satu-satunya full-screen yang tidak punya transisi. Kini fade +
+    // zoom 0.97→1 (Motion.base), satu bahasa dengan gate & fase startup.
+    androidx.compose.animation.AnimatedVisibility(
+        visible = dialogs.showManageMembers && workspacePin != null,
+        enter = androidx.compose.animation.fadeIn(animationSpec = Motion.base()) +
+            androidx.compose.animation.scaleIn(
+                initialScale = 0.97f,
+                animationSpec = Motion.base()
+            ),
+        exit = androidx.compose.animation.fadeOut(animationSpec = Motion.quick())
+    ) {
+        if (workspacePin != null) {
+            ManageMembersScreen(
+                pin = workspacePin,
+                isOwner = (workspaceRole == Constants.Roles.OWNER),
+                onDismiss = { dialogs.showManageMembers = false }
+            )
+        }
     }
 
     // Konfirmasi ganti workspace (PIN berbeda): tampil di SEMUA layar.

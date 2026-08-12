@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -75,6 +74,8 @@ import com.startupmini.nyachat.ui.screens.MainNavigationBar
 import com.startupmini.nyachat.ui.screens.MainTopBar
 import com.startupmini.nyachat.ui.screens.RekapScreen
 import com.startupmini.nyachat.ui.screens.RekapScreenState
+import com.startupmini.nyachat.ui.screens.StartupLoadingScreen
+import com.startupmini.nyachat.ui.screens.StartupPhase
 import com.startupmini.nyachat.ui.theme.CoupleFinanceTheme
 import com.startupmini.nyachat.ui.theme.Motion
 import java.text.NumberFormat
@@ -130,6 +131,10 @@ class MainActivity : ComponentActivity() {
                 val isAuditLoading by viewModel.isAuditLoading.collectAsStateWithLifecycle()
                 val monthlyReport by viewModel.monthlyReport.collectAsStateWithLifecycle()
                 val isMonthlyLoading by viewModel.isMonthlyLoading.collectAsStateWithLifecycle()
+                // Audit response (2026-08-12): flag error laporan — dialog menampilkan
+                // pesan error + tombol Coba Lagi.
+                val isAuditError by viewModel.isAuditError.collectAsStateWithLifecycle()
+                val isMonthlyError by viewModel.isMonthlyError.collectAsStateWithLifecycle()
                 val weeklyInsights by viewModel.weeklyInsights.collectAsStateWithLifecycle()
                 val quickSuggestions by viewModel.quickSuggestions.collectAsStateWithLifecycle()
                 val syncStatus by com.startupmini.nyachat.data.remote.FirestoreSyncManager.syncStatus.collectAsStateWithLifecycle()
@@ -238,6 +243,33 @@ class MainActivity : ComponentActivity() {
                             duration = if (onAction != null) SnackbarDuration.Long else SnackbarDuration.Short
                         )
                         if (result == SnackbarResult.ActionPerformed) onAction?.invoke()
+                    }
+                }
+
+                // P1 (audit response 2026-08-12): event "Sinkron tersambung kembali"
+                // di-emit FirestoreSyncManager tapi TIDAK PERNAH ditampilkan (dead
+                // response) — koleksi di sini supaya user tahu koneksi sudah pulih.
+                // Aman dikoleksi sejak awal: event hanya muncul saat sync aktif
+                // (workspace terhubung), dan stop() menghentikan listener saat logout.
+                LaunchedEffect(Unit) {
+                    com.startupmini.nyachat.data.remote.FirestoreSyncManager.recoveryEvents
+                        .collect { msg -> snackbarHostState.showSnackbar(msg) }
+                }
+
+                // P3 (audit response 2026-08-12): undo untuk hapus pesan/transaksi —
+                // sejajar dengan undo create. Payload dibawa lewat event supaya dua
+                // hapus berurutan tidak menimpa (snackbar bisa antre).
+                val txDeletedLabel = stringResource(R.string.chat_tx_deleted)
+                val msgDeletedLabel = stringResource(R.string.chat_message_deleted)
+                LaunchedEffect(Unit) {
+                    viewModel.deleteUndoEvents.collect { payload ->
+                        val label = if (payload.transactions.isNotEmpty()) txDeletedLabel else msgDeletedLabel
+                        val result = snackbarHostState.showSnackbar(
+                            message = label,
+                            actionLabel = undoLabel,
+                            duration = SnackbarDuration.Long
+                        )
+                        if (result == SnackbarResult.ActionPerformed) viewModel.undoDelete(payload)
                     }
                 }
 
@@ -400,7 +432,9 @@ class MainActivity : ComponentActivity() {
                             duration = SnackbarDuration.Long
                         )
                         if (result == SnackbarResult.ActionPerformed) {
-                            viewModel.deleteTransaction(tx)
+                            // Audit response (2026-08-12): user sudah tahu konsekuensinya
+                            // (dia yang menekan Urungkan) — jangan tawarkan undo lagi.
+                            viewModel.deleteTransaction(tx, emitUndo = false)
                         }
                     }
                 }
@@ -707,12 +741,39 @@ driveController.getAutoPassphrase = {
                     Column(modifier = Modifier.fillMaxSize()) {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
 
-                    if (!secretsLoaded) {
-                        // Loading singkat sambil secret (PIN/API key) didekripsi async.
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    } else if (workspacePin == null || userName == null || !firebaseReady) {
+                    // Audit motion startup (2026-08-12): fase pembukaan app di-rapikan
+                    // jadi satu alur mengalir — Loading (secret Keystore) → Pin/login →
+                    // Main. Sebelumnya if/else langsung menukar layar (hard cut) sehingga
+                    // pembukaan terasa "melompat-lompat". Kini AnimatedContent
+                    // meng-crossfade antarfase dengan zoom halus (FastOutSlowIn, motion
+                    // language yang sama dengan tab).
+                    val startupPhase = when {
+                        !secretsLoaded -> StartupPhase.Loading
+                        workspacePin == null || userName == null || !firebaseReady -> StartupPhase.Pin
+                        else -> StartupPhase.Main
+                    }
+                    AnimatedContent(
+                        targetState = startupPhase,
+                        transitionSpec = {
+                            // Semua fase full-screen: fade lembut + zoom 0.97→1 (subtle,
+                            // bukan overshoot). Exit lebih cepat (base) agar terasa
+                            // responsif tapi tetap satu karakter.
+                            (fadeIn(animationSpec = Motion.base()) +
+                                androidx.compose.animation.scaleIn(
+                                    initialScale = 0.97f,
+                                    animationSpec = Motion.base()
+                                )) togetherWith
+                                fadeOut(animationSpec = Motion.quick())
+                        },
+                        label = "startupPhase"
+                    ) { phase ->
+                        when (phase) {
+                            StartupPhase.Loading -> {
+                                // Loading singkat sambil secret (PIN/API key) didekripsi async.
+                                StartupLoadingScreen()
+                            }
+
+                            StartupPhase.Pin -> {
                         // F2 (audit focus order): saat gate keanggotaan aktif (connectGate),
                         // background layar PIN ditandai invisibleToUser() supaya TalkBack &
                         // fokus keyboard tidak menjangkau elemen di balik gate.
@@ -741,7 +802,9 @@ driveController.getAutoPassphrase = {
                             }
                         )
                         }
-                    } else {
+                            }
+
+                            StartupPhase.Main -> {
                         // F1 (audit focus order): Scaffold M3 mengkomposisikan fokus
                         // TopBar → BottomBar → Konten (lihat urutan subcompose di
                         // Scaffold.kt), sehingga Tab melompat ke navbar SEBELUM konten.
@@ -776,10 +839,14 @@ driveController.getAutoPassphrase = {
                                             initialOffsetX = { if (forward) it / 5 else -it / 5 },
                                             animationSpec = Motion.nav()
                                         ) + fadeIn(animationSpec = Motion.nav())
+                                        // Audit motion (2026-08-12): exit diselaraskan
+                                        // ke nav() juga — sebelumnya fadeOut base (250ms)
+                                        // lebih cepat dari enter nav (300ms), selisih 50ms
+                                        // yang melanggar satu hierarki durasi.
                                         val exit = slideOutHorizontally(
                                             targetOffsetX = { if (forward) -it / 5 else it / 5 },
                                             animationSpec = Motion.nav()
-                                        ) + fadeOut(animationSpec = Motion.base())
+                                        ) + fadeOut(animationSpec = Motion.nav())
                                         enter togetherWith exit
                                     },
                                     label = "tabContent"
@@ -844,6 +911,10 @@ driveController.getAutoPassphrase = {
                                 openRouterKey = openRouterKey,
                                 auditReport = auditReport,
                                 monthlyReport = monthlyReport,
+                                auditError = isAuditError,
+                                monthlyError = isMonthlyError,
+                                onRetryAudit = { viewModel.generateAiAuditReport() },
+                                onRetryMonthly = { viewModel.generateMonthlyAnalysis() },
                                 driveController = driveController,
                                 exportCsvLauncher = exportCsvLauncher,
                                 showSnack = showSnack,
@@ -873,6 +944,8 @@ driveController.getAutoPassphrase = {
                                 onRenameUser = handleRenameUser,
                                 onPerformLogoutCleanup = { performLogoutCleanup() }
                             )
+                        }
+                            }
                         }
                     }
 

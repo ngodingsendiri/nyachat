@@ -394,21 +394,33 @@ class FinanceRepository(
         }
     }
 
-    suspend fun deleteChatMessage(messageId: Long) {
-        withContext(Dispatchers.IO) {
-            val msg = chatMessageDao.getById(messageId) ?: return@withContext
-            // Konsistensi 1 arah: hapus transaksi terkait pesan ini agar tidak jadi
-            // orphan di Rekap (dan dihapus juga dari cloud).
-            transactionDao.getByChatMessageId(messageId)?.let { tx ->
+    /**
+     * Hapus pesan + SEMUA transaksi terkait (konsistensi 1 arah). Mengembalikan
+     * objek yang dihapus untuk UNDO (audit response 2026-08-12) — null bila pesan
+     * tidak ditemukan. Audit r1.2.4+: pakai getAllByChatMessageId (bukan LIMIT 1)
+     * — pesan multi-transaksi tidak boleh meninggalkan orphan di Rekap.
+     */
+    suspend fun deleteChatMessage(messageId: Long): ChatDeleted? {
+        return withContext(Dispatchers.IO) {
+            val msg = chatMessageDao.getById(messageId) ?: return@withContext null
+            // Konsistensi 1 arah: hapus SEMUA transaksi terkait pesan ini agar tidak
+            // jadi orphan di Rekap (dan dihapus juga dari cloud).
+            val linkedTxs = transactionDao.getAllByChatMessageId(messageId)
+            linkedTxs.forEach { tx ->
                 transactionDao.deleteTransaction(tx)
                 tx.cloudId?.let { FirestoreSyncManager.deleteTransaction(it) }
             }
             chatMessageDao.deleteMessage(messageId)
             msg.cloudId?.let { FirestoreSyncManager.deleteMessage(it) }
+            ChatDeleted(message = msg, transactions = linkedTxs)
         }
     }
 
-    suspend fun deleteTransaction(transaction: FinancialTransaction) {
+    /**
+     * Hapus transaksi + perbarui badge pesan terkait (konsistensi 2 arah).
+     * Mengembalikan objek yang dihapus untuk UNDO (audit response 2026-08-12).
+     */
+    suspend fun deleteTransaction(transaction: FinancialTransaction): FinancialTransaction? {
         withContext(Dispatchers.IO) {
             // Hapus DULU, lalu query sisa — tanpa filter id (review r1.2.4): filter
             // `id != transaction.id` rapuh saat id lokal 0 (baris dari cloud yang
@@ -437,6 +449,51 @@ class FinanceRepository(
                     }
                     chatMessageDao.updateMessage(updated)
                     FirestoreSyncManager.syncMessage(updated)
+                }
+            }
+        }
+        return transaction
+    }
+
+    /**
+     * Urungkan hapus (audit response 2026-08-12): masukkan kembali pesan dan/atau
+     * SEMUA transaksinya yang baru saja dihapus — dengan cloudId SAMA (tanpa
+     * duplikat di cloud), id lokal baru, dan relasi pesan⇄transaksi dijaga ulang.
+     */
+    suspend fun restoreDeleted(message: ChatMessage?, transactions: List<FinancialTransaction>) {
+        withContext(Dispatchers.IO) {
+            var newMid: Long? = null
+            if (message != null) {
+                newMid = chatMessageDao.insertMessage(message.copy(id = 0))
+                message.cloudId?.let { cid ->
+                    FirestoreSyncManager.syncMessage(message.copy(id = newMid))
+                }
+            }
+            transactions.forEach { tx ->
+                // Saat pesan ikut di-restore, relasi transaksi harus menunjuk ke id
+                // pesan yang BARU (id lama sudah diganti).
+                val remapped = if (newMid != null) tx.copy(chatMessageId = newMid) else tx
+                val newTxId = transactionDao.insertTransaction(remapped.copy(id = 0))
+                remapped.cloudId?.let { cid ->
+                    FirestoreSyncManager.syncTransaction(remapped.copy(id = newTxId))
+                }
+                // Badge pesan terkait dihitung ulang dari semua transaksinya.
+                (newMid ?: remapped.chatMessageId)?.let { mid ->
+                    chatMessageDao.getById(mid)?.let { m ->
+                        val all = transactionDao.getAllByChatMessageId(mid)
+                        val updated = if (all.isEmpty()) {
+                            m.clearFinancialBadge()
+                        } else {
+                            m.copy(
+                                isFinancial = true,
+                                detectedAmount = all.sumOf { it.amount },
+                                detectedCategory = all.first().category,
+                                detectedType = all.first().type
+                            )
+                        }
+                        chatMessageDao.updateMessage(updated)
+                        FirestoreSyncManager.syncMessage(updated)
+                    }
                 }
             }
         }
@@ -528,6 +585,15 @@ class FinanceRepository(
     suspend fun generateMonthlyAnalysis(transactions: List<FinancialTransaction>): String =
         aiService.monthlyAnalysis(transactions)
 }
+
+/**
+ * Hasil hapus pesan chat — menyimpan objek yang dihapus supaya bisa di-undo
+ * (audit response 2026-08-12): pesan itu sendiri + SEMUA transaksi terkait.
+ */
+data class ChatDeleted(
+    val message: ChatMessage,
+    val transactions: List<FinancialTransaction>
+)
 
 /**
  * Terapkan nilai transaksi terbaru ke badge finansial pesan chat terkait

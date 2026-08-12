@@ -7,4 +7,8 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- Splash screen (2026-08-12): background menyatu dengan tema app light
+         (Theme.kt background = #FBFDF9) supaya cold start tidak tampil kosong
+         lalu "melompat" ke UI. Dark mode splash di-handle values-night. -->
+    <color name="splash_background">#FBFDF9</color>
 </resources>

@@ -62,6 +62,12 @@ fun MainAppDialogs(
     openRouterKey: String?,
     auditReport: String?,
     monthlyReport: String?,
+    // Audit response (2026-08-12): flag error laporan + retry — dialog menampilkan
+    // tombol "Coba Lagi" saat generate gagal (Problem → Action).
+    auditError: Boolean,
+    monthlyError: Boolean,
+    onRetryAudit: () -> Unit,
+    onRetryMonthly: () -> Unit,
     driveController: DriveBackupController,
     exportCsvLauncher: ManagedActivityResultLauncher<String, Uri?>,
     showSnack: (String, String?, (() -> Unit)?) -> Unit,
@@ -224,6 +230,8 @@ fun MainAppDialogs(
                 secureStorage.putSecret(context, Constants.Prefs.GEMINI_API_KEY, newKey)
                 onGeminiKeySaved(newKey)
                 dialogs.showGeminiKeyDialog = false
+                // Audit response (2026-08-12): konfirmasi eksplisit kunci tersimpan.
+                showSnack(context.getString(R.string.api_key_saved), null, null)
             }
         )
     }
@@ -238,6 +246,8 @@ fun MainAppDialogs(
                 secureStorage.putSecret(context, Constants.Prefs.OPENROUTER_API_KEY, newKey)
                 onOpenRouterKeySaved(newKey)
                 dialogs.showOpenRouterKeyDialog = false
+                // Audit response (2026-08-12): konfirmasi eksplisit kunci tersimpan.
+                showSnack(context.getString(R.string.api_key_saved), null, null)
             }
         )
     }
@@ -289,6 +299,15 @@ fun MainAppDialogs(
     auditReport?.let { report ->
         AiReportDialog(
             reportText = report,
+            isError = auditError,
+            // Coba Lagi: tutup dialog error lalu generate ulang (spinner muncul di
+            // tombol kartu, hasil baru membuka dialog lagi).
+            onRetry = if (auditError) {
+                {
+                    viewModel.dismissAuditReport()
+                    onRetryAudit()
+                }
+            } else null,
             onDismiss = { viewModel.dismissAuditReport() }
         )
     }
@@ -296,6 +315,13 @@ fun MainAppDialogs(
     monthlyReport?.let { report ->
         AiReportDialog(
             reportText = report,
+            isError = monthlyError,
+            onRetry = if (monthlyError) {
+                {
+                    viewModel.dismissMonthlyReport()
+                    onRetryMonthly()
+                }
+            } else null,
             onDismiss = { viewModel.dismissMonthlyReport() }
         )
     }

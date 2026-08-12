@@ -72,7 +72,7 @@ import androidx.core.content.FileProvider
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
-import com.startupmini.nyachat.data.remote.ImageFileUtil
+import com.startupmini.nyachat.data.remote.BitmapCache
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.util.AvatarImage
 import com.startupmini.nyachat.ui.util.avatarColorFor
@@ -206,14 +206,18 @@ fun ChatMessageBubble(
         "$formattedTime • ${stringResource(R.string.chat_edited)}"
     } else formattedTime
 
-    // Dekode foto lampiran untuk ditampilkan di bubble (disampling, aman memori)
+    // Dekode foto lampiran untuk ditampilkan di bubble (disampling, aman memori).
+    // P1 (audit performa 2026-08-12): pakai cache thumbnail media per sesi —
+    // scroll bolak-balik TIDAK men-decode ulang file 1100px dari disk (penyebab
+    // skipped frames). Key cache = maxDim|path, jadi preview 640px & bubble
+    // 1100px dari file sama di-cache terpisah.
     val imagePath = message.imagePath
     val imageBitmap by produceState<Bitmap?>(
         initialValue = null,
         key1 = imagePath
     ) {
         value = withContext(Dispatchers.IO) {
-            imagePath?.let { ImageFileUtil.decodeImage(it, 1100) }
+            BitmapCache.decodeMedia(imagePath, 1100)
         }
     }
     // Snapshot lokal supaya smart-cast berfungsi (imageBitmap = delegated property).

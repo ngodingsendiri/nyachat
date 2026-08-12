@@ -2,6 +2,7 @@ package com.startupmini.nyachat.data.backup
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.startupmini.nyachat.R
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -433,9 +434,10 @@ class DriveBackupController(
                 null
             }
             else -> {
-                _message.value = context.getString(
-                    R.string.drive_err_token, tokenResult.errorMessage ?: "Unknown error"
-                )
+                // Audit (2026-08-12): detail teknis (errorMessage exception mentah)
+                // tidak untuk user — cukup di logcat, UI menampilkan pesan ramah.
+                Log.w("DriveBackup", "Gagal ambil token Drive: ${tokenResult.errorMessage}")
+                _message.value = context.getString(R.string.drive_err_token)
                 null
             }
         }

@@ -109,11 +109,14 @@ internal fun RekapMonthNav(
         // Audit motion: crossfade halus saat label bulan berubah ("Semua" ⇄
         // nama bulan) — sebelumnya teks berganti instan saat angka di bawahnya
         // kini beranimasi; teks ikut melandai agar konsisten.
+        // Audit motion (2026-08-12): diselaraskan ke Motion.base() (250ms) —
+        // sama dengan angka saldo/pemasukan/pengeluaran di layar yang sama
+        // (sebelumnya fast 200ms = durasi beda untuk fungsi setara).
         AnimatedContent(
             targetState = monthLabel ?: stringResource(R.string.rekap_month_all),
             transitionSpec = {
-                fadeIn(animationSpec = Motion.fast()) togetherWith
-                    fadeOut(animationSpec = Motion.quick())
+                fadeIn(animationSpec = Motion.base()) togetherWith
+                    fadeOut(animationSpec = Motion.base())
             },
             label = "monthLabel",
             modifier = Modifier

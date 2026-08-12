@@ -21,6 +21,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -155,7 +156,14 @@ fun InsightsAiCard(
 
                 Button(
                     onClick = onGenerateAudit,
-                    colors = ButtonDefaults.buttonColors(containerColor = AiBlue),
+                    // Audit warna (2026-08-12): container AiBlue FIXED di kedua
+                    // mode (bukan primary tema — dark onPrimary #00381F di atas
+                    // #0066FF cuma 3.64:1, gagal AA). ContentColor putih eksplisit
+                    // → label & spinner konsisten, 4.65:1 di light & dark.
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AiBlue,
+                        contentColor = Color.White
+                    ),
                     enabled = !isAuditLoading,
                     shape = RoundedCornerShape(Constants.Ui.CORNER_M.dp),
                     modifier = Modifier
@@ -165,7 +173,9 @@ fun InsightsAiCard(
                     if (isAuditLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
-                            color = Color.White,
+                            // Token semantik LocalContentColor — spinner selalu
+                            // mengikuti warna konten tombol (putih di kedua mode).
+                            color = LocalContentColor.current,
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(8.dp))

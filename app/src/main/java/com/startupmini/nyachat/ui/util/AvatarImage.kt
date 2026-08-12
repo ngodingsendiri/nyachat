@@ -22,7 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.startupmini.nyachat.data.remote.ImageFileUtil
+import com.startupmini.nyachat.data.remote.BitmapCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -84,10 +84,12 @@ fun AvatarImage(
     textColor: Color = MaterialTheme.colorScheme.onPrimaryContainer,
     textStyle: TextStyle = MaterialTheme.typography.titleMedium
 ) {
-    // Dekode foto (sampling 128px) — aman memori untuk avatar kecil.
+    // Dekode foto (sampling 128px) — aman memori & di-cache per sesi (P1,
+    // audit performa 2026-08-12): avatar TIDAK di-decode ulang dari disk setiap
+    // item muncul/scroll — LruCache 14MB khusus avatar, key = path file.
     val photo: Bitmap? by produceState<Bitmap?>(null, photoPath) {
         value = withContext(Dispatchers.IO) {
-            photoPath?.let { ImageFileUtil.decodeImage(it, 128) }
+            BitmapCache.decodeAvatar(photoPath)
         }
     }
 

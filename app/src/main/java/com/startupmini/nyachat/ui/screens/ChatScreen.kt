@@ -92,10 +92,12 @@ private sealed interface ChatRow {
 
 /**
  * Kekakuan spring FAB jump-to-bottom & geser chips (r1.2.0) — dipakai bersama
- * supaya kemunculan FAB dan pergeseran chips selalu sinkron. 600f ≈ settle ±1
- * detik: lebih lambat & lembut dari StiffnessMedium (500ms) sesuai masukan user.
+ * supaya kemunculan FAB dan pergeseran chips selalu sinkron. Awalnya 600f
+ * (≈ settle ±1 detik), diturunkan ke 1600f (≈ ±600ms) oleh audit motion
+ * 2026-08-12: tetap soft (LowBouncy, tanpa overshoot berlebihan) tapi lebih
+ * responsif — fade-in 300ms kini berakhir hampir bersamaan dengan slide.
  */
-private const val FAB_SPRING_STIFFNESS = 600f
+private const val FAB_SPRING_STIFFNESS = 1600f
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -131,6 +133,10 @@ fun ChatScreen(
     var pendingImagePath by remember { mutableStateOf<String?>(null) }
     var pendingFilePath by remember { mutableStateOf<String?>(null) }
     var pendingFileName by remember { mutableStateOf<String?>(null) }
+    // Audit response (2026-08-12): umpan balik saat menyimpan lampiran (foto/PDF) —
+    // sebelumnya proses berjalan senyap; sekarang baris info menampilkan
+    // "Menyimpan lampiran…" sampai file selesai disalin.
+    var isSavingAttachment by remember { mutableStateOf(false) }
     var replyTarget by remember { mutableStateOf<ChatMessage?>(null) }
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var cameraTempUri by remember { mutableStateOf<Uri?>(null) }
@@ -153,14 +159,26 @@ fun ChatScreen(
         cameraTempUri = null
         if (success && uri != null) {
             coroutineScope.launch {
-                pendingImagePath = ImageFileUtil.saveImageFromUri(context, uri, workspacePin)
+                // try/finally: kalau simpan melempar (IO/disk penuh), indikator
+                // "Menyimpan…" tidak boleh macet selamanya (reviewer response audit).
+                try {
+                    isSavingAttachment = true
+                    pendingImagePath = ImageFileUtil.saveImageFromUri(context, uri, workspacePin)
+                } finally {
+                    isSavingAttachment = false
+                }
             }
         }
     }
     val pickGalleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             coroutineScope.launch {
-                pendingImagePath = ImageFileUtil.saveImageFromUri(context, uri, workspacePin)
+                try {
+                    isSavingAttachment = true
+                    pendingImagePath = ImageFileUtil.saveImageFromUri(context, uri, workspacePin)
+                } finally {
+                    isSavingAttachment = false
+                }
             }
         }
     }
@@ -169,10 +187,15 @@ fun ChatScreen(
     ) { uri ->
         if (uri != null) {
             coroutineScope.launch {
-                val saved = ImageFileUtil.saveFileFromUri(context, uri, workspacePin)
-                if (saved != null) {
-                    pendingFilePath = saved.path
-                    pendingFileName = saved.name
+                try {
+                    isSavingAttachment = true
+                    val saved = ImageFileUtil.saveFileFromUri(context, uri, workspacePin)
+                    if (saved != null) {
+                        pendingFilePath = saved.path
+                        pendingFileName = saved.name
+                    }
+                } finally {
+                    isSavingAttachment = false
                 }
             }
         }
@@ -422,9 +445,9 @@ fun ChatScreen(
                 // sehingga FAB dan chips saling memberi ruang tanpa menimpa.
                 val chipShift by animateDpAsState(
                     targetValue = if (shouldShowJumpButton) 64.dp else 0.dp,
-                                    // r1.2.0 (masukan user): geser chips LEBIH LEMBUT & LAMBAT —
-                    // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±1 detik)
-                    // sinkron dengan slide-in FAB yang juga di-perlambat.
+                                    // r1.2.0 (masukan user): geser chips LEBIH LEMBUT —
+                    // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±600ms sejak
+                    // audit motion 2026-08-12) sinkron dengan slide-in FAB.
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioLowBouncy,
                         stiffness = FAB_SPRING_STIFFNESS
@@ -471,8 +494,8 @@ fun ChatScreen(
                 // tepi kiri layar (initialOffsetX = -width) + fade — bukan muncul
                 // dari bawah. Keluar juga ke kiri.
                 // r1.2.0 (masukan user #3): kemunculan LEBIH SOFT — spring
-                // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±1 detik)
-                // menggantikan MediumBouncy/StiffnessMedium yang terasa cepat.
+                // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±600ms sejak
+                // audit motion 2026-08-12, tetap lembut tanpa overshoot liar).
                 enter = fadeIn(animationSpec = Motion.nav()) +
                     slideInHorizontally(
                         initialOffsetX = { -it },
@@ -542,14 +565,17 @@ fun ChatScreen(
                 onRemove = { pendingImagePath = null }
             )
 
-            // Info transparan: lampiran TIDAK ikut sinkron antar perangkat
+            // Info lampiran: saat menyimpan tampil "Menyimpan lampiran…", setelah
+            // selesai berganti info bahwa lampiran tidak ikut sinkron antar perangkat.
             AnimatedVisibility(
-                visible = pendingImagePath != null || pendingFilePath != null,
+                visible = pendingImagePath != null || pendingFilePath != null || isSavingAttachment,
                 enter = fadeIn(animationSpec = Motion.fast()),
                 exit = fadeOut(animationSpec = Motion.quick())
             ) {
                 Text(
-                    text = stringResource(R.string.chat_attach_no_sync),
+                    text = stringResource(
+                        if (isSavingAttachment) R.string.chat_attach_saving else R.string.chat_attach_no_sync
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier

@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import com.startupmini.nyachat.Constants
 import androidx.lifecycle.viewModelScope
 import com.startupmini.nyachat.BuildConfig
+import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.backup.BackupData
 import com.startupmini.nyachat.data.backup.DataExporter
 import com.startupmini.nyachat.data.analytics.WeeklyInsights
@@ -15,6 +16,7 @@ import com.startupmini.nyachat.data.local.AppDatabase
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.data.repository.FinanceRepository
+import com.startupmini.nyachat.data.remote.BitmapCache
 import com.startupmini.nyachat.data.remote.FinanceAiService
 import com.startupmini.nyachat.data.remote.GeminiService
 import com.startupmini.nyachat.data.remote.ImageFileUtil
@@ -39,6 +41,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * UI menampilkan Snackbar "Tercatat" dengan aksi Urungkan (hapus transaksi).
      */
     data class TransactionRecorded(val transaction: FinancialTransaction)
+
+    /**
+     * Payload undo hapus (audit response 2026-08-12): pesan dan/atau transaksi yang
+     * baru saja dihapus — UI menawarkan snackbar "Urungkan" yang memanggil
+     * [undoDelete]. Payload dibawa lewat event (bukan state tunggal) supaya dua
+     * hapus berurutan tidak saling menimpa saat snackbar masih antre.
+     * Transaksi berupa LIST — satu pesan bisa memuat banyak transaksi (r1.2.4).
+     */
+    data class DeleteUndo(val message: ChatMessage?, val transactions: List<FinancialTransaction>)
 
     companion object {
         /** Cooldown saran cepat — batasi panggilan AI agar tidak boros kuota BYOK (P2-8). */
@@ -78,11 +89,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAuditLoading = MutableStateFlow(false)
     val isAuditLoading: StateFlow<Boolean> = _isAuditLoading.asStateFlow()
 
+    // Audit response (2026-08-12): flag error laporan — dialog menampilkan pesan
+    // error + tombol Coba Lagi (bukan sekadar teks generik sebagai isi laporan).
+    private val _isAuditError = MutableStateFlow(false)
+    val isAuditError: StateFlow<Boolean> = _isAuditError.asStateFlow()
+
     private val _monthlyReport = MutableStateFlow<String?>(null)
     val monthlyReport: StateFlow<String?> = _monthlyReport.asStateFlow()
 
     private val _isMonthlyLoading = MutableStateFlow(false)
     val isMonthlyLoading: StateFlow<Boolean> = _isMonthlyLoading.asStateFlow()
+
+    private val _isMonthlyError = MutableStateFlow(false)
+    val isMonthlyError: StateFlow<Boolean> = _isMonthlyError.asStateFlow()
 
     val totalIncome: StateFlow<Double>
     val totalExpense: StateFlow<Double>
@@ -98,6 +117,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val transactionRecorded: SharedFlow<TransactionRecorded> = _transactionRecorded
+
+    private val _deleteUndoEvents = MutableSharedFlow<DeleteUndo>(
+        extraBufferCapacity = 2,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    // Pola sama dengan transactionRecorded (tanpa asSharedFlow — import tidak perlu).
+    val deleteUndoEvents: SharedFlow<DeleteUndo> = _deleteUndoEvents
 
     init {
         val db = AppDatabase.getDatabase(application)
@@ -223,7 +249,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteChatMessage(messageId: Long) {
         viewModelScope.launch {
             try {
-                repository.deleteChatMessage(messageId)
+                val deleted = repository.deleteChatMessage(messageId)
+                // Audit response (2026-08-12): tawarkan undo untuk hapus pesan.
+                if (deleted != null) {
+                    _deleteUndoEvents.tryEmit(DeleteUndo(deleted.message, deleted.transactions))
+                }
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Hapus pesan gagal", e)
             }
@@ -269,12 +299,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteTransaction(transaction: FinancialTransaction) {
+    /**
+     * Hapus transaksi. [emitUndo] false saat pemanggil sudah tahu konsekuensinya
+     * (mis. aksi "Urungkan" dari snackbar Tercatat) — menghindari snackbar undo
+     * ganda yang membingungkan (audit response 2026-08-12).
+     */
+    fun deleteTransaction(transaction: FinancialTransaction, emitUndo: Boolean = true) {
         viewModelScope.launch {
             try {
                 repository.deleteTransaction(transaction)
+                if (emitUndo) _deleteUndoEvents.tryEmit(DeleteUndo(null, listOf(transaction)))
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Operasi gagal", e)
+            }
+        }
+    }
+
+    /** Urungkan hapus terakhir (audit response 2026-08-12) — restore pesan/transaksi. */
+    fun undoDelete(payload: DeleteUndo) {
+        viewModelScope.launch {
+            try {
+                repository.restoreDeleted(payload.message, payload.transactions)
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "Urungkan hapus gagal", e)
             }
         }
     }
@@ -292,6 +339,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun generateAiAuditReport() {
         viewModelScope.launch {
             _isAuditLoading.value = true
+            _isAuditError.value = false
             try {
                 val currentTrans = transactions.value
                 val inc = totalIncome.value
@@ -300,7 +348,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _auditReport.value = report
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Operasi gagal", e)
-                _auditReport.value = "Gagal memuat laporan, silakan coba lagi."
+                // Audit response (2026-08-12): tandai error → dialog menampilkan
+                // pesan + tombol Coba Lagi (Problem → Action), bukan teks polos.
+                _auditReport.value = getApplication<Application>().getString(R.string.rekap_ai_failed)
+                _isAuditError.value = true
             } finally {
                 _isAuditLoading.value = false
             }
@@ -314,11 +365,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun generateMonthlyAnalysis() {
         viewModelScope.launch {
             _isMonthlyLoading.value = true
+            _isMonthlyError.value = false
             try {
                 _monthlyReport.value = repository.generateMonthlyAnalysis(transactions.value)
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Analisis bulanan gagal", e)
-                _monthlyReport.value = "Gagal memuat analisis, silakan coba lagi."
+                // Audit response (2026-08-12): tandai error → dialog + tombol Coba Lagi.
+                _monthlyReport.value = getApplication<Application>().getString(R.string.rekap_monthly_failed)
+                _isMonthlyError.value = true
             } finally {
                 _isMonthlyLoading.value = false
             }
@@ -333,6 +387,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 ImageFileUtil.deleteAllAttachments(getApplication())
+                // P1 (audit performa 2026-08-12): file lampiran/avatar dihapus dari
+                // disk — bitmap hasil decode di cache tidak boleh menggantung di
+                // memori (BitmapCache.clear).
+                BitmapCache.clear()
                 repository.clearAllData()
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Operasi gagal", e)
@@ -345,6 +403,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 ImageFileUtil.deleteAllAttachments(getApplication())
+                // P1 (audit performa 2026-08-12): pindah workspace → file lama
+                // terhapus; cache bitmap per sesi di-reset supaya tidak menggantung.
+                BitmapCache.clear()
                 repository.clearLocalData()
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Bersihkan lokal gagal", e)
@@ -364,6 +425,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Urutan penting: cloud harus dibersihkan SELAGI familyId & auth masih
                 // aktif; baru hentikan sync (yang me-reset familyId & matikan listener).
                 ImageFileUtil.deleteAllAttachments(getApplication())
+                BitmapCache.clear()
                 repository.clearAllData()
                 repository.stopCloudSync()
             } catch (e: Exception) {

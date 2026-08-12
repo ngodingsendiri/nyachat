@@ -75,7 +75,7 @@ import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
-import com.startupmini.nyachat.data.remote.ImageFileUtil
+import com.startupmini.nyachat.data.remote.BitmapCache
 import com.startupmini.nyachat.ui.theme.ExpenseRed
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.theme.Motion
@@ -361,8 +361,10 @@ fun ChatImagePreviewBar(
         initialValue = null,
         key1 = imagePath
     ) {
+        // P1 (audit performa 2026-08-12): thumbnail preview di-cache per sesi
+        // (LruCache media) — preview TIDAK di-decode ulang tiap komposisi ulang.
         value = withContext(Dispatchers.IO) {
-            imagePath?.let { ImageFileUtil.decodeImage(it, 640) }
+            BitmapCache.decodeMedia(imagePath, 640)
         }
     }
     AnimatedVisibility(

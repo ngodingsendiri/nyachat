@@ -98,9 +98,15 @@ object DriveBackupManager : DriveBackupApi {
             } catch (e: UserRecoverableAuthException) {
                 val intent = e.intent
                 if (intent != null) BackupResult.ConsentRequired(intent)
-                else BackupResult.Failure("Token Drive gagal: ${e.message}", e)
+                else {
+                    // Audit (2026-08-12): detail exception hanya di logcat — UI
+                    // menampilkan pesan ramah (DriveBackupController).
+                    Log.w(TAG, "Token Drive gagal: ${e.message}")
+                    BackupResult.Failure("Token Drive gagal", e)
+                }
             } catch (e: GoogleAuthException) {
-                BackupResult.Failure("Token Drive gagal: ${e.message}", e)
+                Log.w(TAG, "Token Drive gagal: ${e.message}")
+                BackupResult.Failure("Token Drive gagal", e)
             }
         }
 
@@ -187,7 +193,10 @@ object DriveBackupManager : DriveBackupApi {
                 }
             }.fold(
                 { it -> BackupResult.Success(it) },
-                { e -> BackupResult.Failure("Gagal parse daftar backup: ${e.message}", e) }
+                { e ->
+                    Log.w(TAG, "Gagal parse daftar backup: ${e.message}")
+                    BackupResult.Failure("Gagal memuat daftar backup", e)
+                }
             )
         }
 
@@ -208,7 +217,10 @@ object DriveBackupManager : DriveBackupApi {
                 }
             }.fold(
                 { BackupResult.Success(it) },
-                { e -> BackupResult.Failure("Gagal mengunduh backup: ${e.message}", e) }
+                { e ->
+                    Log.w(TAG, "Gagal mengunduh backup: ${e.message}")
+                    BackupResult.Failure("Gagal mengunduh backup", e)
+                }
             )
         }
 
@@ -236,10 +248,13 @@ object DriveBackupManager : DriveBackupApi {
                         }.exceptionOrNull()
                     }
                     if (failed.isEmpty()) BackupResult.Success(Unit)
-                    else BackupResult.Failure(
-                        "Gagal menghapus ${failed.size} backup lama (${failed.first().message})",
-                        failed.first()
-                    )
+                    else {
+                        Log.w(TAG, "Gagal menghapus ${failed.size} backup lama (${failed.first().message})")
+                        BackupResult.Failure(
+                            "Gagal menghapus ${failed.size} backup lama",
+                            failed.first()
+                        )
+                    }
                 }
             }
             is BackupResult.Failure, is BackupResult.NotFound, is BackupResult.QuotaExceeded, is BackupResult.ConsentRequired -> filesResult

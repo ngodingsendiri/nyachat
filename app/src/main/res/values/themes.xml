@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar" />
+    <!-- Tema aktivitas setelah splash selesai (API < 31 tidak punya splash API —
+         windowBackground menampilkan splash statis supaya cold start tidak kosong).
+         Splash Android 12+ di values-v31/themes.xml (override tema yang sama). -->
+    <style name="Theme.MyApplication" parent="Theme.MyApplication.Base" />
+
+    <!-- Base theme: dipakai postSplashScreenTheme (v31) & semua API < 31. -->
+    <style name="Theme.MyApplication.Base" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_screen</item>
+    </style>
 </resources>

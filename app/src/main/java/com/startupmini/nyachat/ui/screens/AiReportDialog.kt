@@ -1,5 +1,6 @@
 package com.startupmini.nyachat.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -50,7 +53,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun AiReportDialog(
     reportText: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    // Audit response (2026-08-12): mode error — pesan ditampilkan sebagai error
+    // (ikon + warna) dengan tombol "Coba Lagi" (Problem → Action), bukan sekadar
+    // teks polos di dalam sheet.
+    isError: Boolean = false,
+    onRetry: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true
@@ -155,29 +163,82 @@ fun AiReportDialog(
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
             ) {
+                if (isError) {
+                    // Mode error: ikon + pesan jelas, bukan laporan normal.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, bottom = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(44.dp)
+                        )
+                    }
+                }
                 Text(
                     text = reportText,
                     style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 24.sp),
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-            // Tombol tutup di bawah
-            Button(
-                onClick = {
-                    scope.launch { sheetState.hide() }.invokeOnCompletion {
-                        if (!sheetState.isVisible) onDismiss()
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = AiBlue),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 16.dp)
-                    .testTag("close_ai_report_button"),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Text(stringResource(R.string.report_close), fontWeight = FontWeight.SemiBold)
+            if (isError && onRetry != null) {
+                // Problem → Action: tombol Coba Lagi memicu generate ulang.
+                Button(
+                    onClick = onRetry,
+                    colors = ButtonDefaults.buttonColors(containerColor = AiBlue),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("retry_ai_report_button"),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        stringResource(R.string.membership_retry),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            // Tombol tutup di bawah — outlined saat mode error supaya aksi utama
+            // (Coba Lagi) terbaca jelas, bukan dua tombol biru identik bertumpuk.
+            if (isError) {
+                OutlinedButton(
+                    onClick = {
+                        scope.launch { sheetState.hide() }.invokeOnCompletion {
+                            if (!sheetState.isVisible) onDismiss()
+                        }
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AiBlue),
+                    border = BorderStroke(1.dp, AiBlue),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                        .testTag("close_ai_report_button"),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(stringResource(R.string.report_close), fontWeight = FontWeight.SemiBold)
+                }
+            } else {
+                Button(
+                    onClick = {
+                        scope.launch { sheetState.hide() }.invokeOnCompletion {
+                            if (!sheetState.isVisible) onDismiss()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AiBlue),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp)
+                        .testTag("close_ai_report_button"),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(stringResource(R.string.report_close), fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
