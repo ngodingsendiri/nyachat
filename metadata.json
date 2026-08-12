@@ -1,6 +1,0 @@
-{
-  "name": "Nyachat",
-  "description": "Aplikasi chat finansial grup dan keluarga dengan kecerdasan buatan untuk pemantauan dan pencatatan transaksi otomatis.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

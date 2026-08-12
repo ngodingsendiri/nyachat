@@ -92,6 +92,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // REDUCED MOTION (audit aksesibilitas 2026-08-12): hormati pengaturan
+        // sistem "Hapus animasi" (ANIMATOR_DURATION_SCALE=0) — semua tween snap,
+        // spring dipersingkat via Motion.springOrSnap. Di-baca sekali di sini
+        // (nilai tidak berubah saat runtime tanpa restart Activity).
+        Motion.applySystemSetting(this)
+
         // Crashlytics: auto-inisialisasi dari google-services. Tambahkan konteks
         // kecil supaya triase crash lebih mudah (build type + versi).
         runCatching {

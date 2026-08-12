@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -181,19 +180,13 @@ fun QuickSuggestionRow(
                 // kanan saat draf dikosongkan.
                 AnimatedVisibility(
                     visible = true,
+                    // Reduced-motion: Motion.stagger menegakkan durasi & delay 0ms
+                    // (sistem "Hapus animasi" aktif) — chip tampil sekaligus.
                     enter = slideInHorizontally(
                         initialOffsetX = { it },
-                        animationSpec = tween(
-                            durationMillis = Motion.BASE_MS,
-                            delayMillis = index * 45,
-                            easing = Motion.STANDARD
-                        )
+                        animationSpec = Motion.stagger(index)
                     ) + fadeIn(
-                        animationSpec = tween(
-                            durationMillis = Motion.BASE_MS,
-                            delayMillis = index * 45,
-                            easing = Motion.STANDARD
-                        )
+                        animationSpec = Motion.stagger(index)
                     )
                 ) {
                     // Chip FLOATING BERLATAR (2026-08-12, permintaan user): tombol

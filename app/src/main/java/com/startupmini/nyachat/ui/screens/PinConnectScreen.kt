@@ -3,10 +3,6 @@ package com.startupmini.nyachat.ui.screens
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -41,6 +37,7 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
@@ -50,7 +47,6 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
-import com.startupmini.nyachat.ui.theme.Motion
 import java.security.MessageDigest
 import java.security.SecureRandom
 import kotlinx.coroutines.delay
@@ -83,9 +79,9 @@ fun PinConnectScreen(
     var myName by rememberSaveable { mutableStateOf("") }
     // State alur PIN: 0 = pilih Buat/Gunakan PIN, 1 = gabung PIN,
     // 2 = PIN tergenerate. Audit motion (2026-08-12): transisi antar step
-    // memakai CROSSFADE RINGAN (fade saja, fast 200ms) — AnimatedContent lama
-    // dengan slide/scale pernah macet & menumpuk tombol, jadi sengaja dibatasi
-    // ke fade murni (paling aman, rollback mudah bila terulang).
+    // memakai `when` LANGSUNG tanpa AnimatedContent — AnimatedContent (baik
+    // slide/scale maupun fade murni) pernah macet & menumpuk tombol Buat PIN
+    // di atas field PIN/Gabung, jadi sengaja di-rollback ke when polos.
     var pinFlowState by rememberSaveable { mutableIntStateOf(0) }
     var isSigningIn by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
@@ -108,6 +104,7 @@ fun PinConnectScreen(
     val strGoogleSignInFailed = stringResource(R.string.google_sign_in_failed)
     val strSha1Hint = stringResource(R.string.google_err_sha1_hint)
     val strCredentialProvider = stringResource(R.string.google_err_credential_provider)
+    val strNoCredential = stringResource(R.string.google_err_no_credential)
     val strProviderNotEnabled = stringResource(R.string.google_err_provider_not_enabled)
     val strInvalidCredential = stringResource(R.string.google_err_invalid_credential)
     val strNetworkError = stringResource(R.string.google_err_network)
@@ -205,6 +202,12 @@ fun PinConnectScreen(
                 }
             } catch (e: GetCredentialCancellationException) {
                 // User membatalkan dialog Google — bukan error, biarkan tenang.
+            } catch (e: NoCredentialException) {
+                // Perangkat tidak punya akun Google tersimpan (lint
+                // CredentialManagerMisuse). Bukan kegagalan teknis — beri
+                // pesan ramah yang menuntun user menambahkan akun dulu.
+                Log.w(TAG_LOG, "Login Google: tidak ada kredensial di perangkat")
+                authError = strNoCredential
             } catch (e: GetCredentialException) {
                 // Play Services menolak (mis. SHA-1/package belum terdaftar di
                 // Firebase Console, atau app tidak dipercaya). Detail teknis
@@ -336,214 +339,211 @@ fun PinConnectScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    AnimatedContent(
-                        targetState = pinFlowState,
-                        transitionSpec = {
-                            fadeIn(animationSpec = Motion.fast()) togetherWith
-                                fadeOut(animationSpec = Motion.fast())
-                        },
-                        label = "pinFlow"
-                    ) { state ->
-                        when (state) {
+                    // Audit (2026-08-12): transisi antar step memakai `when` LANGSUNG
+                    // (bukan AnimatedContent). AnimatedContent fade murni pun terbukti
+                    // macet: tombol Buat PIN & field PIN/Gabung/warning/Batal dirender
+                    // BERTUMPUK di posisi yang sama (lihat riwayat "menumpuk tombol").
+                    // Rollback ke when polos — paling stabil, tanpa animasi transisi.
+                    when (pinFlowState) {
                         2 -> {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(20.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                                    ),
-                                    elevation = CardDefaults.cardElevation(0.dp)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                ),
+                                elevation = CardDefaults.cardElevation(0.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Column(
-                                        modifier = Modifier.padding(24.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    Text(stringResource(R.string.pin_your_pin), style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        // Audit ketahanan: pinFlowState==2 hanya dicapai
+                                        // SETELAH generatedPin di-set — fallback "" aman.
+                                        text = generatedPin.orEmpty(),
+                                        style = MaterialTheme.typography.displayMedium,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        letterSpacing = 8.sp,
+                                        modifier = Modifier.padding(vertical = 12.dp)
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.pin_share_hint),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    Text(
+                                        text = stringResource(R.string.pin_create_warning),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    // PIN bisa disalin ke clipboard — biar gampang dikirim ke pasangan.
+                                    // L7: pakai ClipData dengan label agar app lain tidak bisa membaca
+                                    // isi clipboard tanpa izin (clipboard overlay/privacy API ≥ 31) —
+                                    // setText(AnnotatedString) lama tidak menyertakan label.
+                                    OutlinedButton(
+                                        onClick = {
+                                            generatedPin?.let {
+                                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                                cm.setPrimaryClip(android.content.ClipData.newPlainText("Nyachat PIN", it))
+                                                pinCopied = true
+                                                scope.launch {
+                                                    delay(2000)
+                                                    pinCopied = false
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp)
                                     ) {
-                                        Text(stringResource(R.string.pin_your_pin), style = MaterialTheme.typography.titleMedium)
-                                        Text(
-                                            // Audit ketahanan: pinFlowState==2 hanya dicapai
-                                            // SETELAH generatedPin di-set — fallback "" aman.
-                                            text = generatedPin.orEmpty(),
-                                            style = MaterialTheme.typography.displayMedium,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            letterSpacing = 8.sp,
-                                            modifier = Modifier.padding(vertical = 12.dp)
+                                        Icon(
+                                            imageVector = if (pinCopied) Icons.Rounded.CheckCircle else Icons.Rounded.ContentCopy,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
                                         )
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = stringResource(R.string.pin_share_hint),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            textAlign = TextAlign.Center,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            text = stringResource(if (pinCopied) R.string.pin_copied else R.string.pin_copy),
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
                                         )
+                                    }
 
-                                        Spacer(modifier = Modifier.height(12.dp))
+                                    Spacer(modifier = Modifier.height(20.dp))
 
-                                        Text(
-                                            text = stringResource(R.string.pin_create_warning),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            textAlign = TextAlign.Center,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-
-                                        Spacer(modifier = Modifier.height(16.dp))
-
-                                        // PIN bisa disalin ke clipboard — biar gampang dikirim ke pasangan.
-                                        // L7: pakai ClipData dengan label agar app lain tidak bisa membaca
-                                        // isi clipboard tanpa izin (clipboard overlay/privacy API ≥ 31) —
-                                        // setText(AnnotatedString) lama tidak menyertakan label.
-                                        OutlinedButton(
-                                            onClick = {
-                                                generatedPin?.let {
-                                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Nyachat PIN", it))
-                                                    pinCopied = true
-                                                    scope.launch {
-                                                        delay(2000)
-                                                        pinCopied = false
-                                                    }
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(16.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (pinCopied) Icons.Rounded.CheckCircle else Icons.Rounded.ContentCopy,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = stringResource(if (pinCopied) R.string.pin_copied else R.string.pin_copy),
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(20.dp))
-
-                                        Button(
-                                            onClick = {
-                                                // Audit ketahanan: PIN hanya tersambung bila
-                                                // sudah dibangkitkan (state 2) — guard null
-                                                // mencegah NPE pada jalur tak terduga.
-                                                generatedPin?.let { pin ->
-                                                    onPinConnected(pin, Constants.Roles.OWNER, myName.ifBlank { defaultName })
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth().height(56.dp),
-                                            shape = RoundedCornerShape(16.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                                        ) {
-                                            Text(stringResource(R.string.pin_enter), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                        }
+                                    Button(
+                                        onClick = {
+                                            // Audit ketahanan: PIN hanya tersambung bila
+                                            // sudah dibangkitkan (state 2) — guard null
+                                            // mencegah NPE pada jalur tak terduga.
+                                            generatedPin?.let { pin ->
+                                                onPinConnected(pin, Constants.Roles.OWNER, myName.ifBlank { defaultName })
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                    ) {
+                                        Text(stringResource(R.string.pin_enter), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
-                            1 -> {
-                                OutlinedTextField(
-                                    value = inputPin,
-                                    onValueChange = { value ->
-                                        // P3 (audit keanggotaan): PIN adalah digit — saring
-                                        // karakter non-digit (paste berhuruf) supaya lookup
-                                        // workspace konsisten & tidak lolos ke server.
-                                        val digits = value.filter(Char::isDigit)
-                                        if (digits.length <= Constants.Defaults.PIN_LENGTH) inputPin = digits
-                                    },
-                                    label = { Text(stringResource(R.string.pin_input_label)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(16.dp),
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        cursorColor = MaterialTheme.colorScheme.primary
-                                    )
+                        }
+                        1 -> {
+                            OutlinedTextField(
+                                value = inputPin,
+                                onValueChange = { value ->
+                                    // P3 (audit keanggotaan): PIN adalah digit — saring
+                                    // karakter non-digit (paste berhuruf) supaya lookup
+                                    // workspace konsisten & tidak lolos ke server.
+                                    val digits = value.filter(Char::isDigit)
+                                    if (digits.length <= Constants.Defaults.PIN_LENGTH) inputPin = digits
+                                },
+                                label = { Text(stringResource(R.string.pin_input_label)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    cursorColor = MaterialTheme.colorScheme.primary
                                 )
+                            )
 
-                                Spacer(modifier = Modifier.height(24.dp))
+                            Spacer(modifier = Modifier.height(24.dp))
 
-                                Button(
-                                    onClick = {
-                                        // Rate limiting dulu — kalau sedang lockout, tolak
-                                        // percobaan dan tampilkan sisa waktu tunggu.
-                                        val now = System.currentTimeMillis()
-                                        if (PinAttemptLimiter.lockoutEndsAt(pinAttempts, now) != null) {
-                                            pinRateError = strRateLimited.format(
-                                                PinAttemptLimiter.remainingLockSeconds(pinAttempts, now)
-                                            )
-                                        } else if (inputPin.length >= Constants.Defaults.PIN_MIN_LEGACY_LENGTH) {
-                                            // Terima PIN 6–8 digit: workspace lama boleh 6 digit,
-                                            // workspace baru wajib 8 digit (Constants.Defaults.PIN_LENGTH).
-                                            pinRateError = null
-                                            pinAttempts.add(now)
-                                            onPinConnected(inputPin, Constants.Roles.MEMBER, myName.ifBlank { defaultName })
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                                    enabled = inputPin.length >= Constants.Defaults.PIN_MIN_LEGACY_LENGTH,
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                                ) {
-                                    Text(stringResource(R.string.pin_join), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                pinRateError?.let {
-                                    Text(
-                                        text = it,
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.error,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.padding(top = 12.dp).fillMaxWidth()
-                                    )
-                                }
-
-                                Text(
-                                    text = stringResource(R.string.pin_join_warning),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    textAlign = TextAlign.Center,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(top = 12.dp)
-                                )
-
-                                TextButton(
-                                    onClick = { pinFlowState = 0 },
-                                    modifier = Modifier.padding(top = 8.dp)
-                                ) {
-                                    Text(stringResource(R.string.action_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                            Button(
+                                onClick = {
+                                    // Rate limiting dulu — kalau sedang lockout, tolak
+                                    // percobaan dan tampilkan sisa waktu tunggu.
+                                    val now = System.currentTimeMillis()
+                                    if (PinAttemptLimiter.lockoutEndsAt(pinAttempts, now) != null) {
+                                        pinRateError = strRateLimited.format(
+                                            PinAttemptLimiter.remainingLockSeconds(pinAttempts, now)
+                                        )
+                                    } else if (inputPin.length >= Constants.Defaults.PIN_MIN_LEGACY_LENGTH) {
+                                        // Terima PIN 6–8 digit: workspace lama boleh 6 digit,
+                                        // workspace baru wajib 8 digit (Constants.Defaults.PIN_LENGTH).
+                                        pinRateError = null
+                                        pinAttempts.add(now)
+                                        onPinConnected(inputPin, Constants.Roles.MEMBER, myName.ifBlank { defaultName })
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                enabled = inputPin.length >= Constants.Defaults.PIN_MIN_LEGACY_LENGTH,
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text(stringResource(R.string.pin_join), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             }
-                            else -> {                                        Button(
-                                            onClick = {
-                                                // PIN baru 8 digit (ruang kunci 10^8, bukan 10^6) —
-                                                // lihat Constants.Defaults.PIN_LENGTH. Dipakai
-                                                // SecureRandom: PIN adalah password bersama
-                                                // workspace, jadi tidak boleh berasal dari PRNG
-                                                // biasa (java.util.Random) yang bisa ditebak.
-                                                val len = Constants.Defaults.PIN_LENGTH
-                                                val random = SecureRandom()
-                                                generatedPin = buildString {
-                                                    append((1 + random.nextInt(9)).toString()) // digit pertama 1–9
-                                                    repeat(len - 1) { append(random.nextInt(10).toString()) }
-                                                }
-                                                pinFlowState = 2
-                                            },
-                                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                                ) {
-                                    Text(stringResource(R.string.pin_create), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                }
 
-                                Spacer(modifier = Modifier.height(16.dp))
+                            pinRateError?.let {
+                                Text(
+                                    text = it,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(top = 12.dp).fillMaxWidth()
+                                )
+                            }
 
-                                OutlinedButton(
-                                    onClick = { pinFlowState = 1 },
-                                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                                    shape = RoundedCornerShape(16.dp)
-                                ) {
-                                    Text(stringResource(R.string.pin_use), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-                                }
+                            Text(
+                                text = stringResource(R.string.pin_join_warning),
+                                style = MaterialTheme.typography.bodySmall,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 12.dp)
+                            )
+
+                            TextButton(
+                                onClick = { pinFlowState = 0 },
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                Text(stringResource(R.string.action_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        else -> {
+                            Button(
+                                onClick = {
+                                    // PIN baru 8 digit (ruang kunci 10^8, bukan 10^6) —
+                                    // lihat Constants.Defaults.PIN_LENGTH. Dipakai
+                                    // SecureRandom: PIN adalah password bersama
+                                    // workspace, jadi tidak boleh berasal dari PRNG
+                                    // biasa (java.util.Random) yang bisa ditebak.
+                                    val len = Constants.Defaults.PIN_LENGTH
+                                    val random = SecureRandom()
+                                    generatedPin = buildString {
+                                        append((1 + random.nextInt(9)).toString()) // digit pertama 1–9
+                                        repeat(len - 1) { append(random.nextInt(10).toString()) }
+                                    }
+                                    pinFlowState = 2
+                                },
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text(stringResource(R.string.pin_create), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            OutlinedButton(
+                                onClick = { pinFlowState = 1 },
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Text(stringResource(R.string.pin_use), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }

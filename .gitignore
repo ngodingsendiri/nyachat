@@ -36,6 +36,7 @@ node_modules/
 
 # Data lokal agent/editor FreeBuff (jangan pernah di-commit)
 .freebuff/
+.artifact/
 *.db
 *.db-shm
 *.db-wal

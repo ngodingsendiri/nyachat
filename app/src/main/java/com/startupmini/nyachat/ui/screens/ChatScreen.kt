@@ -448,9 +448,13 @@ fun ChatScreen(
                                     // r1.2.0 (masukan user): geser chips LEBIH LEMBUT —
                     // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±600ms sejak
                     // audit motion 2026-08-12) sinkron dengan slide-in FAB.
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = FAB_SPRING_STIFFNESS
+                    // Reduced-motion: springOrSnap → settle instan (sistem
+                    // "Hapus animasi" aktif).
+                    animationSpec = Motion.springOrSnap(
+                        spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = FAB_SPRING_STIFFNESS
+                        )
                     ),
                     label = "chipShiftForFab"
                 )
@@ -499,9 +503,11 @@ fun ChatScreen(
                 enter = fadeIn(animationSpec = Motion.nav()) +
                     slideInHorizontally(
                         initialOffsetX = { -it },
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = FAB_SPRING_STIFFNESS
+                        animationSpec = Motion.springOrSnap(
+                            spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = FAB_SPRING_STIFFNESS
+                            )
                         )
                     ),
                 exit = fadeOut(animationSpec = Motion.base()) +

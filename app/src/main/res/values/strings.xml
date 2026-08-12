@@ -4,7 +4,6 @@
 
     <!-- Top bar & navigasi -->
     <string name="topbar_title">Keuangan Bersama</string>
-    <string name="topbar_subtitle">Pencatatan &amp; Analisis Finansial</string>
     <string name="action_settings">Pengaturan</string>
     <string name="tab_diskusi">Diskusi</string>
     <string name="tab_rekap">Rekap</string>
@@ -78,8 +77,6 @@
     <!-- Rekap -->
     <string name="rekap_insights_title">Insight Otomatis</string>
     <string name="rekap_insights_subtitle">Tren &amp; pola keuanganmu, dihitung langsung di perangkat</string>
-    <string name="rekap_ai_title">Analisis AI Finansial</string>
-    <string name="rekap_ai_subtitle">Dapatkan rekomendasi alokasi kas &amp; hemat anggaran</string>
     <string name="rekap_ai_action">Evaluasi</string>
     <string name="rekap_monthly_action">Bulanan</string>
     <string name="rekap_category_header">📊 Alokasi Pengeluaran</string>
@@ -90,15 +87,8 @@
     <string name="filter_income">Pemasukan</string>
     <string name="rekap_empty_title">Belum Ada Transaksi</string>
     <string name="rekap_empty_hint">Kirim pesan obrolan atau klik \'Tambah\' untuk mencatat transaksi finansial.</string>
-    <string name="rekap_search_placeholder">Cari transaksi atau kategori...</string>
-    <string name="rekap_search_desc">Cari transaksi</string>
-    <string name="rekap_search_clear">Bersihkan pencarian</string>
-    <string name="rekap_search_empty_title">Tidak Ditemukan</string>
-    <string name="rekap_search_empty_hint">Coba kata kunci lain atau ubah filter.</string>
     <string name="rekap_delete_title">Hapus transaksi?</string>
     <string name="rekap_delete_message">Transaksi ini akan dihapus permanen dari rekap dan cloud.</string>
-    <string name="rekap_month_count">%1$d transaksi</string>
-    <string name="rekap_edit_desc">Edit transaksi</string>
     <string name="rekap_more_actions">Aksi transaksi</string>
     <string name="rekap_fab_desc">Tambah Transaksi</string>
     <string name="balance_title">Total Saldo</string>
@@ -122,7 +112,6 @@
     <string name="google_sign_in">Masuk dengan Google</string>
     <string name="google_signing_in">Menghubungkan…</string>
     <string name="google_sign_out">Ganti Akun</string>
-    <string name="google_sign_out_desc">Keluar dari akun Google</string>
     <string name="google_signed_in_as">Masuk sebagai %1$s</string>
     <string name="google_sign_in_failed">Gagal masuk dengan Google. Coba lagi.</string>
     <!-- Audit (2026-08-12): pesan error Google dibersihkan dari detail developer
@@ -134,6 +123,7 @@
     <string name="google_err_network">Tidak bisa terhubung ke server Google. Periksa koneksi internet, lalu coba lagi.</string>
     <string name="google_err_unknown">Gagal masuk dengan Google. Coba lagi.</string>
     <string name="google_err_credential_provider">Google menolak permintaan masuk. Pastikan koneksi internet stabil, lalu coba lagi.</string>
+    <string name="google_err_no_credential">Tidak ada akun Google di perangkat ini. Tambahkan akun Google di Pengaturan, lalu coba lagi.</string>
     <!-- Hanya dipakai di build DEBUG (PinConnectScreen): detail teknis buat developer. -->
     <string name="google_err_sha1_hint">\n\nSHA-1 APK ini: %1$s\nDaftarkan di Firebase Console → Pengaturan project → Aplikasi Anda → Tambahkan sidik jari.</string>
     <string name="google_not_configured">Masuk dengan Google belum siap di aplikasi ini. Coba lagi nanti.</string>
@@ -157,7 +147,6 @@
     <string name="pin_rate_limited">Terlalu banyak percobaan PIN. Coba lagi dalam %1$d detik.</string>
     <string name="pin_role_owner">Pemilik</string>
     <string name="pin_role_member">Anggota</string>
-    <string name="avatar_change_desc">Ganti foto profil</string>
     <string name="avatar_save_failed">Gagal menyimpan foto profil, coba lagi.</string>
 
     <!-- Profil &amp; Akun (r1.2.1) -->
@@ -175,8 +164,6 @@
     <string name="profile_name_dialog_title">Ubah Nama</string>
     <string name="profile_name_hint">Nama tampilan (mis. Suami / Istri)</string>
     <string name="profile_name_empty_error">Nama tidak boleh kosong</string>
-    <string name="profile_email_label">Akun Google</string>
-    <string name="profile_status_label">Status akun</string>
     <string name="profile_account_desc">Masuk dengan Google</string>
     <string name="profile_email_empty">Belum ada akun Google</string>
     <string name="logout_dialog_title">Keluar dari akun ini?</string>
@@ -192,17 +179,12 @@
     <string name="add_dialog_edit_title">Edit Transaksi</string>
     <string name="add_type_expense">Pengeluaran</string>
     <string name="add_type_income">Pemasukan</string>
-    <string name="add_amount_label">Nominal (Rp)</string>
     <string name="add_amount_label_plain">Nominal</string>
     <string name="add_amount_placeholder">Contoh: 150.000</string>
     <string name="add_amount_error">Nominal harus lebih dari 0</string>
     <string name="add_desc_label">Keterangan Transaksi</string>
     <string name="add_desc_placeholder">Contoh: Belanja bahan pokok harian</string>
     <string name="add_category_label">Kategori</string>
-    <string name="add_logged_by">Dicatat Oleh:</string>
-    <string name="role_bendahara">Bendahara</string>
-    <string name="role_anggota">Anggota</string>
-    <string name="role_ketua">Ketua</string>
     <string name="add_cancel">Batal</string>
     <string name="add_save">Simpan</string>
 
@@ -231,7 +213,6 @@
     <string name="chat_edited">diedit</string>
     <string name="chat_reply_label">Membalas %1$s</string>
     <string name="chat_reply_cancel">Batalkan balasan</string>
-    <string name="chat_reply_swipe_hint">Geser pesan ke kanan untuk membalas</string>
     <string name="chat_send_pdf">Kirim PDF / Dokumen</string>
     <string name="chat_pdf_attached">Dokumen terlampir</string>
     <string name="chat_file_open_failed">Tidak bisa membuka file ini. Pastikan ada aplikasi pembaca yang terpasang.</string>
@@ -271,7 +252,6 @@
     <string name="backup_progress_title">Membuat Backup</string>
     <string name="backup_progress_detail">Mengunggah riwayat chat &amp; transaksi ke Google Drive…</string>
     <string name="restore_pick_newest_badge">Terbaru</string>
-    <string name="backup_info_title">Informasi</string>
     <string name="drive_err_not_signed_in">Kamu belum masuk dengan akun Google. Masuk dulu di layar awal, lalu coba lagi.</string>
     <!-- Audit (2026-08-12): tanpa detail teknis — errorMessage mentah hanya di logcat. -->
     <string name="drive_err_token">Tidak bisa mendapatkan akses Google Drive. Periksa koneksi internet lalu coba lagi.</string>
@@ -306,7 +286,6 @@
     <string name="membership_error_failed">Gagal terhubung ke server. Periksa koneksi internet lalu coba lagi.</string>
     <string name="membership_error_rejected">Permintaan bergabung kamu tidak disetujui oleh pemilik workspace.</string>
     <string name="membership_error_timeout">Waktu tunggu persetujuan pemilik habis. Coba lagi nanti.</string>
-    <string name="membership_enter">Masuk Workspace</string>
     <string name="membership_retry">Coba Lagi</string>
     <string name="settings_section_general">Umum</string>
     <!-- 3.7: notifikasi chat real-time -->
@@ -316,7 +295,6 @@
     <string name="chat_notif_channel_name">Pesan chat</string>
     <string name="chat_notif_channel_desc">Notifikasi saat ada pesan baru dari anggota workspace</string>
     <string name="settings_section_ai">AI &amp; API</string>
-    <string name="settings_section_account">Akun</string>
     <string name="settings_section_data">Data &amp; Backup</string>
     <string name="settings_section_danger">Zona Berbahaya</string>
     <string name="settings_last_backup_title">Backup terakhir</string>

@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Perubahan setelah r1.2.0 (belum dirilis — versi tetap r1.2.0/27).
 
 ### Added
+- **Reduced-motion (audit motion 2026-08-12)**: hormati pengaturan sistem
+  "Hapus animasi" (`ANIMATOR_DURATION_SCALE=0`) — `Motion.reducedMotion`
+  di-baca sekali dari `MainActivity.onCreate` (`Motion.applySystemSetting`);
+  saat aktif, semua tween snap ke 0ms, spring gesture dipersingkat ke settle
+  instan via `Motion.springOrSnap` (FAB, geser chips, snap-back swipe bubble),
+  stagger chip saran tanpa delay (`Motion.stagger(index)`). Aksesibilitas:
+  animasi tidak lagi wajib dipahami — +6 unit test `MotionReducedMotionTest`.
+- **Clean-up repo & lint (2026-08-12)**:
+  - Hapus 13 laporan/rencana lama di `.artifact/` (sudah selesai dieksekusi,
+    isinya terekam di CHANGELOG) + `logo.svg`/`metadata.json` yang tidak
+    direferensikan; `.artifact/` masuk `.gitignore` agar artefak kerja AI
+    tidak pernah di-commit lagi; referensi `.artifact/live_shots/` di
+    CHANGELOG dibersihkan.
+  - Lint: tangani `NoCredentialException` (perangkat tanpa akun Google →
+    pesan ramah baru `google_err_no_credential`, lint
+    `CredentialManagerMisuse` bersih); hapus `android:label` redundan di
+    MainActivity (lint `RedundantLabel`); hapus 30 resource unused
+    (7 warna template default + 23 string legacy).
+  - `lintDebug`: 0 error (sisa hanya informational: saran KTX/typo/versi).
 - **Sistem Profil & Akun (2026-08-11)**: kartu profil teratas di Settings
   kini clickable membuka halaman profil (foto, nama, email, status akun).
   Foto profil default dari akun Google, bisa diganti foto custom
@@ -175,7 +194,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `MainActivity.kt` (1501 → 572 baris) — lifecycle glue ke `SyncLifecycle.kt`,
     callback ke `MainCallbacks.kt`, dialog ke `MainAppDialogs.kt`/`MainOverlays.kt`,
     state dialog ke `MainDialogController.kt`.
-  Semua test hijau + Roborazzi compare + smoke test live (bukti: `.artifact/live_shots/`).
+  Semua test hijau + Roborazzi compare + smoke test live.
 - **FASE 2 (M1)**: Upgrade dependensi ke versi stabil terbaru (verifikasi tiap langkah):
   `compose-bom 2026.06.01`, `activity-compose 1.13.0`, `lifecycle 2.10.0` (2.11.0
   butuh compileSdk 37), `firebase-bom 34.17.0`, `okhttp 5.4.0` (major bump —
@@ -343,12 +362,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Daftar model AI via API `/models` — 1 model OpenRouter retired diganti 2
   model gratis terverifikasi; Gemini `gemini-3.5-flash` tetap valid.
 - Smoke setelah upgrade M1: session bertahan, sync "Tersinkron", backup Drive
-  sukses (bukti: `.artifact/live_shots/m1_upgrade_smoke.png`,
-  `m1_okhttp_drive_backup.png`).
+  sukses (terverifikasi live).
 - BUG-05 chips saran cepat (2026-08-10): 3 chip tampil di atas input bar,
   tap chip → draf terisi; golden `quick_suggestions` re-record (411×72) PASS;
-  unit test BUILD SUCCESSFUL; 0 log debug tersisa (bukti:
-  `.artifact/live_shots/b05_chips_fixed.png`).
+  unit test BUILD SUCCESSFUL; 0 log debug tersisa (terverifikasi live).
 
 - Swipe-dismiss snackbar (2026-08-10): 3 arah diverifikasi live di
   emulator (dark mode) — snackbar hilang **0.92–0.96 s** setelah swipe

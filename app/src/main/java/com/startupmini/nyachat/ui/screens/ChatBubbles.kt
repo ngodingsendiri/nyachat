@@ -74,6 +74,7 @@ import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.remote.BitmapCache
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
+import com.startupmini.nyachat.ui.theme.Motion
 import com.startupmini.nyachat.ui.util.AvatarImage
 import com.startupmini.nyachat.ui.util.avatarColorFor
 import com.startupmini.nyachat.ui.util.avatarNameColor
@@ -353,9 +354,13 @@ fun ChatMessageBubble(
                                     swipeScope.launch {
                                         swipeOffsetX.animateTo(
                                             0f,
-                                            animationSpec = spring(
-                                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                                stiffness = Spring.StiffnessMediumLow
+                                            // Reduced-motion: settle instan (tanpa elastis)
+                                            // saat sistem "Hapus animasi" aktif.
+                                            animationSpec = Motion.springOrSnap(
+                                                spring(
+                                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
                                             )
                                         )
                                     }
