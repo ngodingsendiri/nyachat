@@ -1,5 +1,9 @@
 package com.startupmini.nyachat.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +66,7 @@ import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.remote.SyncStatus
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
+import com.startupmini.nyachat.ui.theme.Motion
 import com.startupmini.nyachat.ui.util.formatClockTime
 import java.text.NumberFormat
 import java.util.Locale
@@ -84,12 +89,8 @@ fun BalanceBannerCard(
             maximumFractionDigits = 0
         }
     }
-    // Warna balance: hijau jika surplus, merah jika defisit, default jika nol
-    val balanceColor = when {
-        balance > 0 -> semantic.income
-        balance < 0 -> semantic.expense
-        else -> MaterialTheme.colorScheme.onSurface
-    }
+    // Warna balance dihitung per-state di dalam AnimatedContent (audit motion:
+    // angka lama pudar dengan warnanya sendiri saat saldo berpindah tanda).
 
     Card(
         shape = RoundedCornerShape(Constants.Ui.CORNER_XL.dp),
@@ -97,7 +98,10 @@ fun BalanceBannerCard(
             containerColor = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        // TANPA shadow (audit konsistensi 2026-08-12): satu prinsip dengan bubble
+        // chat & composer — shadow memberi kesan "ditempel di panel lain".
+        // Elevasi dihapus; hierarki tetap jelas lewat warna surface vs background.
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -134,15 +138,37 @@ fun BalanceBannerCard(
                 SyncIndicator(syncStatus = syncStatus, lastSyncedAtMillis = lastSyncedAtMillis)
             }
 
-            // Main Balance Amount
-            Text(
-                text = currencyFormat.format(balance),
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-                color = balanceColor,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-            )
+            // Main Balance Amount — audit motion: crossfade halus saat nilai
+            // berubah (navigasi bulan/filter/tambah transaksi) supaya konsisten
+            // dengan riwayat yang beranimasi (animateItem). Sebelumnya angka
+            // berganti instan sementara daftar di bawahnya bergerak.
+            // fillMaxWidth: SizeTransform default tidak memicu clip saat lebar
+            // teks berubah ("Rp 0" ⇄ "Rp 28.090.901"). Warna dihitung per-state
+            // `bal` supaya angka lama pudar dengan warnanya sendiri saat saldo
+            // berpindah tanda (reviewer).
+            AnimatedContent(
+                targetState = balance,
+                transitionSpec = {
+                    fadeIn(animationSpec = Motion.base()) togetherWith
+                        fadeOut(animationSpec = Motion.base())
+                },
+                label = "balanceAmount",
+                modifier = Modifier.fillMaxWidth()
+            ) { bal ->
+                val balColor = when {
+                    bal > 0 -> semantic.income
+                    bal < 0 -> semantic.expense
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
+                Text(
+                    text = currencyFormat.format(bal),
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = balColor,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
 
             // Income and Expense Breakdown
             Row(
@@ -166,14 +192,25 @@ fun BalanceBannerCard(
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = currencyFormat.format(totalIncome),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
+                    // Audit motion: crossfade konsisten dengan saldo utama.
+                    AnimatedContent(
+                        targetState = totalIncome,
+                        transitionSpec = {
+                            fadeIn(animationSpec = Motion.base()) togetherWith
+                                fadeOut(animationSpec = Motion.base())
+                        },
+                        label = "incomeAmount",
+                        modifier = Modifier.fillMaxWidth()
+                    ) { income ->
+                        Text(
+                            text = currencyFormat.format(income),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(16.dp))
@@ -195,14 +232,25 @@ fun BalanceBannerCard(
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = currencyFormat.format(totalExpense),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
+                    // Audit motion: crossfade konsisten dengan saldo utama.
+                    AnimatedContent(
+                        targetState = totalExpense,
+                        transitionSpec = {
+                            fadeIn(animationSpec = Motion.base()) togetherWith
+                                fadeOut(animationSpec = Motion.base())
+                        },
+                        label = "expenseAmount",
+                        modifier = Modifier.fillMaxWidth()
+                    ) { expense ->
+                        Text(
+                            text = currencyFormat.format(expense),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
@@ -423,7 +471,8 @@ internal fun RekapCategoryBreakdown(
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(Constants.Ui.CORNER_L.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            // Tanpa shadow — konsisten dengan prinsip chat (audit 2026-08-12).
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(

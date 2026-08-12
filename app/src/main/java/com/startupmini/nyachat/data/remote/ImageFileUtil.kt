@@ -69,14 +69,35 @@ object ImageFileUtil {
             }
         }.getOrNull()
 
-    /** Salin + downscale foto dari URI (galeri/kamera) ke penyimpanan internal. */
+    /**
+     * Salin + downscale foto dari URI (galeri/kamera) ke penyimpanan internal.
+     *
+     * Audit performa (2026-08-12): decode TIDAK lagi membaca bitmap penuh ke
+     * memori — foto kamera modern (48–108 MP) bisa memakan 100–400 MB bila
+     * di-decode utuh dan berisiko OOM. Kini bounds dibaca dulu
+     * (inJustDecodeBounds, murah) lalu inSampleSize dihitung agar sisi
+     * terpanjang mendekati MAX_DIMENSION sebelum decode — sama seperti
+     * [decodeImage]/[AvatarStore.decodeSampled]. Di bawah MAX_DIMENSION tetap
+     * pakai [scaleDown] untuk ukuran persis.
+     */
     suspend fun saveImageFromUri(context: Context, uri: Uri, workspace: String? = null): String? =
         withContext(Dispatchers.IO) {
             runCatching {
+                // 1) Baca dimensi tanpa decode penuh (murah & aman memori).
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    BitmapFactory.decodeStream(input, null, bounds)
+                }
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+
+                // 2) Sample size: bagi 2 sampai sisi terpanjang mendekati MAX_DIMENSION.
+                val sample = computeSampleSize(bounds.outWidth, bounds.outHeight, MAX_DIMENSION)
+                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
                 val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
-                    BitmapFactory.decodeStream(input)
+                    BitmapFactory.decodeStream(input, null, opts)
                 } ?: return@withContext null
 
+                // 3) Scale presisi ke MAX_DIMENSION & kompres JPEG.
                 val scaled = scaleDown(bitmap, MAX_DIMENSION)
                 val dir = attachmentsDir(context, workspace)
                 val file = File(dir, "att_${System.currentTimeMillis()}.jpg")
@@ -94,12 +115,7 @@ object ImageFileUtil {
         return runCatching {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(path, bounds)
-            var sample = 1
-            while (bounds.outWidth / (sample * 2) >= maxDim ||
-                bounds.outHeight / (sample * 2) >= maxDim
-            ) {
-                sample *= 2
-            }
+            val sample = computeSampleSize(bounds.outWidth, bounds.outHeight, maxDim)
             val opts = BitmapFactory.Options().apply { inSampleSize = sample }
             BitmapFactory.decodeFile(path, opts)
         }.getOrNull()
@@ -142,6 +158,21 @@ object ImageFileUtil {
                 runCatching { file.delete() }
             }
         }
+    }
+
+    /**
+     * Sample size pangkat dua agar sisi terpanjang mendekati [maxDim] setelah
+     * decode (dipakai [decodeImage] & [saveImageFromUri] — satu sumber kebenaran,
+     * audit performa 2026-08-12). Nilai 0/negatif (bounds gagal) → 1 (tanpa
+     * sampling, aman).
+     */
+    private fun computeSampleSize(width: Int, height: Int, maxDim: Int): Int {
+        if (width <= 0 || height <= 0 || maxDim <= 0) return 1
+        var sample = 1
+        while (width / (sample * 2) >= maxDim || height / (sample * 2) >= maxDim) {
+            sample *= 2
+        }
+        return sample
     }
 
     private fun scaleDown(bitmap: Bitmap, maxDim: Int): Bitmap {

@@ -128,4 +128,19 @@ class WeeklyInsightsTest {
         val insights = WeeklyInsights.generateInsights(txs, now)
         assertTrue(insights.first().contains("turun 50%"))
     }
+
+    // Audit UI/UX Rekap: persentase ekstrem (baseline kecil) membingungkan —
+    // "naik 4739%" diganti kata sederhana supaya tidak terkesan bug.
+    @Test
+    fun persentaseEkstremDipakaiKataSederhana() {
+        val txs = listOf(
+            expense(41_305_500.0, at(2026, 7, 14)), // minggu ini (besar)
+            expense(850_000.0, at(2026, 7, 8))      // minggu lalu (kecil)
+        )
+        val insights = WeeklyInsights.generateInsights(txs, now)
+        assertTrue(insights.first().contains("naik tajam"))
+        // Guard regresi: tidak boleh ada persentase ekstrem yang membingungkan.
+        assertTrue(!insights.first().contains("%"))
+    }
+
 }

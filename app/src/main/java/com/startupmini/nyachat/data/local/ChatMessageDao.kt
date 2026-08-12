@@ -12,6 +12,14 @@ interface ChatMessageDao {
     @Query("SELECT * FROM chat_messages ORDER BY timestamp ASC")
     fun getAllMessages(): Flow<List<ChatMessage>>
 
+    /**
+     * N pesan TERAKHIR (konteks untuk AI/heuristik) — audit performa 2026-08-12:
+     * tidak lagi memuat SELURUH riwayat ke memori hanya untuk takeLast(10).
+     * Urutan DESC, pemanggil membalik bila butuh kronologis.
+     */
+    @Query("SELECT * FROM chat_messages ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentMessages(limit: Int): List<ChatMessage>
+
     // REPLACE (bukan ABORT): dengan index unik cloudId, merge dari snapshot
     // listener yang balapan harus KONVERGEN, bukan crash. Aman karena upsert di
     // FirestoreSyncManager resolve baris lewat getByCloudId dulu (id lokal dijaga)

@@ -74,6 +74,7 @@ import com.startupmini.nyachat.ui.screens.GlowingBackground
 import com.startupmini.nyachat.ui.screens.MainNavigationBar
 import com.startupmini.nyachat.ui.screens.MainTopBar
 import com.startupmini.nyachat.ui.screens.RekapScreen
+import com.startupmini.nyachat.ui.screens.RekapScreenState
 import com.startupmini.nyachat.ui.theme.CoupleFinanceTheme
 import com.startupmini.nyachat.ui.theme.Motion
 import java.text.NumberFormat
@@ -160,6 +161,15 @@ class MainActivity : ComponentActivity() {
                 // (Chat ⇄ Rekap), sehingga draf yang diketik tidak hilang. Juga
                 // bertahan saat rotasi/config change.
                 var chatDraft by rememberSaveable { mutableStateOf("") }
+
+                // Audit UI/UX Rekap: filter bulan/kategori/tab DI-HOIST ke sini
+                // dengan rememberSaveable (pola chatDraft) — AnimatedContent
+                // menghancurkan state RekapScreen saat pindah tab, sehingga
+                // filter yang sedang dipilih tidak hilang. pendingDelete (dialog
+                // hapus) sengaja tidak disimpan oleh Saver.
+                val rekapState = rememberSaveable(saver = RekapScreenState.Saver) {
+                    RekapScreenState()
+                }
 
 
                 // Non-secret dari appPrefs
@@ -527,11 +537,20 @@ driveController.getAutoPassphrase = {
                     // BUG-2 lanjutan (reviewer): draf yang di-hoist tidak boleh bocor
                     // ke workspace berikutnya — dibersihkan saat logout.
                     chatDraft = ""
+                    // Audit UI/UX Rekap (reviewer): filter Rekap juga di-reset —
+                    // jangan mewarisi bulan/kategori/tab dari workspace lama.
+                    rekapState.selectedMonth = null
+                    rekapState.selectedCategory = null
+                    rekapState.selectedFilterTab = 0
                 }
 
                 // Audit keanggotaan: member di-kick/ditolak ≠ logout penuh — kembali
                 // ke layar PIN tapi PERTAHANKAN sesi Google & API key BYOK (user tidak
                 // perlu login ulang untuk membuat/bergabung workspace lain).
+                // Audit workspace (reviewer): beri tahu user DENGAN SNACKBAR kenapa
+                // dia kembali ke layar PIN — sebelumnya kembali diam-diam tanpa
+                // penjelasan (dari kickedEvents foreground maupun resume A3).
+                val kickedMessage = stringResource(R.string.membership_kicked_message)
                 val performKickedCleanup = {
                     viewModel.stopCloudSync()
                     workspaceRole = Constants.Defaults.ROLE
@@ -540,6 +559,11 @@ driveController.getAutoPassphrase = {
                     dialogs.showProfileAccount = false
                     // BUG-2 lanjutan: draf tidak boleh bocor ke workspace berikutnya.
                     chatDraft = ""
+                    // Audit UI/UX Rekap (reviewer): filter Rekap di-reset juga saat
+                    // di-kick — workspace baru harus mulai dari "Semua".
+                    rekapState.selectedMonth = null
+                    rekapState.selectedCategory = null
+                    rekapState.selectedFilterTab = 0
                     scope.launch {
                         secureStorage.deleteSecretAsync(context, Constants.Prefs.WORKSPACE_PIN)
                     }
@@ -547,6 +571,18 @@ driveController.getAutoPassphrase = {
                         .remove(Constants.Prefs.WORKSPACE_ROLE)
                         .remove(Constants.Prefs.LAST_UPLOADED_AVATAR)
                         .apply()
+                    showSnack(kickedMessage, null, null)
+                }
+
+                // Audit workspace (2026-08-12): kick saat app TERBUKA — owner
+                // menghapus anggota di device lain, listener members kena
+                // PERMISSION_DENIED → langsung kembali ke layar PIN (sebelumnya
+                // hanya terdeteksi saat resume, lihat SyncLifecycle A3).
+                // Diletakkan SETELAH definisi performKickedCleanup (referensi val
+                // lokal harus dideklarasikan lebih dulu).
+                val kickedEvents by com.startupmini.nyachat.data.remote.MembershipManager.kickedEvents.collectAsStateWithLifecycle()
+                LaunchedEffect(kickedEvents) {
+                    if (kickedEvents > 0) performKickedCleanup()
                 }
 
                 // TASK-1.3.3: seluruh lifecycle glue (sync, API key, update check,
@@ -611,6 +647,14 @@ driveController.getAutoPassphrase = {
 
                 // Hubungkan workspace: simpan pref & masuk ke chat.
                 val applyPinConnect: (String, String, String) -> Unit = { pin, role, name ->
+                    // Audit UI/UX Rekap (reviewer): PIN berbeda = workspace lain —
+                    // reset filter Rekap supaya tidak mewarisi bulan/kategori/tab
+                    // workspace sebelumnya (konsisten dengan isolasi chatDraft).
+                    if (workspacePin != null && workspacePin != pin) {
+                        rekapState.selectedMonth = null
+                        rekapState.selectedCategory = null
+                        rekapState.selectedFilterTab = 0
+                    }
                     firebaseReady = true
                     secureStorage.putSecret(context, Constants.Prefs.WORKSPACE_PIN, pin)
                     appPrefs.edit()
@@ -760,6 +804,7 @@ driveController.getAutoPassphrase = {
                                         )
 
                                         1 -> RekapScreen(
+                                            state = rekapState,
                                             transactions = transactions,
                                             totalIncome = totalIncome,
                                             totalExpense = totalExpense,

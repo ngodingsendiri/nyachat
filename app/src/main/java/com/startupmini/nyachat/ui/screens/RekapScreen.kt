@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -57,6 +58,9 @@ import java.util.Locale
 @OptIn(ExperimentalFoundationApi::class) // stickyHeader riwayat (audit P1.3)
 @Composable
 fun RekapScreen(
+    // Audit UI/UX Rekap: state DI-HOIST dari MainActivity (rememberSaveable,
+    // pola chatDraft) — filter bulan/kategori/tab tidak hilang saat pindah tab.
+    state: RekapScreenState,
     transactions: List<FinancialTransaction>,
     totalIncome: Double,
     totalExpense: Double,
@@ -72,7 +76,6 @@ fun RekapScreen(
     lastSyncedAtMillis: Long? = null,
     insights: List<String> = emptyList()
 ) {
-    val state = rememberRekapScreenState()
     val semantic = LocalSemanticColors.current
     val categoryColors = semantic.categoryPalette
 
@@ -293,11 +296,19 @@ fun RekapScreen(
         }
 
         // Floating Action Button for Fast Entry
+        // TANPA shadow (audit konsistensi 2026-08-12): satu prinsip dengan FAB
+        // jump-to-bottom di chat & composer — tanpa bayangan, kesan mengambang
+        // bersih. Warna primary dipertahankan sebagai penanda aksi utama
+        // (tambah transaksi).
         FloatingActionButton(
             onClick = onAddTransactionClicked,
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
             shape = RoundedCornerShape(Constants.Ui.CORNER_L.dp),
+            elevation = FloatingActionButtonDefaults.elevation(
+                defaultElevation = 0.dp,
+                pressedElevation = 0.dp
+            ),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp)

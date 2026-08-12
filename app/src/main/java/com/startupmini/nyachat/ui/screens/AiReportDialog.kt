@@ -43,7 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.ui.theme.AiBlue
-import com.startupmini.nyachat.ui.theme.AiBlueLight
+import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,6 +56,7 @@ fun AiReportDialog(
         skipPartiallyExpanded = true
     )
     val scope = rememberCoroutineScope()
+    val semantic = LocalSemanticColors.current
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -96,17 +97,20 @@ fun AiReportDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Audit warna: lingkaran icon AI pakai semantic.ai (mode-aware) —
+                    // sebelumnya AiBlueLight (0xFFE3ECFF) terlalu terang di dark mode.
+                    // Tombol CTA tetap AiBlue (biru brand, kontras aman kedua mode).
                     Box(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(AiBlueLight),
+                            .background(semantic.ai.copy(alpha = 0.1f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.AutoAwesome,
                             contentDescription = null,
-                            tint = AiBlue,
+                            tint = semantic.ai,
                             modifier = Modifier.size(20.dp)
                         )
                     }

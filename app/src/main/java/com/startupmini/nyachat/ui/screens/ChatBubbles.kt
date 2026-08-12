@@ -321,13 +321,19 @@ fun ChatMessageBubble(
                                     if (swipeOffsetX.value >= swipeThresholdPx) {
                                         onReply()
                                     }
-                                    // Snap kembali ke posisi awal dengan spring
+                                    // Snap kembali ke posisi awal dengan spring LEMBUT
+                                    // (audit motion 2026-08-12): MediumBouncy/StiffnessMedium
+                                    // lama terasa "terlontar" — diganti LowBouncy +
+                                    // StiffnessMediumLow agar elastis halus, konsisten
+                                    // dengan karakter FAB jump-to-bottom & geser chips
+                                    // (satu motion language: LowBouncy, tanpa overshoot
+                                    // berlebihan).
                                     swipeScope.launch {
                                         swipeOffsetX.animateTo(
                                             0f,
                                             animationSpec = spring(
-                                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                stiffness = Spring.StiffnessMedium
+                                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                                stiffness = Spring.StiffnessMediumLow
                                             )
                                         )
                                     }

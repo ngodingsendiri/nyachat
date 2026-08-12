@@ -12,8 +12,11 @@ import androidx.compose.animation.core.tween
  * Karakter: ringan, natural, konsisten. Semua tween memakai easing
  * FastOutSlowIn (mulai cepat, melandai lembut) — TIDAK ada bounce/overshoot
  * di elemen layout. Spring hanya dipakai untuk GESTURE yang memang harus
- * elastis: FAB jump-to-bottom & geser chips (LowBouncy stiffness 600f, sesuai
- * permintaan user agar kemunculan lembut) dan swipe-reply bubble.
+ * elastis, semua berkarakter LowBouncy (tanpa overshoot berlebihan):
+ *  - FAB jump-to-bottom & geser chips: LowBouncy stiffness 600f (±1 s, sesuai
+ *    permintaan user agar kemunculan lembut & sinkron satu sama lain).
+ *  - Swipe-reply bubble: LowBouncy + StiffnessMediumLow (elastis halus,
+ *    responsif — menggantikan MediumBouncy/StiffnessMedium yang terlontar).
  *
  * Konteks penggunaan:
  *  - [quick]  (150ms): state mikro — fade kecil, elemen yang HILANG (dismiss

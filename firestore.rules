@@ -66,14 +66,28 @@ service cloud.firestore {
       // sinkron nama pilihan user ke member doc (identitas koheren lintas
       // perangkat). 'label' hanya ditulis klien saat masih default (kosong/==
       // nama lama) sehingga label kustom owner tidak tertimpa.
-      allow update: if signedInGoogle() && (isOwner(familyId)
+      // Audit workspace (2026-08-12):
+      //   - update milik OWNER dibatasi HANYA field 'role' & 'label' (sebelumnya
+      //     owner bisa menulis field apa pun, mis. menimpa name/email anggota).
+      //   - owner TIDAK boleh menurunkan dirinya sendiri jadi member (self-demote)
+      //     — mencegah workspace kehilangan semua owner karena kecelakaan/malware.
+      //     Transfer kepemilikan tetap bisa: owner A promote B, lalu B demote A.
+      allow update: if signedInGoogle() && ((isOwner(familyId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'label'])
+            && !(uid == request.auth.uid
+                 && resource.data.role == 'owner'
+                 && request.resource.data.role == 'member'))
         || (request.auth.uid == uid
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'avatarBytes', 'avatarVersion', 'name', 'label'])
             // Guard: avatarBytes boleh tidak ada (update hanya fcmToken) —
             // jangan panggil .size() pada field null (error evaluasi rules).
             && (!('avatarBytes' in request.resource.data)
                 || request.resource.data.avatarBytes.size() <= 100000)));
-      allow delete: if signedInGoogle() && isOwner(familyId);
+      // Audit workspace: owner tidak bisa menghapus owner lain LANGSUNG — harus
+      // di-demote jadi anggota dulu. Mencegah workspace yatim tanpa pemilik
+      // (guard "Pemilik tidak bisa dihapus" kini ditegakkan di UI & rules).
+      allow delete: if signedInGoogle() && isOwner(familyId)
+        && resource.data.role != 'owner';
     }
 
     // Permintaan bergabung: pemohon boleh membuat/mengubah/mencabut permintaan

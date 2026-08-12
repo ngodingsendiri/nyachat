@@ -89,8 +89,9 @@ class FinanceRepository(
             )
             val msgId = chatMessageDao.insertMessage(initialMsg)
 
-            // Get recent context
-            val recentList = chatMessageDao.getAllMessages().first().takeLast(10)
+            // Get recent context (audit performa: query LIMIT 10, bukan muat
+            // seluruh riwayat lalu takeLast — hemat memori & I/O tiap kirim).
+            val recentList = chatMessageDao.getRecentMessages(10).asReversed()
 
             // 2. Process message with AI Parser silently in background (foto nota ikut
             //    dibaca AI; file PDF hanya dilampirkan — teks caption tetap diparse)
@@ -165,7 +166,7 @@ class FinanceRepository(
     suspend fun editMessage(messageId: Long, newText: String) {
         withContext(Dispatchers.IO) {
             val existing = chatMessageDao.getById(messageId) ?: return@withContext
-            val recentList = chatMessageDao.getAllMessages().first().takeLast(10)
+            val recentList = chatMessageDao.getRecentMessages(10).asReversed()
 
             // Parse ulang dengan AI (foto nota tetap ikut dibaca kalau ada)
             val aiResult = aiService.parseMessage(

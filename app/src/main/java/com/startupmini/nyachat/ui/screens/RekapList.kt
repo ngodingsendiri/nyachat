@@ -1,7 +1,11 @@
 package com.startupmini.nyachat.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
@@ -102,16 +106,28 @@ internal fun RekapMonthNav(
         ) {
             Icon(Icons.Rounded.ChevronLeft, stringResource(R.string.rekap_prev_month_desc))
         }
-        Text(
-            text = monthLabel ?: stringResource(R.string.rekap_month_all),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
+        // Audit motion: crossfade halus saat label bulan berubah ("Semua" ⇄
+        // nama bulan) — sebelumnya teks berganti instan saat angka di bawahnya
+        // kini beranimasi; teks ikut melandai agar konsisten.
+        AnimatedContent(
+            targetState = monthLabel ?: stringResource(R.string.rekap_month_all),
+            transitionSpec = {
+                fadeIn(animationSpec = Motion.fast()) togetherWith
+                    fadeOut(animationSpec = Motion.quick())
+            },
+            label = "monthLabel",
             modifier = Modifier
                 .weight(1f)
                 .testTag("rekap_month_label")
-        )
+        ) { label ->
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+        }
         IconButton(
             onClick = { onStep(1) },
             enabled = selectedMonth != null && selectedMonth != currentYearMonth,
@@ -166,7 +182,8 @@ internal fun RekapFilterHeader(
                 Surface(
                     shape = RoundedCornerShape(Constants.Ui.CORNER_M.dp),
                     color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 2.dp,
+                    // Tanpa shadow — konsisten dengan prinsip chat (audit 2026-08-12).
+                    shadowElevation = 0.dp,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
@@ -332,7 +349,8 @@ internal fun RekapEmptyState() {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(Constants.Ui.CORNER_L.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        // Tanpa shadow — konsisten dengan prinsip chat (audit 2026-08-12).
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
@@ -366,16 +384,32 @@ internal fun RekapEmptyState() {
     }
 }
 
-/** Header grup tanggal pada riwayat transaksi (audit P1.3). */
+/**
+ * Header grup tanggal pada riwayat transaksi (audit P1.3).
+ * Gaya pill (audit konsistensi 2026-08-12): DISERAGAMKAN dengan DateSeparator
+ * di menu Chat — surfaceVariant rounded 12dp, label kecil — supaya pembatas
+ * tanggal terasa satu keluarga di kedua layar.
+ */
 @Composable
 internal fun TransactionDayHeader(label: String) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -444,11 +478,18 @@ fun TransactionItemCard(
             val direction = swipeState.dismissDirection
             val isToDelete = direction == SwipeToDismissBoxValue.EndToStart
             val isToEdit = direction == SwipeToDismissBoxValue.StartToEnd
-            val bgColor = when {
+            val bgColorTarget = when {
                 isToDelete -> ExpenseRed.copy(alpha = 0.12f)
                 isToEdit -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                 else -> Color.Transparent
             }
+            // Audit motion: warna latar swipe di-animasi halus saat arah berubah
+            // (Edit ⇄ Hapus) — sebelumnya warna ganti instan di tengah gestur.
+            val bgColor by animateColorAsState(
+                targetValue = bgColorTarget,
+                animationSpec = Motion.fast(),
+                label = "swipeBg"
+            )
             val icon = if (isToDelete) Icons.Rounded.Delete else Icons.Rounded.Edit
             val iconTint = if (isToDelete) ExpenseRed else MaterialTheme.colorScheme.primary
             val align = if (isToDelete) Alignment.CenterEnd else Alignment.CenterStart
@@ -473,7 +514,8 @@ fun TransactionItemCard(
     ) {
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            // Tanpa shadow — konsisten dengan prinsip chat (audit 2026-08-12).
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             shape = RoundedCornerShape(Constants.Ui.CORNER_L.dp),
             modifier = Modifier
                 .fillMaxWidth()

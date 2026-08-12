@@ -87,6 +87,10 @@ fun ManageMembersScreen(
     val myUid = remember { MembershipManager.currentUid() }
 
     var labelTarget by remember { mutableStateOf<FamilyMember?>(null) }
+    // Audit workspace (2026-08-12): aksi destruktif (hapus/promote/demote)
+    // WAJIB konfirmasi dulu — menghapus anggota = akses hilang permanen,
+    // jadikan pemilik = transfer kendali. Sebelumnya dieksekusi langsung.
+    var pendingAction by remember { mutableStateOf<MemberAction?>(null) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -180,16 +184,13 @@ fun ManageMembersScreen(
                                 avatarPath = memberAvatars[member.uid],
                                 onEditLabel = { labelTarget = member },
                                 onToggleRole = {
-                                    scope.launch {
-                                        MembershipManager.setMemberRole(
-                                            pin, member.uid,
-                                            if (member.isOwner) MembershipManager.ROLE_MEMBER
-                                            else MembershipManager.ROLE_OWNER
-                                        )
-                                    }
+                                    // Konfirmasi dulu — promote/demote mengubah
+                                    // kendali workspace.
+                                    pendingAction = MemberAction.ToggleRole(member)
                                 },
                                 onRemove = {
-                                    scope.launch { MembershipManager.removeMember(pin, member.uid) }
+                                    // Konfirmasi dulu — menghapus = akses hilang.
+                                    pendingAction = MemberAction.Remove(member)
                                 }
                             )
                         }
@@ -211,6 +212,85 @@ fun ManageMembersScreen(
             }
         )
     }
+
+    // Konfirmasi aksi destruktif keanggotaan (audit workspace): hapus anggota,
+    // jadikan pemilik, atau jadikan anggota.
+    pendingAction?.let { action ->
+        val member = when (action) {
+            is MemberAction.Remove -> action.member
+            is MemberAction.ToggleRole -> action.member
+        }
+        val (titleRes, msgRes) = when (action) {
+            is MemberAction.Remove -> {
+                R.string.manage_members_confirm_remove_title to R.string.manage_members_confirm_remove_msg
+            }
+            is MemberAction.ToggleRole -> {
+                if (member.isOwner) {
+                    R.string.manage_members_confirm_demote_title to R.string.manage_members_confirm_demote_msg
+                } else {
+                    R.string.manage_members_confirm_promote_title to R.string.manage_members_confirm_promote_msg
+                }
+            }
+        }
+        // Fallback nama (reviewer): jangan sampai pesan konfirmasi punya argumen
+        // kosong saat member tanpa label & nama.
+        val memberDisplayName = member.label.ifBlank { member.name }.ifBlank {
+            stringResource(R.string.sender_anggota)
+        }
+        val confirmRes = when (action) {
+            is MemberAction.Remove -> R.string.manage_members_remove
+            is MemberAction.ToggleRole -> {
+                if (member.isOwner) R.string.manage_members_make_member
+                else R.string.manage_members_make_owner
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { pendingAction = null },
+            title = { Text(stringResource(titleRes)) },
+            text = { Text(stringResource(msgRes, memberDisplayName)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        when (action) {
+                            is MemberAction.Remove -> {
+                                scope.launch { MembershipManager.removeMember(pin, member.uid) }
+                            }
+                            is MemberAction.ToggleRole -> {
+                                scope.launch {
+                                    MembershipManager.setMemberRole(
+                                        pin, member.uid,
+                                        if (member.isOwner) MembershipManager.ROLE_MEMBER
+                                        else MembershipManager.ROLE_OWNER
+                                    )
+                                }
+                            }
+                        }
+                        pendingAction = null
+                    }
+                ) {
+                    Text(
+                        text = stringResource(confirmRes),
+                        color = if (action is MemberAction.Remove) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingAction = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
+}
+
+/** Aksi keanggotaan yang butuh konfirmasi user (audit workspace). */
+private sealed interface MemberAction {
+    data class Remove(val member: FamilyMember) : MemberAction
+    data class ToggleRole(val member: FamilyMember) : MemberAction
 }
 
 @Composable
@@ -400,19 +480,26 @@ private fun MemberCard(
                                 onToggleRole()
                             }
                         )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    stringResource(R.string.manage_members_remove),
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            },
-                            onClick = {
-                                menuOpen = false
-                                onRemove()
-                            }
-                        )
+                        // Audit workspace: owner TIDAK bisa langsung dihapus — harus
+                        // di-demote dulu menjadi anggota (string sudah disiapkan tapi
+                        // guard tidak pernah diterapkan). Menghapus owner = workspace
+                        // berisiko kehilangan semua kendali & tidak ada yang menyetujui
+                        // permintaan bergabung.
+                        if (!member.isOwner) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        stringResource(R.string.manage_members_remove),
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    onRemove()
+                                }
+                            )
+                        }
                     }
                 }
             }

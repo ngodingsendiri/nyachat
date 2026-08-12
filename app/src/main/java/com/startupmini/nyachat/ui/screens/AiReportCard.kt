@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.ui.theme.AiBlue
+import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 
 // Kartu insight AI + aksi laporan (bulanan/audit) — diekstrak dari RekapScreen.kt
 // (TASK-1.2.3) tanpa perubahan behavior.
@@ -55,10 +56,12 @@ fun InsightsAiCard(
     onGenerateMonthly: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val semantic = LocalSemanticColors.current
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(Constants.Ui.CORNER_L.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        // Tanpa shadow — konsisten dengan prinsip chat (audit 2026-08-12).
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -67,13 +70,16 @@ fun InsightsAiCard(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(AiBlue.copy(alpha = 0.1f)),
+                        // Audit warna: pakai semantic.ai (mode-aware) — di dark mode
+                        // biru lembut AiBlueDark selaras dengan bubble AI di chat
+                        // (sebelumnya AiBlue 0xFF0066FF terlalu mencolok di layar gelap).
+                        .background(semantic.ai.copy(alpha = 0.1f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.AutoAwesome,
                         contentDescription = null,
-                        tint = AiBlue,
+                        tint = semantic.ai,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -106,7 +112,8 @@ fun InsightsAiCard(
                             text = "•",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = AiBlue,
+                            // Audit warna: semantic.ai (mode-aware) — konsisten dengan icon.
+                            color = semantic.ai,
                             modifier = Modifier.width(14.dp)
                         )
                         Text(

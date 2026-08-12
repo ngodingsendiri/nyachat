@@ -54,8 +54,11 @@ class ChatMessageFirebaseService : FirebaseMessagingService() {
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        // Audit ikon 2026-08-12: small icon harus MONOKROM (ic_stat_logo).
+        // ic_logo (berwarna penuh) dirender sebagai kotak putih solid di
+        // Android 5+ karena small icon dipakai sebagai alpha mask.
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_logo)
+            .setSmallIcon(R.drawable.ic_stat_logo)
             .setContentTitle(sender)
             .setContentText(body)
             .setAutoCancel(true)

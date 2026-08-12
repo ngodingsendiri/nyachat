@@ -86,7 +86,12 @@ object WeeklyInsights {
         val lastWeekExpense = expenseBetween(transactions, lastWeekStart, lastWeekStart + 7 * MS_PER_DAY)
         if (thisWeekExpense > 0 && lastWeekExpense > 0) {
             val pct = percentChange(thisWeekExpense, lastWeekExpense)
+            // Audit UI/UX Rekap: kenaikan ekstrem (baseline minggu lalu kecil,
+            // mis. "naik 4739%") membingungkan dan terkesan bug — pakai kata
+            // sederhana. Penurunan tidak perlu di-cap: dengan nominal positif,
+            // persentase turun selalu di rentang (-100%, 0).
             insights += when {
+                pct >= 1000 -> "Pengeluaran minggu ini ${formatRupiah(thisWeekExpense)}, naik tajam dibanding minggu lalu."
                 pct > 0 -> "Pengeluaran minggu ini ${formatRupiah(thisWeekExpense)}, naik $pct% dibanding minggu lalu."
                 pct < 0 -> "Pengeluaran minggu ini ${formatRupiah(thisWeekExpense)}, turun ${-pct}% dibanding minggu lalu. Pertahankan!"
                 else -> "Pengeluaran minggu ini ${formatRupiah(thisWeekExpense)}, sama dengan minggu lalu."

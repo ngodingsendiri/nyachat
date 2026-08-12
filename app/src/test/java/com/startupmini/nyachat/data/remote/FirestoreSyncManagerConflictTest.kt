@@ -30,6 +30,9 @@ class FirestoreSyncManagerConflictTest {
         override fun getAllMessages(): Flow<List<ChatMessage>> =
             flowOf(store.values.sortedBy { it.timestamp })
 
+        override suspend fun getRecentMessages(limit: Int): List<ChatMessage> =
+            store.values.sortedByDescending { it.timestamp }.take(limit)
+
         override suspend fun insertMessage(message: ChatMessage): Long {
             val id = if (message.id == 0L) nextId++ else message.id
             val saved = message.copy(id = id)

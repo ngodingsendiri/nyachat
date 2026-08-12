@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Fallback launcher icon untuk API 24-25 (pre adaptive-icon):
-    background gradient + logo Nyachat penuh (tanpa masking).
+    background hitam + logo Nyachat penuh — IDENTIK dengan
+    ic_launcher.xml (dan adaptive API 26+) supaya ikon launcher
+    konsisten di semua API, launcher, dan bentuk (round/non-round).
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -10,25 +12,15 @@
     android:viewportWidth="1826.51"
     android:viewportHeight="1742.02">
 
-    <path android:pathData="M0,0h1826.51v1742.02h-1826.51z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="0"
-                android:startY="0"
-                android:endX="1826.51"
-                android:endY="1742.02"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#FFFFFFFF" />
-                <item android:offset="1.0" android:color="#FFD9F3E4" />
-            </gradient>
-        </aapt:attr>
-    </path>
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M0,0h1826.51v1742.02h-1826.51z" />
 
     <group
-        android:scaleX="0.75"
-        android:scaleY="0.75"
-        android:translateX="228.3"
-        android:translateY="217.75">
+        android:scaleX="0.5"
+        android:scaleY="0.5"
+        android:translateX="456.6"
+        android:translateY="435.5">
 
         <!-- Bubble chat hijau (pesan) -->
         <path

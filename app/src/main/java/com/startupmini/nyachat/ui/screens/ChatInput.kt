@@ -12,6 +12,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -99,13 +100,22 @@ private val CHAT_BAR_HEIGHT = 52.dp
 private val CHAT_FIELD_MIN_HEIGHT = CHAT_BAR_HEIGHT - 4.dp
 
 /**
- * Fill chip rekomendasi & FAB jump-to-bottom (2026-08-12): lebih transparan dari
- * pill composer (0.9/0.55) karena baris chips kini melayang DI ATAS daftar pesan
- * (list scroll sampai kolom input) — alpha diturunkan supaya pesan yang scroll di
- * belakangnya tetap samar terbaca ("sedikit memudar").
+ * Fill chip rekomendasi & FAB jump-to-bottom (2026-08-12, penyempurnaan): alpha
+ * dinaikkan dari 0.75/0.45 → 0.92/0.90 (transparansi ±8-10% dari skala 0=tidak
+ * transparan, 100=full transparan — permintaan user 2026-08-12). Sebelumnya
+ * terlalu tembus sehingga teks chat di belakangnya mengganggu keterbacaan.
+ * Sekarang hampir solid (kesan kaca: fill tinggi + border tipis glass-edge),
+ * tetapi masih sedikit memudar supaya overlay tetap terasa "di atas" pesan.
  */
-internal const val CHIP_FILL_ALPHA_DARK = 0.75f
-internal const val CHIP_FILL_ALPHA_LIGHT = 0.45f
+internal const val CHIP_FILL_ALPHA_DARK = 0.92f
+internal const val CHIP_FILL_ALPHA_LIGHT = 0.90f
+
+/**
+ * Warna border tipis "glass-edge" untuk chip rekomendasi & FAB jump-to-bottom
+ * (2026-08-12): 1dp outlineVariant alpha sedang — memberi kesan tepi kaca yang
+ * bersih tanpa shadow (konsisten dengan karakter composer pill: tanpa bayangan).
+ */
+internal val CHIP_GLASS_BORDER_ALPHA = 0.55f
 
 /**
  * Tinggi total baris chips saran cepat (pad atas 4dp + row 48dp + pad bawah 4dp =
@@ -186,16 +196,23 @@ fun QuickSuggestionRow(
                     )
                 ) {
                     // Chip FLOATING BERLATAR (2026-08-12, permintaan user): tombol
-                    // harus terbaca sebagai tombol → fill surfaceVariant (satu
-                    // keluarga dengan pill composer), tanpa border. Background BARIS
-                    // tetap transparan — jangan pernah panel full-width (regresi
-                    // lama yang menutupi chat di atas keyboard).
+                    // harus terbaca sebagai tombol → fill surfaceVariant hampir
+                    // solid (CHIP_FILL_ALPHA) + border tipis glass-edge
+                    // (CHIP_GLASS_BORDER_ALPHA) — satu keluarga dengan pill composer
+                    // (tanpa shadow). Background BARIS tetap transparan — jangan
+                    // pernah panel full-width (regresi lama yang menutupi chat di
+                    // atas keyboard).
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(
-                            // Memudar (2026-08-12): chips kini melayang DI ATAS pesan —
-                            // alpha diturunkan supaya pesan di belakang tetap terbaca.
                             alpha = if (semantic.isDark) CHIP_FILL_ALPHA_DARK else CHIP_FILL_ALPHA_LIGHT
+                        ),
+                        // Kesan kaca (2026-08-12): tepi tipis outlineVariant —
+                        // transparansi turun drastis (5-10%) jadi teks di belakang
+                        // tidak lagi mengganggu, border memberi definisi bentuk.
+                        border = BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = CHIP_GLASS_BORDER_ALPHA)
                         ),
                         // P2-4 (audit touch target): tinggi chip minimal 40dp — sebelumnya
                         // hanya ~28dp, di bawah rekomendasi Android (48dp).
@@ -523,7 +540,11 @@ fun ChatInputBar(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .animateContentSize(),
+                        // Audit motion (2026-08-12): spec default animateContentSize
+                        // memakai spring bawaan — diseragamkan ke Motion.fast() (200ms
+                        // FastOutSlowIn) supaya auto-grow paragraf mengikuti motion
+                        // language yang sama dengan elemen composer lain.
+                        .animateContentSize(animationSpec = Motion.fast()),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (value.isEmpty()) {

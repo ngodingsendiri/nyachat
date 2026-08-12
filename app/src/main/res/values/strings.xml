@@ -331,5 +331,14 @@
     <string name="manage_members_label_title">Label tampilan</string>
     <string name="manage_members_label_hint">Mis. Suami, Istri, Bendahara, Anggota…</string>
     <string name="manage_members_label_save">Simpan</string>
-    <string name="manage_members_label_cannot_remove_owner">Pemilik tidak bisa dihapus. Ganti pemilik terlebih dahulu.</string>
+    <!-- Audit workspace: konfirmasi aksi destruktif keanggotaan. -->
+    <string name="manage_members_confirm_remove_title">Hapus anggota?</string>
+    <string name="manage_members_confirm_remove_msg">%1$s akan kehilangan akses ke workspace ini. Data yang sudah dicatat tetap tersimpan.</string>
+    <string name="manage_members_confirm_promote_title">Jadikan Pemilik?</string>
+    <string name="manage_members_confirm_promote_msg">%1$s akan bisa mengelola anggota, menyetujui permintaan, dan mengganti peran pemilik. Lanjutkan?</string>
+    <string name="manage_members_confirm_demote_title">Jadikan Anggota?</string>
+    <string name="manage_members_confirm_demote_msg">%1$s akan kehilangan hak kelola workspace. Lanjutkan?</string>
+    <!-- Audit workspace: pesan saat user dikeluarkan/di-kick dari workspace
+         (deteksi foreground via kickedEvents ATAU saat resume A3). -->
+    <string name="membership_kicked_message">Kamu telah dikeluarkan dari workspace ini.</string>
 </resources>

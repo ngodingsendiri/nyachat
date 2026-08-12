@@ -81,6 +81,20 @@ object MembershipManager {
     const val ROLE_MEMBER = "member"
 
     /**
+     * Keputusan murni: kapan listener members yang error dianggap "di-kick".
+     * PERMISSION_DENIED SAJA belum cukup — kalau listener belum pernah menerima
+     * snapshot SUKSES (bootstrap/race saat member doc baru dibuat), tolak tidak
+     * berarti di-kick. Diekstrak supaya bisa di-unit-test (pola MembershipGateLogic).
+     *
+     * @param hadSnapshot true jika listener pernah menerima snapshot sukses
+     *   (artinya sempat jadi anggota & punya akses baca).
+     * @param permissionDenied true jika error listener = PERMISSION_DENIED.
+     */
+    internal fun shouldTriggerKick(hadSnapshot: Boolean, permissionDenied: Boolean): Boolean =
+        hadSnapshot && permissionDenied
+
+
+    /**
      * Batas tunggu keputusan owner pada satu panggilan waitForJoinRequestDecision.
      * Kalau lewat, gate akan menampilkan error timeout (dan user bisa Coba Lagi).
      * Owner yang sibuk lebih baik dilaporkan gagal timeout daripada gate
@@ -129,6 +143,24 @@ object MembershipManager {
     /** true saat app background & listener keanggotaan untuk sementara diputus (M2). */
     @Volatile private var paused = false
 
+    /**
+     * Sinyal "di-kick / tidak lagi anggota" — event counter yang naik tiap kali
+     * listener daftar anggota menerima PERMISSION_DENIED saat workspace aktif
+     * (audit workspace 2026-08-12). Sebelumnya kick hanya terdeteksi saat app
+     * RESUME (SyncLifecycle A3) — user yang di-kick saat app terbuka tetap bisa
+     * melihat & mencoba mengirim pesan yang gagal sampai app dibackground-kan.
+     * MainActivity meng-collect counter ini → langsung kembali ke layar PIN.
+     *
+     * Kick hanya dipicu jika listener pernah menerima snapshot SUKSES lebih dulu
+     * ([hadMembersSnapshot]) — PERMISSION_DENIED langsung di awal bootstrap
+     * (mis. race saat member doc baru dibuat) bukan berarti di-kick.
+     */
+    private val _kickedEvents = MutableStateFlow(0)
+    val kickedEvents: StateFlow<Int> = _kickedEvents.asStateFlow()
+
+    /** true setelah listener members pernah menerima snapshot sukses (guard kick). */
+    @Volatile private var hadMembersSnapshot = false
+
     /** UID pengguna yang login sekarang. */
     fun currentUid(): String? = FirebaseAuth.getInstance().currentUser?.uid
 
@@ -169,10 +201,16 @@ object MembershipManager {
             if (err != null) {
                 if (err.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                     membersListener?.remove(); membersListener = null
+                    // Audit workspace: PERMISSION_DENIED SETELAH pernah punya akses
+                    // (snapshot sukses) = doc member sendiri dihapus (di-kick owner)
+                    // → beri sinyal ke UI agar langsung kembali ke layar PIN.
+                    if (shouldTriggerKick(hadMembersSnapshot, true)) _kickedEvents.value++
                 } else Log.w(TAG, "Listen members gagal: ${err.message}")
                 return@addSnapshotListener
             }
             snap ?: return@addSnapshotListener
+            // Guard kick (audit workspace): snapshot sukses = sempat jadi anggota.
+            hadMembersSnapshot = true
             val list = snap.documents.mapNotNull { doc ->
                 val d = doc.data ?: return@mapNotNull null
                 FamilyMember(
@@ -345,6 +383,8 @@ object MembershipManager {
         _joinRequests.value = emptyList()
         _memberAvatarPaths.value = emptyMap()
         _lastFailure.value = null
+        _kickedEvents.value = 0
+        hadMembersSnapshot = false
     }
 
     /** Bangun map Firestore tanpa kunci bernilai null (null membuat set() error). */

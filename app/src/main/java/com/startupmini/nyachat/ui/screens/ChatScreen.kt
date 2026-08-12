@@ -14,6 +14,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
@@ -492,15 +493,27 @@ fun ChatScreen(
                 // melayang DI ATAS pesan yang scroll di belakangnya (bukan frame
                 // transparan, BUKAN shadow). Ikon panah primary tetap penanda
                 // aksi. Ripple ter-clip lingkaran (clip sebelum clickable).
+                // Penyempurnaan (2026-08-12): alpha dinaikkan ke 0.92/0.90
+                // (transparansi ±8-10%) supaya teks chat di belakang tidak lagi
+                // tembus mengganggu; border tipis glass-edge menyamakan karakter
+                // dengan chip (fill tinggi + border outline, tanpa shadow).
                 val fabFill = MaterialTheme.colorScheme.surfaceVariant.copy(
                     alpha = if (isDark) CHIP_FILL_ALPHA_DARK else CHIP_FILL_ALPHA_LIGHT
+                )
+                val fabBorder = MaterialTheme.colorScheme.outlineVariant.copy(
+                    alpha = CHIP_GLASS_BORDER_ALPHA
                 )
                 Box(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(fabFill, CircleShape)
+                        // clickable SEBELUM border (reviewer 2026-08-12): ripple
+                        // digambar di atas modifier sebelumnya, jadi border harus
+                        // datang SETELAH clickable agar glass-edge tetap terlihat
+                        // saat tombol ditekan (tidak tertutup ripple).
                         .clickable { coroutineScope.launch { listState.animateScrollToItem(rows.size - 1) } }
+                        .border(1.dp, fabBorder, CircleShape)
                         .testTag("jump_to_bottom"),
                     contentAlignment = Alignment.Center
                 ) {
