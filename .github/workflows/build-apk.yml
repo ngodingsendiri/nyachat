@@ -14,6 +14,17 @@ on:
     branches: [main]
     tags: ["r*"]
   workflow_dispatch:
+    inputs:
+      # Rekam ulang baseline snapshot UI DI RUNNER CI (ubuntu + JDK 21).
+      # Penting: goldens yang direkam di Windows bisa TIDAK cocok dengan render
+      # CI (font/AA beda) → verify gagal. Pakai input ini saat ada perubahan UI:
+      # jalankan workflow_dispatch record-snapshots=true, commit hasil artifact
+      # 'roborazzi-goldens-recorded', lalu verify normal kembali lulus.
+      record-snapshots:
+        description: "Rekam ulang golden Roborazzi di runner CI (bukan verify)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -72,8 +83,26 @@ jobs:
       # baseline di app/src/test/snapshots/ — gagal kalau ada regresi visual.
       # Rekam ulang baseline dengan `./gradlew :app:recordRoborazziDebug` lalu
       # commit PNG barunya bersama perubahan UI.
+      #
+      # workflow_dispatch dengan input record-snapshots=true → REKAM ulang
+      # goldens DI RUNNER CI (bukan verify). Hasilnya di-upload sebagai artifact
+      # supaya bisa diunduh & di-commit. Ini penting karena goldens yang direkam
+      # di Windows lokal sering tidak cocok dengan render CI (font/AA berbeda).
       - name: Snapshot UI (Roborazzi verify)
+        if: inputs.record-snapshots != 'true'
         run: ./gradlew :app:verifyRoborazziDebug --no-daemon
+
+      - name: Snapshot UI (Roborazzi record)
+        if: inputs.record-snapshots == 'true'
+        run: ./gradlew :app:recordRoborazziDebug --no-daemon
+
+      - name: Upload recorded snapshots
+        if: inputs.record-snapshots == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: roborazzi-goldens-recorded
+          path: app/src/test/snapshots/
+          if-no-files-found: error
 
       # Lint Firebase Security Rules (firestore.rules) tanpa emulator — pakai
       # plugin resmi Firebase (@firebase/eslint-plugin-security-rules). Config
