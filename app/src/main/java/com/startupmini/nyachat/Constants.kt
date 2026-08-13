@@ -50,6 +50,14 @@ object Constants {
         const val NAME_SYNCED = "name_synced"
     }
 
+    // ===== Link eksternal =====
+    object Links {
+        /** Repo publik aplikasi (update & kebijakan). */
+        const val REPO = "https://github.com/ngodingsendiri/nyachat"
+        /** Kebijakan privasi — dibuka dari Pengaturan → Tentang. */
+        const val PRIVACY_POLICY = "$REPO/blob/main/PRIVACY_POLICY.md"
+    }
+
     // ===== Sumber foto profil (nilai AVATAR_SOURCE) =====
     object AvatarSources {
         const val GOOGLE = "google"

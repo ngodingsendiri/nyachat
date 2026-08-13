@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.ui.util.AvatarImage
+import kotlinx.coroutines.launch
 
 /**
  * Halaman "Profil & Akun" (r1.2.1) — dibuka dari kartu profil di Settings.
@@ -74,11 +76,20 @@ fun ProfileAccountSheet(
     onRename: (String) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
     var showSourceDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
 
+    // Audit motion (2026-08-12): onDismissRequest juga lewat dismiss() —
+    // gesture swipe/scrim/back ikut turun ke bawah, konsisten dengan sheet lain.
+    fun dismiss() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) onDismiss()
+        }
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismiss,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         containerColor = MaterialTheme.colorScheme.surface,

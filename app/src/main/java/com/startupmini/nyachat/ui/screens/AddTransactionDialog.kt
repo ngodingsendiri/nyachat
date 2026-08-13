@@ -122,6 +122,12 @@ fun AddTransactionDialog(
     val scope = rememberCoroutineScope()
     val semantic = LocalSemanticColors.current
 
+    // Audit bug (2026-08-12): guard anti-double-submit. onConfirm (insert DB,
+    // fire-and-forget async) lalu onDismiss dipanggil sinkron tanpa guard — dua
+    // tap cepat pada Simpan bisa mencatat transaksi DUPLIKAT. Flag di-set sebelum
+    // aksi pertama dan menonaktifkan tombol sampai dialog tertutup.
+    var isSaving by remember { mutableStateOf(false) }
+
     // F3 (audit focus order): fokus langsung ke kolom Jumlah saat sheet terbuka —
     // sebelumnya Tab pertama mendarat di chip tipe (perlu 2× Tab untuk ke field).
     // delay kecil supaya field sudah ter-attach & window sheet mendapat fokus.
@@ -137,8 +143,11 @@ fun AddTransactionDialog(
         }
     }
 
+    // Audit motion (2026-08-12): onDismissRequest juga lewat dismiss() —
+    // sebelumnya gesture swipe/scrim/back langsung onDismiss → sheet hilang
+    // instan tanpa animasi turun, tidak konsisten dengan tombol internal.
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(topStart = Constants.Ui.CORNER_XL.dp, topEnd = Constants.Ui.CORNER_XL.dp),
@@ -327,6 +336,10 @@ fun AddTransactionDialog(
 
                 Button(
                     onClick = {
+                        // Audit bug (2026-08-12): tap kedua diabaikan selama dialog
+                        // masih menutup — mencegah transaksi duplikat (P1).
+                        if (isSaving) return@Button
+                        isSaving = true
                         val finalAmount = parseAmount(amountText) ?: 0.0
                         onConfirm(
                             FinancialTransaction(
@@ -343,7 +356,7 @@ fun AddTransactionDialog(
                         )
                         onDismiss()
                     },
-                    enabled = description.isNotBlank() && amountText.isNotBlank() && (parseAmount(amountText) ?: 0.0) > 0,
+                    enabled = !isSaving && description.isNotBlank() && amountText.isNotBlank() && (parseAmount(amountText) ?: 0.0) > 0,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     modifier = Modifier
                         .weight(1f)

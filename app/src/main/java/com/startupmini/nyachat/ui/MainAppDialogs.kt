@@ -72,6 +72,9 @@ fun MainAppDialogs(
     exportCsvLauncher: ManagedActivityResultLauncher<String, Uri?>,
     showSnack: (String, String?, (() -> Unit)?) -> Unit,
     onToggleDarkMode: () -> Unit,
+    // Audit menu Pengaturan (2026-08-12): kebijakan privasi dibuka dari
+    // Pengaturan → Tentang (MainActivity membuka browser).
+    onPrivacyPolicy: () -> Unit = {},
     // 3.7: toggle notifikasi chat (state di MainActivity).
     chatNotificationsEnabled: Boolean,
     onToggleChatNotifications: () -> Unit,
@@ -124,7 +127,9 @@ fun MainAppDialogs(
                 }
                 dialogs.showAddDialog = false
                 dialogs.editTarget = null
-                if (dialogs.resetChatOnDialogClose) dialogs.chatResetTrigger++
+                // Audit bug (2026-08-12): reset trigger chat dipindah ke onDismiss
+                // saja — dialog selalu memanggil onDismiss() SETELAH onConfirm(),
+                // jadi menaikkannya di sini membuatnya berjalan 2× per simpan.
             }
         )
     }
@@ -187,6 +192,10 @@ fun MainAppDialogs(
             onLogout = {
                 dialogs.showSettingsSheet = false
                 dialogs.showLogoutDialog = true
+            },
+            onPrivacyPolicy = {
+                dialogs.showSettingsSheet = false
+                onPrivacyPolicy()
             },
             avatarPath = avatarPath,
             onOpenProfile = {

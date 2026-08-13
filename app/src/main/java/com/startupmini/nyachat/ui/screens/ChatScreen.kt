@@ -5,9 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -94,8 +92,9 @@ private sealed interface ChatRow {
  * Kekakuan spring FAB jump-to-bottom & geser chips (r1.2.0) — dipakai bersama
  * supaya kemunculan FAB dan pergeseran chips selalu sinkron. Awalnya 600f
  * (≈ settle ±1 detik), diturunkan ke 1600f (≈ ±600ms) oleh audit motion
- * 2026-08-12: tetap soft (LowBouncy, tanpa overshoot berlebihan) tapi lebih
- * responsif — fade-in 300ms kini berakhir hampir bersamaan dengan slide.
+ * 2026-08-12: tetap soft (Motion.elastic — damping 0.88, tanpa overshoot
+ * berlebihan) tapi lebih responsif — fade-in 300ms kini berakhir hampir
+ * bersamaan dengan slide.
  */
 private const val FAB_SPRING_STIFFNESS = 1600f
 
@@ -446,15 +445,14 @@ fun ChatScreen(
                 val chipShift by animateDpAsState(
                     targetValue = if (shouldShowJumpButton) 64.dp else 0.dp,
                                     // r1.2.0 (masukan user): geser chips LEBIH LEMBUT —
-                    // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±600ms sejak
-                    // audit motion 2026-08-12) sinkron dengan slide-in FAB.
+                    // elastic stiffness FAB_SPRING_STIFFNESS (±600ms sejak
+                    // audit motion 2026-08-12; damping dinaikkan 0.88 oleh audit
+                    // elastisitas 2026-08-12 → overshoot nyaris tak terlihat)
+                    // sinkron dengan slide-in FAB.
                     // Reduced-motion: springOrSnap → settle instan (sistem
                     // "Hapus animasi" aktif).
                     animationSpec = Motion.springOrSnap(
-                        spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = FAB_SPRING_STIFFNESS
-                        )
+                        Motion.elastic(FAB_SPRING_STIFFNESS)
                     ),
                     label = "chipShiftForFab"
                 )
@@ -497,17 +495,14 @@ fun ChatScreen(
                 // MASUK DARI KIRI (2026-08-11, masukan user): FAB slide dari luar
                 // tepi kiri layar (initialOffsetX = -width) + fade — bukan muncul
                 // dari bawah. Keluar juga ke kiri.
-                // r1.2.0 (masukan user #3): kemunculan LEBIH SOFT — spring
-                // LowBouncy + stiffness FAB_SPRING_STIFFNESS (±600ms sejak
-                // audit motion 2026-08-12, tetap lembut tanpa overshoot liar).
+                // r1.2.0 (masukan user #3): kemunculan LEBIH SOFT — elastic
+                // stiffness FAB_SPRING_STIFFNESS (±600ms sejak audit motion
+                // 2026-08-12; damping 0.88 → tanpa overshoot liar).
                 enter = fadeIn(animationSpec = Motion.nav()) +
                     slideInHorizontally(
                         initialOffsetX = { -it },
                         animationSpec = Motion.springOrSnap(
-                            spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = FAB_SPRING_STIFFNESS
-                            )
+                            Motion.elastic(FAB_SPRING_STIFFNESS)
                         )
                     ),
                 exit = fadeOut(animationSpec = Motion.base()) +

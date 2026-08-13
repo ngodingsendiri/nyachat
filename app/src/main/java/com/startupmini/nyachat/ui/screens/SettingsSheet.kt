@@ -21,10 +21,12 @@ import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.EnhancedEncryption
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Settings
@@ -40,6 +42,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -96,14 +100,29 @@ fun SettingsSheet(
     onRestore: () -> Unit,
     onClearData: () -> Unit,
     onLogout: () -> Unit,
+    // Audit menu Pengaturan (2026-08-12): kebijakan privasi dibuka dari seksi
+    // Tentang (wajib untuk rilis Play Store).
+    onPrivacyPolicy: () -> Unit = {},
     // Audit #2 + r1.2.1: foto profil (Google/custom/inisial). Tap kartu profil
     // membuka halaman Profil & Akun (null = kartu tidak bisa di-tap).
     avatarPath: String? = null,
     onOpenProfile: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+
+    // Audit motion (2026-08-12): tutup sheet WAJIB lewat sheetState.hide()
+    // dulu (jendela turun ke bawah), baru onDismiss dipanggil — sebelum ini
+    // onDismissRequest langsung memanggil onDismiss sehingga sheet hilang
+    // INSTAN tanpa animasi turun, tidak konsisten dengan sheet lain.
+    fun dismiss() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) onDismiss()
+        }
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismiss,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         containerColor = MaterialTheme.colorScheme.surface,
@@ -114,6 +133,10 @@ fun SettingsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // Audit menu Pengaturan (2026-08-12): tinggi dibatasi supaya sheet
+                // tidak penuh layar (sebelumnya konten ~2310px di layar 2400px —
+                // konsisten dengan ManageMembers yang heightIn max 560dp).
+                .heightIn(max = 640.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 4.dp, vertical = 4.dp)
         ) {
@@ -136,12 +159,6 @@ fun SettingsSheet(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = stringResource(R.string.menu_version, BuildConfig.VERSION_NAME),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
             }
 
             // Kartu identitas workspace (item 8): siapa yang login di workspace ini.
@@ -153,8 +170,8 @@ fun SettingsSheet(
                 onOpenProfile = onOpenProfile
             )
 
-            // ── UMUM ──
-            SectionLabel(stringResource(R.string.settings_section_general))
+            // ── TAMPILAN ──
+            SectionLabel(stringResource(R.string.settings_section_appearance))
             SettingRow(
                 icon = if (isDarkMode) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
                 title = stringResource(if (isDarkMode) R.string.menu_mode_light else R.string.menu_mode_dark),
@@ -171,10 +188,17 @@ fun SettingsSheet(
                     Switch(checked = chatNotificationsEnabled, onCheckedChange = { onToggleChatNotifications() })
                 }
             )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+
+            // ── KEAMANAN ──
+            SectionLabel(stringResource(R.string.settings_section_security))
             SettingRow(
-                icon = Icons.Rounded.SystemUpdate,
-                title = stringResource(R.string.menu_check_update),
-                onClick = onCheckUpdate
+                icon = Icons.Rounded.Pin,
+                title = stringResource(R.string.menu_pin),
+                subtitle = workspacePin?.let { maskPin(it) },
+                onClick = onPin,
+                chevron = true
             )
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
@@ -184,12 +208,14 @@ fun SettingsSheet(
             SettingRow(
                 icon = Icons.Rounded.Key,
                 title = stringResource(R.string.menu_gemini_key),
-                onClick = onGeminiKey
+                onClick = onGeminiKey,
+                chevron = true
             )
             SettingRow(
                 icon = Icons.Rounded.Route,
                 title = stringResource(R.string.menu_openrouter_key),
-                onClick = onOpenRouterKey
+                onClick = onOpenRouterKey,
+                chevron = true
             )
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
@@ -197,19 +223,14 @@ fun SettingsSheet(
             // ── DATA & BACKUP ──
             SectionLabel(stringResource(R.string.settings_section_data))
             SettingRow(
-                icon = Icons.Rounded.Pin,
-                title = stringResource(R.string.menu_pin),
-                subtitle = workspacePin?.let { maskPin(it) },
-                onClick = onPin
-            )
-            SettingRow(
-                icon = Icons.Rounded.TableChart,
-                title = stringResource(R.string.menu_export_csv),
-                onClick = onExportCsv
-            )
-            SettingRow(
                 icon = Icons.Rounded.CloudUpload,
                 title = stringResource(R.string.menu_backup_drive),
+                // Status backup terakhir digabung jadi subtitle (item 9) —
+                // pakai [lastBackupEncrypted] (status file AKTUAL), bukan toggle.
+                subtitle = stringResource(
+                    R.string.settings_backup_last_subtitle,
+                    lastBackupSubtitle(lastBackupMillis, lastBackupEncrypted)
+                ),
                 enabled = !backupBusy,
                 onClick = onBackup
             )
@@ -232,12 +253,33 @@ fun SettingsSheet(
                     Switch(checked = isBackupEncrypted, onCheckedChange = { onToggleBackupEncryption() })
                 }
             )
-            // Status backup terakhir (item 9) — informatif, bukan aksi.
-            // Pakai [lastBackupEncrypted] (status file AKTUAL), bukan toggle.
             SettingRow(
-                icon = Icons.Rounded.CloudUpload,
-                title = stringResource(R.string.settings_last_backup_title),
-                subtitle = lastBackupSubtitle(lastBackupMillis, lastBackupEncrypted),
+                icon = Icons.Rounded.TableChart,
+                title = stringResource(R.string.menu_export_csv),
+                onClick = onExportCsv
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+
+            // ── TENTANG ──
+            SectionLabel(stringResource(R.string.settings_section_about))
+            SettingRow(
+                icon = Icons.Rounded.SystemUpdate,
+                title = stringResource(R.string.menu_check_update),
+                onClick = onCheckUpdate,
+                chevron = true
+            )
+            SettingRow(
+                icon = Icons.Rounded.PrivacyTip,
+                title = stringResource(R.string.menu_privacy_policy),
+                onClick = onPrivacyPolicy,
+                chevron = true
+            )
+            // Versi — informatif, bukan aksi (di sini, bukan header, supaya semua
+            // info "tentang aplikasi" satu blok).
+            SettingRow(
+                icon = Icons.Rounded.Info,
+                title = stringResource(R.string.menu_version, BuildConfig.VERSION_NAME),
                 onClick = null
             )
 
@@ -386,6 +428,10 @@ private fun SettingRow(
     subtitle: String? = null,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     enabled: Boolean = true,
+    // Audit menu Pengaturan (2026-08-12): affordance navigasi — baris yang
+    // membuka sub-dialog/halaman menampilkan chevron (sebelumnya hanya kartu
+    // profil yang punya, sehingga baris lain tidak terlihat bisa di-tap).
+    chevron: Boolean = false,
     trailing: (@Composable () -> Unit)? = null
 ) {
     val titleColor = when {
@@ -426,9 +472,16 @@ private fun SettingRow(
                 )
             }
         }
-        trailing?.let {
+        if (trailing != null) {
             Spacer(modifier = Modifier.width(8.dp))
-            it()
+            trailing()
+        } else if (chevron) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                imageVector = Icons.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
         }
     }
 }

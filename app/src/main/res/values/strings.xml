@@ -287,7 +287,10 @@
     <string name="membership_error_rejected">Permintaan bergabung kamu tidak disetujui oleh pemilik workspace.</string>
     <string name="membership_error_timeout">Waktu tunggu persetujuan pemilik habis. Coba lagi nanti.</string>
     <string name="membership_retry">Coba Lagi</string>
-    <string name="settings_section_general">Umum</string>
+    <string name="settings_section_appearance">Tampilan</string>
+    <string name="settings_section_security">Keamanan</string>
+    <string name="settings_section_about">Tentang</string>
+    <string name="menu_privacy_policy">Kebijakan Privasi</string>
     <!-- 3.7: notifikasi chat real-time -->
     <string name="menu_chat_notifications">Notifikasi chat</string>
     <string name="menu_chat_notifications_desc">Beri tahu saat ada pesan baru dari anggota</string>
@@ -297,7 +300,8 @@
     <string name="settings_section_ai">AI &amp; API</string>
     <string name="settings_section_data">Data &amp; Backup</string>
     <string name="settings_section_danger">Zona Berbahaya</string>
-    <string name="settings_last_backup_title">Backup terakhir</string>
+    <!-- Status backup terakhir digabung jadi subtitle baris "Backup ke Google Drive". -->
+    <string name="settings_backup_last_subtitle">Terakhir: %1$s</string>
     <string name="settings_last_backup_never">Belum pernah</string>
     <string name="settings_last_backup_time">%1$s · %2$s</string>
     <string name="settings_backup_encrypted_yes">Terenkripsi</string>

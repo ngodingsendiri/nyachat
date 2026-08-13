@@ -66,6 +66,7 @@ import com.startupmini.nyachat.ui.MainDialogController
 import com.startupmini.nyachat.ui.MainOverlays
 import com.startupmini.nyachat.ui.MainViewModel
 import com.startupmini.nyachat.ui.SyncLifecycleGlue
+import com.startupmini.nyachat.ui.TintedSnackbarVisuals
 import com.startupmini.nyachat.ui.buildChatCallbacks
 import com.startupmini.nyachat.ui.buildRekapCallbacks
 import com.startupmini.nyachat.ui.screens.ChatScreen
@@ -77,6 +78,8 @@ import com.startupmini.nyachat.ui.screens.RekapScreenState
 import com.startupmini.nyachat.ui.screens.StartupLoadingScreen
 import com.startupmini.nyachat.ui.screens.StartupPhase
 import com.startupmini.nyachat.ui.theme.CoupleFinanceTheme
+import com.startupmini.nyachat.ui.theme.ExpenseRed
+import com.startupmini.nyachat.ui.theme.IncomeGreen
 import com.startupmini.nyachat.ui.theme.Motion
 import java.text.NumberFormat
 import java.util.Locale
@@ -429,13 +432,21 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     viewModel.transactionRecorded.collect { recorded ->
                         val tx = recorded.transaction
-                        val prefix = if (tx.type == Constants.TransactionTypes.INCOME) "+" else "-"
+                        val isIncome = tx.type == Constants.TransactionTypes.INCOME
+                        val prefix = if (isIncome) "+" else "-"
                         val summary = "$prefix ${recordedCurrency.format(tx.amount)} (${tx.category})"
                         val message = txRecordedTemplate.format(summary)
+                        // Audit 2026-08-12: notifikasi transaksi dibedakan warnanya —
+                        // pemasukan hijau (IncomeGreen), pengeluaran merah (ExpenseRed),
+                        // konsisten dengan badge finansial & Rekap. Notifikasi lain
+                        // (backup, export, dll) tetap netral (inverseSurface).
                         val result = snackbarHostState.showSnackbar(
-                            message = message,
-                            actionLabel = undoLabel,
-                            duration = SnackbarDuration.Long
+                            TintedSnackbarVisuals(
+                                message = message,
+                                actionLabel = undoLabel,
+                                duration = SnackbarDuration.Long,
+                                containerTint = if (isIncome) IncomeGreen else ExpenseRed
+                            )
                         )
                         if (result == SnackbarResult.ActionPerformed) {
                             // Audit response (2026-08-12): user sudah tahu konsekuensinya
@@ -938,6 +949,17 @@ driveController.getAutoPassphrase = {
                                 onToggleBackupEncryption = {
                                     backupEncrypted = !backupEncrypted
                                     appPrefs.edit().putBoolean(Constants.Prefs.BACKUP_ENCRYPTED, backupEncrypted).apply()
+                                },
+                                onPrivacyPolicy = {
+                                    // Audit menu Pengaturan (2026-08-12): kebijakan
+                                    // privasi dibuka di browser (pola sama dengan
+                                    // halaman rilis update).
+                                    context.startActivity(
+                                        android.content.Intent(
+                                            android.content.Intent.ACTION_VIEW,
+                                            Uri.parse(Constants.Links.PRIVACY_POLICY)
+                                        )
+                                    )
                                 },
                                 onGeminiKeySaved = { geminiKey = it },
                                 onOpenRouterKeySaved = { openRouterKey = it },

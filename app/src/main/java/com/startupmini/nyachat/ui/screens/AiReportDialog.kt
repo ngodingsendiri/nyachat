@@ -66,8 +66,16 @@ fun AiReportDialog(
     val scope = rememberCoroutineScope()
     val semantic = LocalSemanticColors.current
 
+    // Audit motion (2026-08-12): onDismissRequest juga lewat dismiss() —
+    // gesture swipe/scrim/back ikut turun ke bawah, konsisten dengan tombol.
+    fun dismiss() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) onDismiss()
+        }
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
@@ -138,13 +146,7 @@ fun AiReportDialog(
                     }
                 }
 
-                IconButton(
-                    onClick = {
-                        scope.launch { sheetState.hide() }.invokeOnCompletion {
-                            if (!sheetState.isVisible) onDismiss()
-                        }
-                    }
-                ) {
+                IconButton(onClick = ::dismiss) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.report_close_desc),
@@ -208,11 +210,7 @@ fun AiReportDialog(
             // (Coba Lagi) terbaca jelas, bukan dua tombol biru identik bertumpuk.
             if (isError) {
                 OutlinedButton(
-                    onClick = {
-                        scope.launch { sheetState.hide() }.invokeOnCompletion {
-                            if (!sheetState.isVisible) onDismiss()
-                        }
-                    },
+                    onClick = ::dismiss,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = AiBlue),
                     border = BorderStroke(1.dp, AiBlue),
                     modifier = Modifier
@@ -225,11 +223,7 @@ fun AiReportDialog(
                 }
             } else {
                 Button(
-                    onClick = {
-                        scope.launch { sheetState.hide() }.invokeOnCompletion {
-                            if (!sheetState.isVisible) onDismiss()
-                        }
-                    },
+                    onClick = ::dismiss,
                     colors = ButtonDefaults.buttonColors(containerColor = AiBlue),
                     modifier = Modifier
                         .fillMaxWidth()

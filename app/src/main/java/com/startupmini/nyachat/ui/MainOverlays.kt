@@ -18,8 +18,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarData
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarVisuals
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -109,27 +112,18 @@ fun BoxScope.MainOverlays(
     }
 
     // Layar kelola anggota & permintaan bergabung (owner/member).
-    // Guard `workspacePin != null` di atas → smart cast aman (audit ketahanan:
+    // Guard `workspacePin != null` → smart cast aman (audit ketahanan:
     // hilangkan `!!` yang berisiko NPE bila alur berubah di masa depan).
-    // Audit motion (2026-08-12): layar penuh ini sebelumnya HARD CUT (muncul
-    // instan) — satu-satunya full-screen yang tidak punya transisi. Kini fade +
-    // zoom 0.97→1 (Motion.base), satu bahasa dengan gate & fase startup.
-    androidx.compose.animation.AnimatedVisibility(
-        visible = dialogs.showManageMembers && workspacePin != null,
-        enter = androidx.compose.animation.fadeIn(animationSpec = Motion.base()) +
-            androidx.compose.animation.scaleIn(
-                initialScale = 0.97f,
-                animationSpec = Motion.base()
-            ),
-        exit = androidx.compose.animation.fadeOut(animationSpec = Motion.quick())
-    ) {
-        if (workspacePin != null) {
-            ManageMembersScreen(
-                pin = workspacePin,
-                isOwner = (workspaceRole == Constants.Roles.OWNER),
-                onDismiss = { dialogs.showManageMembers = false }
-            )
-        }
+    // Audit motion (2026-08-12): kini ModalBottomSheet — muncul slide dari
+    // bawah & tutup turun ke bawah (sheetState.hide() di dalam screen),
+    // konsisten dengan SettingsSheet. Wrapper AnimatedVisibility fade/zoom
+    // dihapus karena sheet sudah punya animasi bawaan sendiri.
+    if (dialogs.showManageMembers && workspacePin != null) {
+        ManageMembersScreen(
+            pin = workspacePin,
+            isOwner = (workspaceRole == Constants.Roles.OWNER),
+            onDismiss = { dialogs.showManageMembers = false }
+        )
     }
 
     // Konfirmasi ganti workspace (PIN berbeda): tampil di SEMUA layar.
@@ -265,6 +259,22 @@ fun BoxScope.MainOverlays(
 }
 
 /**
+ * SnackbarVisuals dengan warna container khusus (audit 2026-08-12): notifikasi
+ * "Tercatat" membedakan PEMASUKAN (hijau) vs PENGELUARAN (merah) agar user bisa
+ * mengenali arah uang sekilas — sebelum ini semua notifikasi memakai inverseSurface
+ * netral. [containerTint] null → tetap netral (notifikasi info lain). Warna dibawa
+ * bersama visuals (bukan state terpisah) supaya benar walau snackbar mengantre.
+ */
+internal class TintedSnackbarVisuals(
+    override val message: String,
+    override val actionLabel: String?,
+    override val duration: SnackbarDuration,
+    val containerTint: Color? = null
+) : SnackbarVisuals {
+    override val withDismissAction: Boolean = false
+}
+
+/**
  * Snackbar compact yang bisa di-dismiss dengan swipe (kiri/kanan/atas).
  *
  * Catatan: material3 1.3.x TIDAK menyediakan swipe-to-dismiss bawaan (hanya
@@ -341,11 +351,17 @@ private fun DismissibleSnackbar(
                 }
             }
     ) {
+        // Audit 2026-08-12: warna container bisa di-tint (TintedSnackbarVisuals) —
+        // notifikasi transaksi memakai hijau/merah sesuai arah uang; sisanya netral
+        // (inverseSurface). Teks & aksi putih di atas warna tint (kontras AA),
+        // actionColor diset eksplisit supaya "Urungkan" terbaca di kedua kasus.
+        val tint = (snackbarData.visuals as? TintedSnackbarVisuals)?.containerTint
         Snackbar(
             snackbarData = snackbarData,
             shape = RoundedCornerShape(28.dp),
-            containerColor = MaterialTheme.colorScheme.inverseSurface,
-            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+            containerColor = tint ?: MaterialTheme.colorScheme.inverseSurface,
+            contentColor = if (tint != null) Color.White else MaterialTheme.colorScheme.inverseOnSurface,
+            actionColor = if (tint != null) Color.White else MaterialTheme.colorScheme.inversePrimary,
         )
     }
 }

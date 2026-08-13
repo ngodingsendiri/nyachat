@@ -4,7 +4,9 @@ import android.content.Context
 import android.provider.Settings
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.TweenSpec
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 
 /**
@@ -14,12 +16,19 @@ import androidx.compose.animation.core.tween
  * Karakter: ringan, natural, konsisten. Semua tween memakai easing
  * FastOutSlowIn (mulai cepat, melandai lembut) — TIDAK ada bounce/overshoot
  * di elemen layout. Spring hanya dipakai untuk GESTURE yang memang harus
- * elastis, semua berkarakter LowBouncy (tanpa overshoot berlebihan):
- *  - FAB jump-to-bottom & geser chips: LowBouncy stiffness 1600f (audit motion
+ * elastis, semua berkarakter SOFT-ELASTIC melalui [elastic] (overshoot
+ * nyaris tak terlihat):
+ *  - FAB jump-to-bottom & geser chips: elastic stiffness 1600f (audit motion
  *    2026-08-12: diturunkan dari 600f ±1s ke ±600ms — tetap soft tapi
  *    responsif; sinkron satu sama lain).
- *  - Swipe-reply bubble: LowBouncy + StiffnessMediumLow (elastis halus,
+ *  - Swipe-reply bubble: elastic + StiffnessMediumLow (elastis halus,
  *    responsif — menggantikan MediumBouncy/StiffnessMedium yang terlontar).
+ *
+ * Audit elastisitas (2026-08-12): DampingRatioLowBouncy (0.75) lama masih
+ * menghasilkan overshoot ±2.8% yang TERASA "mantul" di layar — diganti
+ * damping 0.88 (SOFT_ELASTIC_DAMPING): overshoot < 1.5% (nyaris tak
+ * terlihat), settle 2-3x lebih cepat. Elastisitas tetap ADA sebagai rasa
+ * "memberi" saat ujung gerakan, tapi tidak lagi mengganggu mata.
  *
  * Konteks penggunaan:
  *  - [quick]  (150ms): state mikro — fade kecil, elemen yang HILANG (dismiss
@@ -85,6 +94,23 @@ object Motion {
         )
         reducedMotion = scale == 0f
     }
+
+    /**
+     * Damping ratio elastisitas (audit 2026-08-12): 0.88 — di antara
+     * LowBouncy (0.75, overshoot terlihat) dan NoBouncy (1.0, kaku).
+     * Overshoot < 1.5%: elastisitas terasa sebagai "give" halus di ujung
+     * gerakan, bukan pantulan yang mengganggu.
+     */
+    const val SOFT_ELASTIC_DAMPING = 0.88f
+
+    /**
+     * Satu-satunya spring yang boleh dipakai app (satu motion language).
+     * [stiffness] dikirim pemanggil sesuai konteks (FAB 1600f = muncul cepat;
+     * swipe-reply StiffnessMediumLow = snap-back lembut). Reduced-motion:
+     * bungkus hasilnya dengan [springOrSnap] untuk settle instan.
+     */
+    fun <T> elastic(stiffness: Float): SpringSpec<T> =
+        spring(dampingRatio = SOFT_ELASTIC_DAMPING, stiffness = stiffness)
 
     /**
      * Spring yang menegakkan reduced-motion: jika [reducedMotion] aktif,

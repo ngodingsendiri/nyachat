@@ -51,6 +51,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   murni yang nyaris seterang surface saat di-blend).
 
 ### Fixed
+- **Motion Kelola Anggota & Pengaturan diseragamkan (2026-08-12)**:
+  - **Kelola Anggota** diubah dari Dialog full-screen (muncul fade/zoom) menjadi
+    **ModalBottomSheet** — muncul slide dari bawah, shape 24dp,
+    `skipPartiallyExpanded = true`, dan tutup via `sheetState.hide()`
+    (jendela turun ke bawah) — satu motion language dengan SettingsSheet.
+  - **SettingsSheet** kini menutup lewat pola `dismiss()` = `sheetState.hide()`
+    lalu `onDismiss()` — sebelumnya `onDismissRequest` langsung memanggil
+    `onDismiss` sehingga sheet hilang instan tanpa animasi turun. Sekarang
+    swipe ke bawah / tap scrim / back → sheet turun ke bawah dengan mulus.
+  - Wrapper AnimatedVisibility fade/zoom utk Kelola Anggota di MainOverlays
+    dihapus (sheet punya animasi bawaan). Terverifikasi runtime emulator:
+    buka/tutup kedua menu tanpa crash.
+  - **Audit menu Pengaturan — penataan ulang 6 seksi (2026-08-12)**:
+    - Struktur baru: **Tampilan** (Mode, Notifikasi) · **Keamanan** (PIN
+    Workspace) · **AI & API** · **Data & Backup** · **Tentang** (Periksa
+    Update, Kebijakan Privasi, Versi) · **Zona Berbahaya** — sebelumnya 4
+    seksi tanpa keamanan/tentang, PIN & Export CSV tercampur di Data.
+    - Versi pindah dari header ke seksi Tentang; status "Backup terakhir"
+    digabung jadi subtitle baris Backup (hemat 1 baris, hilangkan ikon
+    duplikat CloudUpload).
+    - Baris navigasi (PIN, Kunci API, Periksa Update, Kebijakan Privasi)
+    kini menampilkan **chevron** sebagai affordance — sebelumnya hanya kartu
+    profil yang punya, baris lain tidak terlihat bisa di-tap.
+    - Tinggi sheet dibatasi `heightIn(max = 640dp)` — sebelumnya konten
+    ~2310px di layar 2400px (hampir full-screen); kini konsisten dengan
+    ManageMembers (560dp) dan sisa layar terlihat sebagai scrim.
+    - Baris baru **Kebijakan Privasi** membuka PRIVACY_POLICY.md di browser
+    (wajib untuk rilis Play Store). Terverifikasi runtime emulator: struktur
+    baru tampil, scroll berfungsi, kebijakan privasi membuka Chrome, tutup
+    via swipe — 0 crash.
+  - **Audit lanjutan — 4 sheet lain diseragamkan ke pola dismiss yang sama**
+    (AddTransactionDialog, AiReportDialog, ProfileAccountSheet,
+    ChatAttachmentSheet): `onDismissRequest` kini lewat `dismiss()` =
+    `sheetState.hide()` lalu `onDismiss()` — sebelumnya gesture
+    swipe/scrim/back menutup instan tanpa animasi turun, tidak konsisten
+    dengan tombol internal. Tombol internal AiReportDialog di-DRY-kan ke
+    `::dismiss`. Header ManageMembers padding disamakan ke 20/8 dengen
+    SettingsSheet. Terverifikasi runtime: buka/tutup semua sheet tanpa crash.
+- **Audit bug & potential bug (2026-08-12) — double-submit Simpan transaksi**:
+  tombol Simpan di dialog tambah/edit transaksi memanggil `onConfirm` (insert
+  DB, fire-and-forget async) lalu `onDismiss` sinkron tanpa guard — dua tap
+  cepat bisa mencatat transaksi DUPLIKAT. Kini guard `isSaving` di-set sebelum
+  aksi pertama & tombol dinonaktifkan sampai dialog tertutup (`return@Button`
+  untuk tap kedua). Terverifikasi runtime di emulator: double-tap Simpan →
+  tepat 1 record di DB (bukan 2). Bonus: guard juga menutup double-fire
+  `updateTransaction` di mode edit.
+- **Audit bug & potential bug (2026-08-12) — `chatResetTrigger` naik 2× per
+  simpan**: dialog selalu memanggil `onDismiss()` SETELAH `onConfirm()`, jadi
+  increment trigger reset input chat berjalan dua kali per penyimpanan.
+  Dipindah ke `onDismiss` saja — perilaku tetap sama (trigger naik sekali per
+  penutupan), kode lebih bersih.
 - **Audit ketahanan (2026-08-11)**: `isAiThinking` dipakai counter (race
   saat 2 kiriman bersamaan) + hilangkan `!!` NPE di jalur snapshot.
 - **Audit r1.2.4 (2026-08-11) — 4 bug chat/AI/heuristik**:

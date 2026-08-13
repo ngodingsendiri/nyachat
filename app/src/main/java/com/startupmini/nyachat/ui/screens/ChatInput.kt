@@ -56,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,6 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
+import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.remote.BitmapCache
@@ -79,6 +81,7 @@ import com.startupmini.nyachat.ui.theme.ExpenseRed
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.theme.Motion
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal const val MAX_MESSAGE_LENGTH = 2000
@@ -628,9 +631,23 @@ fun ChatAttachmentSheet(
     // language) — sheet lampiran sebelumnya default (bisa jeda setengah), tidak
     // konsisten dengan Settings/Transaksi/AI Report/Profil.
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+
+    // Audit motion (2026-08-12): onDismissRequest juga lewat dismiss() —
+    // gesture swipe/scrim/back ikut turun ke bawah, konsisten dengan sheet lain.
+    fun dismiss() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) onDismiss()
+        }
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismiss,
         sheetState = sheetState,
+        // Audit konsistensi window tree (2026-08-12): radius sudut atas
+        // DISERAGAMKAN dengan 5 sheet lain (24dp / CORNER_XL) — sebelumnya
+        // tanpa shape eksplisit → jatuh ke default M3 28dp, sudut beda.
+        shape = RoundedCornerShape(topStart = Constants.Ui.CORNER_XL.dp, topEnd = Constants.Ui.CORNER_XL.dp),
         containerColor = MaterialTheme.colorScheme.surface,
         // Sheet berada di area konten (di atas NavigationBar) — padding
         // navbar bawaan sheet dinolkan agar tidak muncul celah.

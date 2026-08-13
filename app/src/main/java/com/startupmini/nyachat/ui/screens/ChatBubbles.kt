@@ -7,7 +7,6 @@ import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -346,21 +345,18 @@ fun ChatMessageBubble(
                                     }
                                     // Snap kembali ke posisi awal dengan spring LEMBUT
                                     // (audit motion 2026-08-12): MediumBouncy/StiffnessMedium
-                                    // lama terasa "terlontar" — diganti LowBouncy +
-                                    // StiffnessMediumLow agar elastis halus, konsisten
-                                    // dengan karakter FAB jump-to-bottom & geser chips
-                                    // (satu motion language: LowBouncy, tanpa overshoot
-                                    // berlebihan).
+                                    // lama terasa "terlontar"; audit elastisitas 2026-08-12
+                                    // menaikkan damping ke 0.88 — snap-back terasa "memberi"
+                                    // tapi tanpa overshoot yang mengganggu, konsisten dengan
+                                    // FAB jump-to-bottom & geser chips (satu motion
+                                    // language: Motion.elastic).
                                     swipeScope.launch {
                                         swipeOffsetX.animateTo(
                                             0f,
                                             // Reduced-motion: settle instan (tanpa elastis)
                                             // saat sistem "Hapus animasi" aktif.
                                             animationSpec = Motion.springOrSnap(
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioLowBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow
-                                                )
+                                                Motion.elastic(Spring.StiffnessMediumLow)
                                             )
                                         )
                                     }

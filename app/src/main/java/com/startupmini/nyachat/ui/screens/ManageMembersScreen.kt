@@ -6,9 +6,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,10 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Group
-import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -30,14 +29,16 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,8 +58,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.remote.FamilyMember
 import com.startupmini.nyachat.data.remote.MembershipManager
@@ -67,11 +66,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Layar "Kelola Anggota" — full-screen dialog.
+ * Layar "Kelola Anggota" — bottom sheet (konsisten dengan SettingsSheet).
  * - Pemilik: menyetujui/menolak permintaan bergabung, mengubah label & peran
  *   (pemilik/anggota), menghapus anggota.
  * - Anggota: hanya melihat daftar anggota (baca-saja).
+ *
+ * Audit motion (2026-08-12): sebelumnya full-screen Dialog dengan fade/zoom;
+ * sekarang ModalBottomSheet — muncul slide dari bawah & tutup turun ke bawah
+ * (sheetState.hide()), satu motion language dengan SettingsSheet.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageMembersScreen(
     pin: String,
@@ -92,112 +96,131 @@ fun ManageMembersScreen(
     // jadikan pemilik = transfer kendali. Sebelumnya dieksekusi langsung.
     var pendingAction by remember { mutableStateOf<MemberAction?>(null) }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    // Satu motion language dengan SettingsSheet & sheet lain (audit motion
+    // 2026-08-12): skipPartiallyExpanded = true → langsung buka penuh dari
+    // bawah; tutup via sheetState.hide() → jendela turun ke bawah dulu,
+    // baru onDismiss dipanggil.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    fun dismiss() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) onDismiss()
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = ::dismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        // Sheet hidup di area konten (berhenti di atas NavigationBar) — padding
+        // navbar bawaan sheet dinolkan supaya tidak muncul celah.
+        contentWindowInsets = { WindowInsets(0) },
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Header diseragamkan dengan SettingsSheet (audit 2026-08-12):
+            // padding 20/8 + ikon 20dp + titleMedium — sebelumnya 16/12.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Group,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.manage_members_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = ::dismiss) {
                     Icon(
-                        imageVector = Icons.Rounded.Group,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = stringResource(R.string.action_cancel),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = stringResource(R.string.manage_members_title),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.action_cancel),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
-                HorizontalDivider()
+            }
+            HorizontalDivider()
 
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    if (isOwner) {
-                        item { SectionTitle(stringResource(R.string.manage_members_join_requests)) }
-                        if (joinRequests.isEmpty()) {
-                            item {
-                                Text(
-                                    text = stringResource(R.string.manage_members_no_requests),
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        } else {
-                            // Key harus unik di SELURUH LazyColumn (bukan per section):
-                            // saat approve, member sudah masuk ke daftar `members`
-                            // sementara join request-nya masih ada di `joinRequests`
-                            // → UID sama muncul 2x → crash "Key was already used".
-                            items(joinRequests, key = { "join_${it.uid}" }) { request ->
-                                JoinRequestCard(
-                                    request = request,
-                                    onApprove = {
-                                        scope.launch {
-                                            MembershipManager.approveJoin(pin, request)
-                                        }
-                                    },
-                                    onReject = {
-                                        scope.launch { MembershipManager.rejectJoin(pin, request.uid) }
-                                    }
-                                )
-                            }
-                        }
-                        item { Spacer(modifier = Modifier.height(4.dp)) }
-                        item { SectionTitle(stringResource(R.string.manage_members_list)) }
-                    }
-
-                    // P3 (audit keanggotaan): empty-state untuk SEMUA peran — owner
-                    // juga dapat melihat "kosong" saat snapshot belum datang / anggota
-                    // belum ada (sebelumnya hanya non-owner).
-                    if (members.isEmpty()) {
+            LazyColumn(
+                // Batasi tinggi supaya sheet tidak penuh layar — daftar panjang
+                // tetap scroll di dalam sheet (konsisten dengan SettingsSheet).
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 560.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (isOwner) {
+                    item { SectionTitle(stringResource(R.string.manage_members_join_requests)) }
+                    if (joinRequests.isEmpty()) {
                         item {
                             Text(
-                                text = stringResource(R.string.manage_members_empty),
+                                text = stringResource(R.string.manage_members_no_requests),
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     } else {
-                        items(members, key = { "member_${it.uid}" }) { member ->
-                            MemberCard(
-                                member = member,
-                                isSelf = member.uid == myUid,
-                                isOwner = isOwner,
-                                avatarPath = memberAvatars[member.uid],
-                                onEditLabel = { labelTarget = member },
-                                onToggleRole = {
-                                    // Konfirmasi dulu — promote/demote mengubah
-                                    // kendali workspace.
-                                    pendingAction = MemberAction.ToggleRole(member)
+                        // Key harus unik di SELURUH LazyColumn (bukan per section):
+                        // saat approve, member sudah masuk ke daftar `members`
+                        // sementara join request-nya masih ada di `joinRequests`
+                        // → UID sama muncul 2x → crash "Key was already used".
+                        items(joinRequests, key = { "join_${it.uid}" }) { request ->
+                            JoinRequestCard(
+                                request = request,
+                                onApprove = {
+                                    scope.launch {
+                                        MembershipManager.approveJoin(pin, request)
+                                    }
                                 },
-                                onRemove = {
-                                    // Konfirmasi dulu — menghapus = akses hilang.
-                                    pendingAction = MemberAction.Remove(member)
+                                onReject = {
+                                    scope.launch { MembershipManager.rejectJoin(pin, request.uid) }
                                 }
                             )
                         }
+                    }
+                    item { Spacer(modifier = Modifier.height(4.dp)) }
+                    item { SectionTitle(stringResource(R.string.manage_members_list)) }
+                }
+
+                // P3 (audit keanggotaan): empty-state untuk SEMUA peran — owner
+                // juga dapat melihat "kosong" saat snapshot belum datang / anggota
+                // belum ada (sebelumnya hanya non-owner).
+                if (members.isEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.manage_members_empty),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    items(members, key = { "member_${it.uid}" }) { member ->
+                        MemberCard(
+                            member = member,
+                            isSelf = member.uid == myUid,
+                            isOwner = isOwner,
+                            avatarPath = memberAvatars[member.uid],
+                            onEditLabel = { labelTarget = member },
+                            onToggleRole = {
+                                // Konfirmasi dulu — promote/demote mengubah
+                                // kendali workspace.
+                                pendingAction = MemberAction.ToggleRole(member)
+                            },
+                            onRemove = {
+                                // Konfirmasi dulu — menghapus = akses hilang.
+                                pendingAction = MemberAction.Remove(member)
+                            }
+                        )
                     }
                 }
             }
