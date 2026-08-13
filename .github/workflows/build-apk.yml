@@ -18,15 +18,15 @@ on:
       # Rekam ulang baseline snapshot UI DI RUNNER CI (ubuntu + JDK 21).
       # Penting: goldens yang direkam di Windows bisa TIDAK cocok dengan render
       # CI (font/AA beda) → verify gagal. Pakai input ini saat ada perubahan UI:
-      # jalankan workflow_dispatch record_snapshots=true, commit hasil artifact
+      # jalankan workflow_dispatch dengan mode=record, commit hasil artifact
       # 'roborazzi-goldens-recorded', lalu verify normal kembali lulus.
-      # NB: nama pakai underscore — dash di nama input bisa salah-parse pada
-      # ekspresi `inputs.record_snapshots` (property access vs operator minus).
-      record_snapshots:
-        description: "Rekam ulang golden Roborazzi di runner CI (bukan verify)"
+      # NB: gunakan type STRING (bukan boolean) — nilai string selalu andal
+      # di ekspresi `inputs.mode` (boolean input via API sering tak terpeta).
+      mode:
+        description: "verify (default) atau record (rekam ulang golden Roborazzi)"
         required: false
-        default: false
-        type: boolean
+        default: verify
+        type: string
 
 permissions:
   contents: write
@@ -91,15 +91,15 @@ jobs:
       # supaya bisa diunduh & di-commit. Ini penting karena goldens yang direkam
       # di Windows lokal sering tidak cocok dengan render CI (font/AA berbeda).
       - name: Snapshot UI (Roborazzi verify)
-        if: inputs.record_snapshots != 'true'
+        if: inputs.mode != 'record'
         run: ./gradlew :app:verifyRoborazziDebug --no-daemon
 
       - name: Snapshot UI (Roborazzi record)
-        if: inputs.record_snapshots == 'true'
+        if: inputs.mode == 'record'
         run: ./gradlew :app:recordRoborazziDebug --no-daemon
 
       - name: Upload recorded snapshots
-        if: inputs.record_snapshots == 'true'
+        if: inputs.mode == 'record'
         uses: actions/upload-artifact@v4
         with:
           name: roborazzi-goldens-recorded
