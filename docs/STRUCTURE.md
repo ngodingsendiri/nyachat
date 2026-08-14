@@ -81,7 +81,7 @@ nyachat/
 │   │
 │   └── AndroidManifest.xml
 │
-├── app/src/test/                  ← 🧪 43 file test (Robolectric + Roborazzi + Compose UI)
+├── app/src/test/                  ← 🧪 44 file test (Robolectric + Roborazzi + Compose UI)
 │   ├── ConstantsTest              ← kontrak nilai Constants.Fields (anti-regresi rename)
 │   ├── data/analytics/  FinancialInsightsTest · MonthlyAnalyticsTest · WeeklyInsightsTest
 │   ├── data/backup/     BackupCryptoTest · DataExporterTest · DriveBackupControllerTest · PendingOpSerializationTest
@@ -94,6 +94,7 @@ nyachat/
 │   │                     · MembershipAvatarSourceTest (sumber avatar: bytes/photoUrl)
 │   │                     · MultiTransactionExtractionTest (multi-transaksi r1.4.0)
 │   │                     · TransactionExtractionStressTest (uji ketangguhan variasi chat)
+│   │                     · AiAccuracyTest (parsing respons AI: array/format lama/nominal)
 │   ├── data/repository/ FinanceRepositoryTest · FinanceRepositoryBadgeTest
 │   ├── ui/              AiThinkingCounterTest · MainViewModelTest (undo hapus · clear data · AI report · jalur error)
 │   ├── ui/screens/      AppSnapshotTest (golden Roborazzi) · BackupDialogsTest
@@ -118,8 +119,8 @@ nyachat/
 |---|---|
 | File Kotlin produksi | 70 |
 | Baris kode (produksi + test) | ±25.094 |
-| File test | 43 |
-| Jumlah test (unit, Robolectric/Compose) | 439 |
+| File test | 44 |
+| Jumlah test (unit, Robolectric/Compose) | 455 |
 | `minSdk` / `targetSdk` | 24 / 36 |
 | `applicationId` | `com.startupmini.nyachat` |
 | Bahasa UI | Indonesia (strings.xml terpusat) |

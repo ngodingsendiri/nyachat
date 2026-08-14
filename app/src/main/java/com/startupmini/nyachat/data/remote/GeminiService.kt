@@ -834,7 +834,9 @@ object GeminiService {
     }
 
     /** Bungkus teks dari OpenAI/OpenRouter agar bisa diparse oleh parseJsonResponse. */
-    private fun wrapOpenAiText(text: String): String {
+    // internal (bukan private) supaya jalur AI bisa diuji langsung
+    // (r1.4.0 — uji akurasi AI: dulu hanya heuristik offline yang punya test).
+    internal fun wrapOpenAiText(text: String): String {
         val quoted = JSONObject.quote(text)
         return "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":$quoted}]}}]}"
     }
@@ -859,7 +861,7 @@ object GeminiService {
      * Kategori yang diarang AI dipaksa ke daftar valid (tuning AI: tidak boleh
      * sembarang kategori). Nominal <= 0 dibuang.
      */
-    private fun parseJsonResponse(rawGeminiJson: String, originalText: String, sender: String): AiChatParseResult? {
+    internal fun parseJsonResponse(rawGeminiJson: String, originalText: String, sender: String): AiChatParseResult? {
         val responseText = extractTextFromGeminiResponse(rawGeminiJson) ?: return null
         // Clean JSON formatting
         val cleanedJson = responseText.replace("```json", "").replace("```", "").trim()

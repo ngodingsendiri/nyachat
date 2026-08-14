@@ -49,6 +49,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transaksi nyata hilang — "jualan" (pemasukan usaha), "kopi", "jajan",
   "renovasi", "upgrade" (pengeluaran) ditambahkan ke daftar trigger + kategori.
   Total suite 397 → 439 test / 43 file.
+- **Uji akurasi AI & sistem offline** (2026-08-14): `AiAccuracyTest` (+16)
+  menutup celah audit — jalur AI `parseJsonResponse` TIDAK punya test langsung
+  (semua test lama hanya heuristik offline). Kini diuji: format baru (array
+  multi-transaksi), format lama (field tunggal), nominal String Indonesia dari
+  AI ("Rp 200.000", "50rb", "1,5jt"), tanggal eksplisit, nominal ≤0 dibuang,
+  kategori valid vs diarang, containsTransaction=false, JSON rusak → null,
+  code fence markdown, `wrapOpenAiText`, `isAiAvailable` tanpa kunci (offline
+  murni), deteksi balasan offline, & backup heuristik. Verifikasi E2E di
+  emulator dengan AI offline: pesan multi-transaksi direkap via heuristik
+  (badge "5 transaksi · Rp5.655.000" = gaji +5jt, bensin −100rb, jualan online
+  +300rb, listrik −250rb, gorengan −5rb — tanpa netting) & tersinkron ke
+  Firestore dengan `detectedCount`. Total suite 439 → 455 test / 44 file.
 
 
 ### Added
