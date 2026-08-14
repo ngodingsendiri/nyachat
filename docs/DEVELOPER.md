@@ -3,6 +3,14 @@
 Dokumen teknis untuk developer yang ingin membangun, menguji, atau berkontribusi
 pada **Nyachat**. Untuk pengguna umum lihat [README](../README.md).
 
+## 📚 Peta Proyek (mulai dari sini untuk orientasi)
+
+| Dokumen | Isi |
+|---|---|
+| [STRUCTURE.md](./STRUCTURE.md) | 🗺️ Peta pohon proyek — semua folder & file, statistik, alur singkat |
+| [NAVIGATION.md](./NAVIGATION.md) | 🧭 Peta navigasi antar layar, sheet, dan dialog |
+| [DATA_FLOW.md](./DATA_FLOW.md) | 🔄 Alur data offline-first (Room → Firestore sync → PendingOp) |
+
 ---
 
 ## 🔐 Setup Google Sign-In (Firebase)
@@ -82,7 +90,8 @@ appVersion=r1.2.0
 appVersionCode=27
 ```
 
-Override tanpa edit file: `./gradlew -PappVersion=r2.0.0 -PappVersionCode=26 :app:assembleDebug`.
+Override tanpa edit file: `./gradlew -PappVersion=r2.0.0 -PappVersionCode=28 :app:assembleDebug`.
+(versionCode harus SELALU naik — Play Store menolak versionCode menurun.)
 
 ---
 
