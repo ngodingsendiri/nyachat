@@ -292,6 +292,12 @@
     <string name="restore_passphrase_message">Backup ini terenkripsi. Masukkan passphrase yang dipakai saat backup dibuat untuk membukanya.</string>
     <string name="settings_backup_encrypt">Enkripsi backup Drive</string>
     <string name="settings_backup_encrypt_desc">Lindungi file backup dengan passphrase (AES-256). Auto-backup harian tetap berjalan terenkripsi otomatis.</string>
+    <!-- P1#1 (audit 2026-08-14): kunci pemulihan auto-backup ditampilkan SEKALI
+         saat pertama dibangkitkan — tanpa disimpan, backup Drive terenkripsi
+         tidak bisa dibuka di perangkat baru (kunci hanya di Keystore lama). -->
+    <string name="backup_auto_recovery_title">Kunci Pemulihan Auto-Backup</string>
+    <string name="backup_auto_recovery_message">Auto-backup Drive kamu dienkripsi otomatis. Kunci pemulihan di bawah hanya disimpan di perangkat ini — salin &amp; simpan di tempat aman (password manager / catatan pribadi). Tanpa kunci ini, backup Drive tidak bisa dipulihkan di perangkat baru.</string>
+    <string name="backup_auto_recovery_ok">Saya sudah menyimpannya</string>
     <string name="restore_failed">Gagal mengunduh backup dari Google Drive.</string>
     <string name="restore_failed_parse">File backup tidak valid atau rusak.</string>
 

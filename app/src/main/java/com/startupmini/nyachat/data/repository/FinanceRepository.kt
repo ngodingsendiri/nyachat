@@ -10,6 +10,7 @@ import com.startupmini.nyachat.data.local.TransactionDao
 import com.startupmini.nyachat.data.remote.FinanceAiService
 import com.startupmini.nyachat.data.remote.FirestoreSyncManager
 import java.util.UUID
+import kotlin.math.roundToLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -110,7 +111,7 @@ class FinanceRepository(
                         val trans = FinancialTransaction(
                             type = tx.type,
                             category = tx.category,
-                            amount = tx.amount,
+                            amount = normalizeAmount(tx.amount),
                             description = tx.description.ifBlank { messageText },
                             loggedBy = sender,
                             // Timestamp eksplisit (tanggal disebut di pesan) atau waktu pesan.
@@ -144,6 +145,18 @@ class FinanceRepository(
                         detectedBy = aiResult.detectedBy
                     )
                     chatMessageDao.insertMessage(finalMsg)
+
+                    // P3#8 (audit 2026-08-14): konteks ekstraksi untuk triase crash &
+                    // metrik akurasi produksi (custom key Crashlytics + log ringan).
+                    // runCatching: Firebase tak ter-init di unit test / dev — aman.
+                    runCatching {
+                        com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().apply {
+                            setCustomKey("extract_src", aiResult.detectedBy ?: "?")
+                            setCustomKey("extract_cnt", insertedList.size)
+                            setCustomKey("extract_mixed", hasMixedTypes(insertedList.map { it.type }))
+                            log("extract: src=${aiResult.detectedBy} cnt=${insertedList.size} total=${total}")
+                        }
+                    }
 
                     // Sync transaksi ke cloud supaya pasangan/keluarga di perangkat lain ikut melihat
                     insertedList.forEach { FirestoreSyncManager.syncTransaction(it) }
@@ -209,7 +222,7 @@ class FinanceRepository(
                     val trans = FinancialTransaction(
                         type = tx.type,
                         category = tx.category,
-                        amount = tx.amount,
+                        amount = normalizeAmount(tx.amount),
                         description = tx.description.ifBlank { newText },
                         loggedBy = existing.sender,
                         timestamp = tx.timestamp ?: existing.timestamp,
@@ -598,6 +611,15 @@ data class ChatDeleted(
     val message: ChatMessage,
     val transactions: List<FinancialTransaction>
 )
+
+/**
+ * Asuransi presisi uang (audit 2026-08-14): rupiah selalu bilangan bulat, jadi
+ * semua nominal dinormalisasi ke rupiah penuh di BATAS PERSIST (hasil parse AI
+ * → FinancialTransaction). Double aman untuk integer < 2^53, tapi snap ini
+ * mencegah pecahan kecil masuk diam-diam ke DB (mis. AI salah format).
+ * Murni & deterministik.
+ */
+internal fun normalizeAmount(amount: Double): Double = amount.roundToLong().toDouble()
 
 /**
  * Bangun ulang badge finansial pesan dari SEMUA transaksinya (audit badge

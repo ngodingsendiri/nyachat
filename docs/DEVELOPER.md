@@ -308,3 +308,53 @@ app/src/main/java/com/startupmini/nyachat/
 - [x] Badge finansial hilang (BUG-1) & draf chat hilang antar-tab (BUG-2) — FIXED 2026-08-09
 - [x] Chips saran cepat tampil kembali (BUG-05) — regresi compose-bom 2026.06: `LazyRow`
   tak me-layout item → `Row`+`horizontalScroll`; FIXED 2026-08-10
+
+---
+
+## 🔍 Temuan & Kebijakan Audit 2026-08-14
+
+### 1. Kunci pemulihan auto-backup (P1#1)
+Auto-backup Drive dienkripsi dengan passphrase acak 32-char base64 yang HANYA
+disimpan di Keystore perangkat. HP hilang/reinstall = backup tak bisa dibuka.
+**Kebijakan**: kunci ditampilkan SEKALI saat pertama dibangkitkan (dialog
+"Kunci Pemulihan Auto-Backup") supaya user bisa menyimpannya di tempat aman.
+Jangan pernah menyimpan passphrase ini ke Firebase/Drive — di situ inti
+keamanannya (kalau tersimpan di cloud, enkripsi jadi kosmetik).
+
+### 2. Rate limit AI server (P1#2)
+`aiComplete` (Cloud Functions) punya batas 30 panggilan/menit/uid (in-memory,
+per-instance) + batas prompt 6.000 char & gambar 3 MB base64. Kalau app
+membutuhkan panggilan lebih banyak, naikkan konstanta di `functions/index.js`
+— atau ganti ke counter Firestore untuk penegakan lintas-instance.
+
+### 3. Privasi log AI (P2#5)
+Output AI TIDAK boleh di-log ke Cloud Logging — isinya data finansial user
+(nominal, kategori). Cukup `model` + `len`. Jangan menambahkan kembali
+cuplikan isi (`head=`) ke log.
+
+### 4. Invariant uang (P2#6)
+Nominal disimpan sebagai Double — aman untuk rupiah integer < 2^53 (semua
+sumber nominal — parse AI & heuristik — menghasilkan integer).
+`normalizeAmount()` di FinanceRepository men-snap pecahan di batas persist;
+`MoneyExactnessTest` mem-pin invariant ini. **Kalau test ini gagal → ada jalur
+pecahan/drift floating-point — selidiki sebelum menambah fitur numerik apa pun.**
+
+### 5. Mesin heuristik offline (P2#4)
+Logika parse offline dipindah dari GeminiService.kt → `OfflineTransactionParser.kt`
+(objek murni & deterministik). GeminiService hanya menyisakan delegasi supaya
+referensi lama tetap bekerja. Tambahkan logika heuristik di file baru, JANGAN
+di GeminiService.
+
+### 6. Golden Roborazzi — REKAM HANYA DI CI
+Golden yang direkam di Windows lokal sering TIDAK cocok dengan render CI
+(font/AA beda) → verify gagal padahal bukan regresi. **Kebijakan**: rekam ulang
+baseline HANYA lewat workflow_dispatch `mode=record` di runner CI (ubuntu),
+lalu commit PNG dari artifact `roborazzi-goldens-recorded`. Jangan re-record
+di lokal Windows.
+
+### 7. Smoke test perangkat nyata (P2#3)
+`app/src/androidTest/AppSmokeTest` berjalan di emulator sungguhan (CI job
+`device-smoke`, API 34 google_apis). TIDAK memakai `waitForIdle` Compose —
+animasi infinite (indikator `aiSpark` di ChatBubbles) membuat Compose tidak
+pernah idle dan test bisa menggantung. Pola baku: `ActivityScenario` + bounded
+sleep + cek Activity hidup. Saat menambah test device, ikuti pola ini.

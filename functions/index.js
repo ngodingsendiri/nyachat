@@ -131,6 +131,32 @@ async function callGemini(apiKey, prompt, imageBase64) {
   return text.trim() || null;
 }
 
+// ============================================================================
+// BATAS PENGGUNAAN AI (P1#2 — audit 2026-08-14)
+// ----------------------------------------------------------------------------
+// aiComplete hanya butuh auth Google (bukan keanggotaan keluarga mana pun) —
+// tanpa batas, siapa pun bisa memanggil berulang kali dan menguras kuota AI
+// server (biaya tak terkendali). Pembatas in-memory sliding-window per-uid.
+// CATATAN: per-instance — abuse lintas-instance masih mungkin; untuk produksi
+// skala besar ganti dengan counter Firestore (tulis 1 doc/menit/uid).
+// ============================================================================
+const RATE_LIMIT_WINDOW_MS = 60_000;      // jendela 1 menit
+const RATE_LIMIT_MAX_CALLS = 30;          // maks 30 panggilan/menit/uid
+const MAX_PROMPT_CHARS = 6000;            // ~1.500 token — prompt AI keluarga
+const MAX_IMAGE_BASE64_CHARS = 3_000_000; // ~2,2 MB biner foto nota
+
+const rateBuckets = new Map(); // uid -> array timestamp panggilan
+function allowCall(uid, now) {
+  const recent = (rateBuckets.get(uid) || []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+  if (recent.length >= RATE_LIMIT_MAX_CALLS) {
+    rateBuckets.set(uid, recent);
+    return false;
+  }
+  recent.push(now);
+  rateBuckets.set(uid, recent);
+  return true;
+}
+
 /**
  * aiComplete — relay AI generik. Callable = auth Firebase otomatis diverifikasi
  * (request.auth non-null hanya untuk user terautentikasi). Body: { prompt,
@@ -145,15 +171,25 @@ exports.aiComplete = onCall(
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Harus login untuk memakai AI server.');
     }
+    // P1#2: batas laju per-uid — melindungi kuota AI server dari penyalahgunaan.
+    if (!allowCall(request.auth.uid, Date.now())) {
+      throw new HttpsError('resource-exhausted', 'Terlalu banyak panggilan AI. Coba lagi sebentar.');
+    }
     const data = request.data || {};
     const prompt = String(data.prompt || '').trim();
     if (!prompt) {
       throw new HttpsError('invalid-argument', 'Prompt tidak boleh kosong.');
     }
+    if (prompt.length > MAX_PROMPT_CHARS) {
+      throw new HttpsError('invalid-argument', 'Prompt terlalu panjang.');
+    }
     const imageBase64 =
       typeof data.imageBase64 === 'string' && data.imageBase64.length > 0
         ? data.imageBase64
         : null;
+    if (imageBase64 && imageBase64.length > MAX_IMAGE_BASE64_CHARS) {
+      throw new HttpsError('invalid-argument', 'Gambar terlalu besar.');
+    }
 
     // 1) OpenRouter (server key) — model gratis dengan rotasi otomatis
     const orKey = readSecret(OPENROUTER_SECRET);
@@ -162,10 +198,9 @@ exports.aiComplete = onCall(
         try {
           const text = await callOpenRouter(orKey, model, prompt, imageBase64);
           if (text) {
-            // Log singkat untuk debug: model mana yang berhasil & cuplikan output
-            // (tanpa bocorkan isi prompt penuh).
-            logger.info('Relay OK model=' + model +
-              ' len=' + text.length + ' head=' + JSON.stringify(text.slice(0, 100)));
+            // P2#5 (audit 2026-08-14): JANGAN log isi output — output AI rekap
+            // berisi data finansial pengguna (privasi). Cukup model + panjang.
+            logger.info('Relay OK model=' + model + ' len=' + text.length);
             return { text };
           }
         } catch (e) {
@@ -202,6 +237,10 @@ exports.notifyChatMessage = onDocumentWritten(
   async (event) => {
     const after = event.data && event.data.after;
     if (!after || !after.exists) return; // pesan dihapus → tanpa notifikasi
+    // Sempurnakan 2026-08-14: EDIT pesan (before ada) → JANGAN notifikasi ulang
+    // ke semua anggota — sebelumnya tiap edit mengirim notifikasi duplikat.
+    const before = event.data && event.data.before;
+    if (before && before.exists) return;
     const data = after.data();
     if (!data) return;
     const familyId = event.params.familyId;

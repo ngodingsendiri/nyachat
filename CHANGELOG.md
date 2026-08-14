@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-08-14 (audit menyeluruh: keamanan server, presisi uang, struktur)
+- **P1#1 Kunci pemulihan auto-backup**: passphrase acak auto-backup (hanya di
+  Keystore) kini ditampilkan SEKALI ke user saat pertama dibangkitkan — HP
+  hilang/reinstall tidak lagi mengunci backup Drive selamanya.
+- **P1#2 Rate limit AI server**: `aiComplete` dibatasi 30 panggilan/menit/uid +
+  batas prompt 6.000 char & gambar 3 MB — kuota AI server tidak bisa dikuras
+  klien nakal.
+- **P2#5 Privasi log AI**: isi output AI (data finansial) tidak lagi ditulis ke
+  Cloud Logging — cukup model + panjang.
+- **P2#6 Invariant uang**: `normalizeAmount()` men-snap pecahan di batas
+  persist + `MoneyExactnessTest` mem-pin bahwa Double eksak untuk rupiah integer.
+- **P2#4 Struktur**: mesin heuristik offline dipindah dari GeminiService.kt
+  (1.635 → 1.111 baris) ke `OfflineTransactionParser.kt` — delegasi menjaga
+  seluruh referensi lama tetap bekerja (semua test ekstraksi hijau).
+- **P2#3 Smoke test perangkat nyata**: `AppSmokeTest` (androidTest) + job CI
+  `device-smoke` (emulator API 34) — melengkapi gap Robolectric yang tidak
+  mensimulasikan runtime penuh.
+- **P3#8 Metrik ekstraksi**: konteks ekstraksi (sumber AI/HEURISTIK, jumlah,
+  campuran) dicatat via Crashlytics custom key + log untuk triase crash.
+
 ## [r1.4.0] - 2026-08-14 (audit input AI/offline + badge campuran pelangi)
 - **Audit input mesin AI/offline**: angka polos NON-NOMINAL tidak lagi dianggap
   nominal — TAHUN 19xx/20xx ("bayar spp 2025 sebesar 2jt" tadinya tercatat

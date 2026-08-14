@@ -22,22 +22,31 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -53,6 +62,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.backup.DriveBackupController
@@ -483,6 +494,11 @@ class MainActivity : ComponentActivity() {
                         )
                     )
                 }
+                // P1#1 (audit 2026-08-14): kunci pemulihan auto-backup hanya disimpan
+                // di Keystore perangkat — HP hilang/reinstall = backup Drive terenkripsi
+                // tak bisa dibuka. Tampilkan kunci SEKALI saat pertama dibangkitkan
+                // supaya user bisa menyimpannya di tempat aman (password manager dll).
+                var autoBackupRecoveryKey by remember { mutableStateOf<String?>(null) }
                 val driveController = remember { DriveBackupController(scope, context) }
                 driveController.getWorkspacePin = { workspacePin }
                 driveController.buildBackupJson = { viewModel.buildBackupJson(workspacePin) }
@@ -499,6 +515,8 @@ driveController.getAutoPassphrase = {
                     if (auto.isNullOrBlank()) {
                         auto = newAutoBackupPassphrase()
                         secureStorage.putSecretAsync(context, Constants.Prefs.BACKUP_AUTO_PASSPHRASE, auto)
+                        // P1#1: kunci baru → ungkap ke user SEKALI (dialog recovery).
+                        autoBackupRecoveryKey = auto
                     }
                     auto
                 }
@@ -546,6 +564,40 @@ driveController.getAutoPassphrase = {
                         )
                         driveController.dismissPassphraseError()
                     }
+                }
+
+                // P1#1: dialog kunci pemulihan auto-backup (muncul sekali saat kunci
+                // pertama dibangkitkan). Tanpa disimpan, backup Drive tak bisa
+                // dipulihkan di perangkat baru — kunci hanya ada di Keystore lama.
+                autoBackupRecoveryKey?.let { key ->
+                    AlertDialog(
+                        onDismissRequest = { autoBackupRecoveryKey = null },
+                        title = { Text(stringResource(R.string.backup_auto_recovery_title)) },
+                        text = {
+                            Column {
+                                Text(stringResource(R.string.backup_auto_recovery_message))
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = key,
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            MaterialTheme.colorScheme.surfaceVariant,
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .padding(12.dp)
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { autoBackupRecoveryKey = null }) {
+                                Text(stringResource(R.string.backup_auto_recovery_ok))
+                            }
+                        }
+                    )
                 }
 
                 // P1-1 (audit keanggotaan): peran bisa berubah di device lain (owner

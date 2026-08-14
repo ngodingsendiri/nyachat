@@ -41,7 +41,9 @@ nyachat/
 │   │   │   └── AvatarStore.kt
 │   │   ├── remote/                ← Firebase & layanan eksternal
 │   │   │   ├── FirestoreSyncManager.kt · ChatMessageFirebaseService.kt · MembershipManager.kt
-│   │   │   ├── GeminiService.kt · OpenRouterService.kt · RelayAiService.kt · FinanceAiService.kt
+│   │   │   ├── GeminiService.kt · OfflineTransactionParser.kt (mesin heuristik,
+│   │   │   │                        dipecah 2026-08-14 — GeminiService 1.635→1.111 baris)
+│   │   │   ├── OpenRouterService.kt · RelayAiService.kt · FinanceAiService.kt
 │   │   │   ├── BitmapCache.kt · ImageFileUtil.kt · NetworkMonitor.kt · GitHubUpdateChecker.kt
 │   │   ├── backup/                ← Backup/restore terenkripsi (Google Drive + CSV)
 │   │   │   ├── DriveBackupManager.kt · DriveBackupController.kt · BackupCrypto.kt
@@ -81,7 +83,8 @@ nyachat/
 │   │
 │   └── AndroidManifest.xml
 │
-├── app/src/test/                  ← 🧪 44 file test (Robolectric + Roborazzi + Compose UI)
+├── app/src/test/                  ← 🧪 45 file test (Robolectric + Roborazzi + Compose UI)
+├── app/src/androidTest/           ← 📱 AppSmokeTest (smoke di emulator NYATA — CI job device-smoke)
 │   ├── ConstantsTest              ← kontrak nilai Constants.Fields (anti-regresi rename)
 │   ├── data/analytics/  FinancialInsightsTest · MonthlyAnalyticsTest · WeeklyInsightsTest
 │   ├── data/backup/     BackupCryptoTest · DataExporterTest · DriveBackupControllerTest · PendingOpSerializationTest
@@ -96,6 +99,8 @@ nyachat/
 │   │                     · TransactionExtractionStressTest (uji ketangguhan variasi chat)
 │   │                     · AiAccuracyTest (parsing respons AI: array/format lama/nominal)
 │   ├── data/repository/ FinanceRepositoryTest · FinanceRepositoryBadgeTest
+│   │                     · MoneyExactnessTest (invariant uang: Double eksak utk rupiah integer)
+│   ├── androidTest/      AppSmokeTest (smoke di emulator NYATA — CI job device-smoke)
 │   ├── ui/              AiThinkingCounterTest · MainViewModelTest (undo hapus · clear data · AI report · jalur error)
 │   ├── ui/screens/      AppSnapshotTest (golden Roborazzi) · BackupDialogsTest
 │   │                     · ChatBubbleGestureTest · ChatScreenGestureTest · ImageViewerDialogTest
@@ -117,10 +122,10 @@ nyachat/
 
 | Aspek | Nilai |
 |---|---|
-| File Kotlin produksi | 70 |
-| Baris kode (produksi + test) | ±27.102 |
-| File test | 44 |
-| Jumlah test (unit, Robolectric/Compose) | 462 |
+| File Kotlin produksi | 71 |
+| Baris kode (produksi + test) | ±27.900 |
+| File test | 46 (45 unit + 1 androidTest) |
+| Jumlah test (unit, Robolectric/Compose) | 481 |
 | `minSdk` / `targetSdk` | 24 / 36 |
 | `applicationId` | `com.startupmini.nyachat` |
 | Bahasa UI | Indonesia (strings.xml terpusat) |
