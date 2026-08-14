@@ -230,6 +230,7 @@ object DataExporter {
             .putOpt(Constants.Fields.DETECTED_AMOUNT, m.detectedAmount)
             .putOpt(Constants.Fields.DETECTED_CATEGORY, m.detectedCategory)
             .putOpt(Constants.Fields.DETECTED_TYPE, m.detectedType)
+            .putOpt(Constants.Fields.DETECTED_COUNT, m.detectedCount)
             .putOpt("imagePath", m.imagePath)
             .putOpt("filePath", m.filePath)
             .putOpt("fileName", m.fileName)
@@ -271,6 +272,7 @@ object DataExporter {
             detectedAmount = o.optNullableDouble(Constants.Fields.DETECTED_AMOUNT),
             detectedCategory = o.optNullableString(Constants.Fields.DETECTED_CATEGORY),
             detectedType = o.optNullableString(Constants.Fields.DETECTED_TYPE),
+            detectedCount = o.optNullableInt(Constants.Fields.DETECTED_COUNT),
             // Lampiran lokal tidak ikut di-backup; referensi yang file-nya
             // sudah tidak ada dibuang biar tidak muncul bubble rusak.
             imagePath = imagePath?.takeIf { File(it).exists() },
@@ -296,4 +298,7 @@ object DataExporter {
 
     private fun JSONObject.optNullableDouble(key: String): Double? =
         if (has(key) && !isNull(key)) getDouble(key) else null
+
+    private fun JSONObject.optNullableInt(key: String): Int? =
+        if (has(key) && !isNull(key)) getInt(key) else null
 }

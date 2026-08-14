@@ -174,4 +174,42 @@ class AppDatabaseMigrationTest {
             rows.close()
         }
     }
+
+    /**
+     * v11→v12 (r1.4.0 — audit Finance AI): kolom detectedCount (chat) — jumlah
+     * transaksi yang direkap dari satu pesan. Kolom harus ada, data lama tetap,
+     * dan nilai NULL untuk pesan lama (badge transaksi tunggal / tanpa badge).
+     */
+    @Test
+    fun migrate11To12_addsDetectedCount() {
+        helper.createDatabase(TEST_DB, 11).apply {
+            execSQL(
+                "INSERT INTO chat_messages (id, sender, messageText, timestamp, isFinancial, detectedAmount) " +
+                    "VALUES (1, 'Suami', 'Gaji lembur 200.000 Beli rokok 30.000', 1752000000000, 1, 230000.0)"
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DB, 12, true, AppDatabase.MIGRATION_11_12
+        ).use { db ->
+            // Kolom baru ada.
+            val cols = db.query("PRAGMA table_info(chat_messages)")
+            val msgColNames = mutableSetOf<String>()
+            while (cols.moveToNext()) { msgColNames.add(cols.getString(1)) }
+            cols.close()
+            assertTrue("chat_messages.detectedCount hilang", msgColNames.contains("detectedCount"))
+
+            // Data lama tetap + detectedCount NULL (badge lama tidak berubah).
+            val rows = db.query(
+                "SELECT messageText, isFinancial, detectedAmount, detectedCount FROM chat_messages WHERE id = 1"
+            )
+            assertTrue(rows.moveToFirst())
+            assertEquals("Gaji lembur 200.000 Beli rokok 30.000", rows.getString(0))
+            assertEquals(1, rows.getInt(1))
+            assertEquals(230000.0, rows.getDouble(2), 0.001)
+            assertTrue("detectedCount lama harus NULL", rows.isNull(3))
+            rows.close()
+        }
+    }
 }

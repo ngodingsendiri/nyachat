@@ -133,6 +133,9 @@ class FinanceRepository(
                         detectedAmount = total,
                         detectedCategory = first.category,
                         detectedType = first.type,
+                        // r1.4.0 (audit Finance AI): jumlah transaksi — badge
+                        // multi-transaksi tidak men-netting pemasukan/pengeluaran.
+                        detectedCount = insertedList.size,
                         // M7: catat asal deteksi (AI atau heuristik offline) untuk
                         // indikator transparansi di badge financisial.
                         detectedBy = aiResult.detectedBy
@@ -182,6 +185,8 @@ class FinanceRepository(
                 detectedAmount = if (isFinancial) txs.sumOf { it.amount } else null,
                 detectedCategory = if (isFinancial) txs.first().category else null,
                 detectedType = if (isFinancial) txs.first().type else null,
+                // r1.4.0: jumlah transaksi ikut diperbarui saat edit.
+                detectedCount = if (isFinancial) txs.size else null,
                 // M7: perbarui asal deteksi juga saat edit.
                 detectedBy = if (isFinancial) aiResult.detectedBy else null
             )
@@ -445,7 +450,8 @@ class FinanceRepository(
                             isFinancial = true,
                             detectedAmount = remaining.sumOf { it.amount },
                             detectedCategory = remaining.first().category,
-                            detectedType = remaining.first().type
+                            detectedType = remaining.first().type,
+                            detectedCount = remaining.size
                         )
                     }
                     chatMessageDao.updateMessage(updated)
@@ -494,7 +500,8 @@ class FinanceRepository(
                             isFinancial = true,
                             detectedAmount = all.sumOf { it.amount },
                             detectedCategory = all.first().category,
-                            detectedType = all.first().type
+                            detectedType = all.first().type,
+                            detectedCount = all.size
                         )
                     }
                     chatMessageDao.updateMessage(updated)

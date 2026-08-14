@@ -176,9 +176,16 @@ class GeminiServiceHeuristicParseTest {
 
     @Test
     fun angkaBersatuanPertamaYangMenangBilaAdaBeberapa() {
+        // r1.4.0 audit Finance AI: pesan multi-nominal kini dipecah per batas
+        // nominal → 2 transaksi terpisah ("bayar 2 juta" + "beli kopi 20rb"),
+        // bukan digabung/diambil satu saja. Sebelumnya hanya 1 transaksi (2 juta).
         val r = GeminiService.offlineHeuristicParse("bayar 2 juta lalu beli kopi 20rb", "Suami")
         assertTrue(r.containsTransaction)
-        assertEquals(2000000.0, r.amount!!, 0.001)
+        assertEquals(2, r.all.size)
+        assertEquals(2000000.0, r.all[0].amount, 0.001)
+        assertEquals(20000.0, r.all[1].amount, 0.001)
+        // Total ringkasan = jumlah, bukan netting.
+        assertEquals(2020000.0, r.amount!!, 0.001)
     }
 
     @Test

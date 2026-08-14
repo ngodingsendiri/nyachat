@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [r1.4.0] - 2026-08-14 (auto-connect workspace + keluar dari workspace)
 
+### Changed (audit Finance AI 2026-08-14)
+- **Ekstraksi multi-transaksi konsisten** (laporan user: "Gaji lembur 200.000
+  Beli rokok 30.000 Makan Malam 45.000" hanya jadi 1 transaksi): root cause di
+  `splitTransactionSegments` — hanya memecah pada separator eksplisit
+  (koma/;"dan"/"sama"/"atau"), padahal mayoritas chat Indonesia multi-transaksi
+  TANPA separator. Kini ada strategi kedua `splitByAmountBoundaries`: tiap
+  batas nominal = akhir satu transaksi ("beli bakso 15rb bensin 30rb rokok
+  20rb" → 3 transaksi terpisah).
+- **Nominal Indonesia lengkap**: `extractAmountFromText` menangani "50.000",
+  "50rb", "50k", "1,5jt", "1.500.000", "Rp 5jt" dll; angka jam ("07.30") dan
+  kuantitas 1 digit ("2 kopi") tetap ditolak (bukan nominal).
+- **Tidak ada netting/gabungan**: total ringkasan = PENJUMLAHAN semua nominal;
+  tiap transaksi direkap terpisah (income/expense per segmen).
+- **Badge jujur untuk multi-transaksi**: field baru `detectedCount`
+  (Room v12 migration + `Constants.Fields.DETECTED_COUNT` + CloudMessage DTO +
+  DataExporter) — bubble menampilkan "N transaksi" + total saat sebuah pesan
+  memuat beberapa transaksi, bukan total tunggal yang mengecoh.
+- **Backup heuristik saat AI salah bilang "tidak ada transaksi"**: bila pesan
+  memuat ≥2 nominal dan AI mengembalikan kosong, parser offline dipakai sebagai
+  jaring pengaman (`shouldHeuristicBackup`) sehingga transaksi tidak hilang saat
+  AI rate-limit/offline/retry.
+- **Prompt AI diperkuat**: larangan netting eksplisit + contoh campuran
+  pemasukan/pengeluaran + `parseAiAmount` menerima nominal String ("Rp 200.000",
+  "200rb") dari respons AI — sebelumnya `optDouble` menolak string → transaksi
+  hilang diam-diam.
+- **Test**: `MultiTransactionExtractionTest` (+21) kasus wajib user + stress
+  variasi chat Indonesia + regresi perilaku lama; `GeminiServiceHeuristicParseTest`
+  diperbarui (multi-nominal kini 2 transaksi terpisah, bukan 1). Audit lanjutan
+  menemukan & menutup 2 regresi: (1) angka panjang polos (nomor rekening/
+  telepon, ≥10 digit) dipecah jadi transaksi palsu miliaran oleh strategi batas
+  nominal — `isImplausiblePlainNumber` menolaknya di ekstraksi, pemisahan, &
+  penghitungan (+4 test regresi); (2) migrasi Room v11→v12 (`detectedCount`)
+  belum punya test — `migrate11To12_addsDetectedCount` ditambahkan.
+- **Uji ketangguhan + perbaikan parser** (stress test 2026-08-14):
+  `TransactionExtractionStressTest` (+16) variasi ekstrem menemukan 2 kelas
+  masalah nyata yang diperbaiki: (1) segmen hasil split separator yang MASIH
+  memuat ≥2 nominal ("bensin 30rb jajan 20rb") di-parse utuh → transaksi kedua
+  hilang — kini dipecah ulang per batas nominal (`splitTransactionSegments`
+  flatMap); (2) kata Indonesia umum yang lolos dari trigger heuristik sehingga
+  transaksi nyata hilang — "jualan" (pemasukan usaha), "kopi", "jajan",
+  "renovasi", "upgrade" (pengeluaran) ditambahkan ke daftar trigger + kategori.
+  Total suite 397 → 439 test / 43 file.
+
+
+### Added
+- **Avatar bubble chat memakai foto profil asli** (permintaan user 2026-08-14):
+  URL foto Google anggota disimpan di member doc (`photoUrl`, konstanta baru
+  `Constants.Fields.PHOTO_URL`) sejak join/connect/approve — device lain kini
+  bisa menampilkan foto asli via fallback `photoUrl` saat `avatarBytes` belum
+  pernah di-sync (sebelumnya hanya inisial). Logika sumber avatar diekstrak ke
+  fungsi murni `decideAvatarSource` (prioritas: avatarBytes → photoUrl Google →
+  skip) + `shouldRefreshPhotoUrl` (backfill member lama saat connect) —
+  `MembershipAvatarSourceTest` (+11 test). Rules Firestore mengizinkan
+  self-update `photoUrl`; backfill otomatis di snapshot listener members
+  (satu update ter-target, konvergen) sehingga member doc lama ikut terisi.
+  Fallback inisial tetap dipakai HANYA bila pengguna belum punya foto sama
+  sekali (avatarBytes + photoUrl keduanya tidak ada) — `AvatarImageFallbackTest`
+  (+4 test: null path → inisial, path rusak → inisial, huruf pertama uppercase,
+  warna deterministik per nama).
+
+### Changed
+- **Indikator "AI memproses" minimalis** (permintaan user 2026-08-14):
+  bubble "AI sedang memproses..." yang terpisah di sisi chat DIGANTI ikon
+  spark kecil (✨ AutoAwesome, 13dp, pulse alpha halus) di pojok footer bubble
+  pesan milik user yang sedang diproses AI. Indikator hanya di bubble terakhir
+  milik user (pesan anggota lain yang tiba belakangan tidak diindikasi),
+  menghormati reduced-motion (statis), label aksesibilitas tetap
+  "AI sedang memproses..." (+3 Compose UI test `AiProcessingIndicatorTest`).
+
+### Fixed
+- **Snackbar menimpa ikon top bar** (audit 2026-08-14): snackbar (mis.
+  "Tercatat" transaksi) di-`align(TopCenter)` + 8dp menimpa ikon Kelola
+  Anggota/Settings di fase Main. Kini di-offset ke bawah TopAppBar (~72dp)
+  saat top bar tampil (`MainOverlays.snackbarBelowTopBar`); di layar PIN
+  tetap dekat status bar. Posisi atas dipertahankan (alasan historis:
+  BottomCenter+imePadding menutupi kolom ketik).
+- **Auto-connect nyangkut setelah logout biasa** (audit 2026-08-14): logout
+  biasa mempertahankan PIN di Keystore (desain r1.4.0), tapi saat login ulang
+  guard lama (`workspacePin != ws.pin`) melewatkan `connectToWorkspace` karena
+  PIN sudah cocok — `userName` tetap null sehingga user stuck di layar PIN
+  walau akun terikat 1 workspace. Logika keputusan diekstrak ke fungsi murni
+  `MembershipManager.resolveAutoConnect` (0/1/>1 workspace, termasuk resume
+  workspace aktif setelah logout) + `MembershipAutoConnectTest` (+11 test).
+
 ### Added
 - **Auto-connect**: login Google otomatis masuk ke workspace milik akun TANPA
   PIN — model 1 akun = 1 workspace aktif. Query `collectionGroup members by uid`

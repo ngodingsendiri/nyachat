@@ -66,6 +66,7 @@ class ConstantsTest {
         assertEquals("detectedAmount", Constants.Fields.DETECTED_AMOUNT)
         assertEquals("detectedCategory", Constants.Fields.DETECTED_CATEGORY)
         assertEquals("detectedType", Constants.Fields.DETECTED_TYPE)
+        assertEquals("detectedCount", Constants.Fields.DETECTED_COUNT)
         assertEquals("replyToSender", Constants.Fields.REPLY_TO_SENDER)
         assertEquals("replyToText", Constants.Fields.REPLY_TO_TEXT)
         assertEquals("editedAt", Constants.Fields.EDITED_AT)
@@ -78,6 +79,7 @@ class ConstantsTest {
         assertEquals("fcmToken", Constants.Fields.FCM_TOKEN)
         assertEquals("avatarBytes", Constants.Fields.AVATAR_BYTES)
         assertEquals("avatarVersion", Constants.Fields.AVATAR_VERSION)
+        assertEquals("photoUrl", Constants.Fields.PHOTO_URL)
         assertEquals("detectedBy", Constants.Fields.DETECTED_BY)
         assertEquals("serverUpdatedAt", Constants.Fields.SERVER_UPDATED_AT)
         assertEquals("sourceMessageCloudId", Constants.Fields.SOURCE_MESSAGE_CLOUD_ID)
@@ -92,13 +94,15 @@ class ConstantsTest {
             Constants.Fields.CLOUD_ID, Constants.Fields.SENDER, Constants.Fields.MESSAGE_TEXT,
             Constants.Fields.TIMESTAMP, Constants.Fields.IS_FINANCIAL,
             Constants.Fields.DETECTED_AMOUNT, Constants.Fields.DETECTED_CATEGORY,
-            Constants.Fields.DETECTED_TYPE, Constants.Fields.REPLY_TO_SENDER,
-            Constants.Fields.REPLY_TO_TEXT, Constants.Fields.EDITED_AT, Constants.Fields.TYPE,
-            Constants.Fields.CATEGORY, Constants.Fields.AMOUNT, Constants.Fields.DESCRIPTION,
+            Constants.Fields.DETECTED_TYPE, Constants.Fields.DETECTED_COUNT,
+            Constants.Fields.REPLY_TO_SENDER, Constants.Fields.REPLY_TO_TEXT,
+            Constants.Fields.EDITED_AT, Constants.Fields.TYPE, Constants.Fields.CATEGORY,
+            Constants.Fields.AMOUNT, Constants.Fields.DESCRIPTION,
             Constants.Fields.LOGGED_BY, Constants.Fields.CHAT_MESSAGE_ID,
             Constants.Fields.FCM_TOKEN, Constants.Fields.AVATAR_BYTES,
-            Constants.Fields.AVATAR_VERSION, Constants.Fields.DETECTED_BY,
-            Constants.Fields.SERVER_UPDATED_AT, Constants.Fields.SOURCE_MESSAGE_CLOUD_ID
+            Constants.Fields.AVATAR_VERSION, Constants.Fields.PHOTO_URL,
+            Constants.Fields.DETECTED_BY, Constants.Fields.SERVER_UPDATED_AT,
+            Constants.Fields.SOURCE_MESSAGE_CLOUD_ID
         )
         assertTrue("ada field blank", values.none { it.isBlank() })
         assertEquals("ada nama field duplikat", values.size, values.toSet().size)
@@ -218,12 +222,14 @@ class ConstantsTest {
         Constants.Fields.CLOUD_ID, Constants.Fields.SENDER, Constants.Fields.MESSAGE_TEXT,
         Constants.Fields.TIMESTAMP, Constants.Fields.IS_FINANCIAL,
         Constants.Fields.DETECTED_AMOUNT, Constants.Fields.DETECTED_CATEGORY,
-        Constants.Fields.DETECTED_TYPE, Constants.Fields.REPLY_TO_SENDER,
-        Constants.Fields.REPLY_TO_TEXT, Constants.Fields.EDITED_AT, Constants.Fields.TYPE,
-        Constants.Fields.CATEGORY, Constants.Fields.AMOUNT, Constants.Fields.DESCRIPTION,
+        Constants.Fields.DETECTED_TYPE, Constants.Fields.DETECTED_COUNT,
+        Constants.Fields.REPLY_TO_SENDER, Constants.Fields.REPLY_TO_TEXT,
+        Constants.Fields.EDITED_AT, Constants.Fields.TYPE, Constants.Fields.CATEGORY,
+        Constants.Fields.AMOUNT, Constants.Fields.DESCRIPTION,
         Constants.Fields.LOGGED_BY, Constants.Fields.CHAT_MESSAGE_ID,
         Constants.Fields.FCM_TOKEN, Constants.Fields.AVATAR_BYTES,
-        Constants.Fields.AVATAR_VERSION, Constants.Fields.DETECTED_BY,
+        Constants.Fields.AVATAR_VERSION, Constants.Fields.PHOTO_URL,
+        Constants.Fields.DETECTED_BY,
         Constants.Fields.SERVER_UPDATED_AT, Constants.Fields.SOURCE_MESSAGE_CLOUD_ID
     )
 

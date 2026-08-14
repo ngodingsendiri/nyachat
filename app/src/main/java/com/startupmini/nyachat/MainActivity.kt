@@ -632,13 +632,19 @@ driveController.getAutoPassphrase = {
 
                 // r1.4.0 (auto-connect): sambungkan ke workspace & simpan ke
                 // Keystore/prefs (dipakai auto-connect saat login ulang + picker).
-                val connectToWorkspace: (String, String) -> Unit = { pin, role ->
+                // name ikut di-set (dari member doc / picker) supaya userName tidak
+                // null — tanpa ini startupPhase tetap Pin walau PIN sudah tersambung.
+                val connectToWorkspace: (String, String, String) -> Unit = { pin, role, name ->
                     workspacePin = pin
                     workspaceRole = role
+                    userName = name
                     scope.launch {
                         secureStorage.putSecretAsync(context, Constants.Prefs.WORKSPACE_PIN, pin)
                     }
-                    appPrefs.edit().putString(Constants.Prefs.WORKSPACE_ROLE, role).apply()
+                    appPrefs.edit()
+                        .putString(Constants.Prefs.WORKSPACE_ROLE, role)
+                        .putString(Constants.Prefs.USER_NAME, name)
+                        .apply()
                 }
 
                 // r1.4.0 (keluar dari workspace): bersihkan sesi & kembali ke layar
@@ -664,9 +670,10 @@ driveController.getAutoPassphrase = {
                 // r1.4.0 (auto-connect): setelah login Google, temukan workspace milik
                 // akun & masuk OTOMATIS tanpa PIN (model 1 akun = 1 workspace aktif).
                 // Picker hanya untuk kasus defensif user lama yang terikat >1.
-                var workspaceChoices by remember {
-                    mutableStateOf<List<com.startupmini.nyachat.data.remote.MyWorkspace>>(emptyList())
-                }
+                // BUG-INDEX (2026-08-14): hasil discover disimpan ke dialogs.workspaceChoices
+                // (bukan state lokal) — picker di fase Pin & Main membaca state controller
+                // ini; state lokal sebelumnya tidak pernah dirender sehingga picker tidak
+                // pernah muncul padahal akun terikat >1 workspace.
                 LaunchedEffect(firebaseReady, secretsLoaded) {
                     if (!firebaseReady || !secretsLoaded) return@LaunchedEffect
                     // Fast path offline-friendly: pulihkan PIN & API key BYOK dari
@@ -684,33 +691,39 @@ driveController.getAutoPassphrase = {
                     // milik akun. null = offline/error → biarkan fast path PIN lokal.
                     val discovered = com.startupmini.nyachat.data.remote.MembershipManager
                         .discoverMyWorkspaces() ?: return@LaunchedEffect
-                    when {
-                        discovered.isEmpty() -> {
+                    when (val decision = com.startupmini.nyachat.data.remote.resolveAutoConnect(
+                        discovered, workspacePin, userName
+                    )) {
+                        is com.startupmini.nyachat.data.remote.AutoConnectDecision.Connect -> {
+                            val ws = decision.ws
+                            // Nama dari member doc; fallback nama akun Google bila
+                            // doc lama tidak punya field name.
+                            val googleName = com.google.firebase.auth.FirebaseAuth
+                                .getInstance().currentUser?.displayName
+                            connectToWorkspace(
+                                ws.pin,
+                                ws.role,
+                                ws.name.ifBlank { googleName.orEmpty() }
+                            )
+                        }
+                        com.startupmini.nyachat.data.remote.AutoConnectDecision.ClearStalePin -> {
                             // Tidak terikat workspace mana pun — PIN lokal basi
                             // (di-kick / sudah keluar) → bersihkan supaya tidak
                             // auto-connect ke workspace lama.
-                            if (workspacePin != null) {
-                                workspacePin = null
-                                workspaceRole = Constants.Defaults.ROLE
-                                viewModel.stopCloudSync()
-                                scope.launch {
-                                    secureStorage.deleteSecretAsync(context, Constants.Prefs.WORKSPACE_PIN)
-                                }
-                                appPrefs.edit().remove(Constants.Prefs.WORKSPACE_ROLE).apply()
+                            workspacePin = null
+                            workspaceRole = Constants.Defaults.ROLE
+                            viewModel.stopCloudSync()
+                            scope.launch {
+                                secureStorage.deleteSecretAsync(context, Constants.Prefs.WORKSPACE_PIN)
                             }
+                            appPrefs.edit().remove(Constants.Prefs.WORKSPACE_ROLE).apply()
                         }
-                        discovered.size == 1 -> {
-                            val ws = discovered[0]
-                            if (workspacePin != ws.pin) connectToWorkspace(ws.pin, ws.role)
-                        }
-                        else -> {
+                        com.startupmini.nyachat.data.remote.AutoConnectDecision.ShowPicker -> {
                             // Defensif: user lama bisa terikat >1 (dulu tidak ada
-                            // fitur keluar) — tampilkan pemilih bila PIN aktif tidak
-                            // ada di daftar.
-                            if (workspacePin == null || discovered.none { it.pin == workspacePin }) {
-                                workspaceChoices = discovered
-                            }
+                            // fitur keluar) — PIN aktif tidak ada di daftar → pilih.
+                            dialogs.workspaceChoices = discovered
                         }
+                        com.startupmini.nyachat.data.remote.AutoConnectDecision.Noop -> Unit
                     }
                 }
 
@@ -895,6 +908,12 @@ driveController.getAutoPassphrase = {
                                 )
                         ) {
                             com.startupmini.nyachat.ui.screens.PinConnectScreen(
+                                // r1.4.0 (auto-connect): Google login selesai →
+                                // firebaseReady=true memicu LaunchedEffect auto-connect
+                                // (discover workspace → masuk tanpa PIN). Tanpa sinyal
+                                // ini, firebaseReady baru true saat PIN di-connect
+                                // manual sehingga auto-connect tidak pernah jalan.
+                                onGoogleSignedIn = { firebaseReady = true },
                                 onPinConnected = { pin, role, name ->
                                 val previous = workspacePin
                                 if (previous != null && previous != pin) {
@@ -907,6 +926,23 @@ driveController.getAutoPassphrase = {
                                 }
                             }
                         )
+                        }
+
+                        // r1.4.0 (auto-connect): picker workspace (akun lama yang
+                        // terikat >1 workspace) HARUS juga dirender saat fase Pin —
+                        // MainAppDialogs (yang punya picker serupa) hanya dirender di
+                        // fase Main, sehingga tanpa ini daftar workspace hasil
+                        // discoverMyWorkspaces tidak pernah tampil dan user stuck di
+                        // layar PIN padahal akunnya terikat beberapa workspace.
+                        if (dialogs.workspaceChoices.isNotEmpty()) {
+                            com.startupmini.nyachat.ui.WorkspacePickerDialog(
+                                choices = dialogs.workspaceChoices,
+                                onPick = { ws ->
+                                    dialogs.workspaceChoices = emptyList()
+                                    connectToWorkspace(ws.pin, ws.role, ws.name)
+                                },
+                                onDismiss = { dialogs.workspaceChoices = emptyList() }
+                            )
                         }
                             }
 
@@ -1079,9 +1115,9 @@ driveController.getAutoPassphrase = {
                                         }
                                     }
                                 },
-                                onPickWorkspace = { pin, role ->
+                                onPickWorkspace = { pin, role, name ->
                                     dialogs.workspaceChoices = emptyList()
-                                    connectToWorkspace(pin, role)
+                                    connectToWorkspace(pin, role, name)
                                 }
                             )
                         }
@@ -1101,7 +1137,11 @@ driveController.getAutoPassphrase = {
                         snackbarHostState = snackbarHostState,
                         workspacePin = workspacePin,
                         workspaceRole = workspaceRole,
-                        onApplyPinConnect = applyPinConnect
+                        onApplyPinConnect = applyPinConnect,
+                        // BUG-fix (audit 2026-08-14): snackbar di fase Main
+                        // di-offset ke bawah top bar supaya tidak menimpa ikon
+                        // Kelola Anggota/Settings.
+                        snackbarBelowTopBar = startupPhase == StartupPhase.Main
                     )
                         }
 

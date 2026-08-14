@@ -18,6 +18,11 @@ data class ChatMessage(
     val detectedAmount: Double? = null,
     val detectedCategory: String? = null,
     val detectedType: String? = null, // "PENGELUARAN" or "PEMASUKAN"
+    // r1.4.0 (audit Finance AI): jumlah transaksi yang direkap dari pesan ini.
+    // null/1 = pesan transaksi tunggal (badge menampilkan +/- nominal & kategori);
+    // >1 = pesan multi-transaksi (badge menampilkan "N transaksi · total" tanpa
+    // tanda — tidak men-netting pemasukan & pengeluaran).
+    val detectedCount: Int? = null,
     val imagePath: String? = null, // path file foto lampiran (nota belanja) di penyimpanan internal
     val filePath: String? = null, // path file dokumen (PDF/invoice/nota) di penyimpanan internal
     val fileName: String? = null, // nama asli file dokumen untuk ditampilkan di bubble

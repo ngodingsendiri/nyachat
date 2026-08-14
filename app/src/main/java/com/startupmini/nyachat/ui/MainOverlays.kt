@@ -82,7 +82,12 @@ fun BoxScope.MainOverlays(
     snackbarHostState: SnackbarHostState,
     workspacePin: String?,
     workspaceRole: String?,
-    onApplyPinConnect: (String, String, String) -> Unit
+    onApplyPinConnect: (String, String, String) -> Unit,
+    // BUG-fix (audit 2026-08-14): snackbar di fase Main TIDAK boleh menimpa
+    // ikon top bar (Kelola Anggota/Settings). true → snackbar di-offset ke
+    // bawah TopAppBar (~64dp); false (fase Pin, tanpa top bar) → tetap dekat
+    // status bar. Diisi MainActivity dari startupPhase.
+    snackbarBelowTopBar: Boolean = false
 ) {
     // Gate keanggotaan: setelah PIN dimasukkan, sebelum data terbuka.
     // Owner menyiapkan workspace; anggota kirim permintaan & menunggu
@@ -246,7 +251,17 @@ fun BoxScope.MainOverlays(
         modifier = Modifier
             .align(Alignment.TopCenter)
             .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
-            .padding(top = 8.dp, start = 20.dp, end = 20.dp),
+            // BUG-fix (audit 2026-08-14): TopCenter + 8dp menimpa TopAppBar
+            // (64dp) sehingga snackbar "Tercatat" menutupi ikon Kelola Anggota/
+            // Settings. Saat top bar tampil, turunkan snackbar ke bawahnya
+            // (64dp top bar + 8dp gap = 72dp); di layar PIN (tanpa top bar)
+            // tetap 8dp. Posisi atas dipertahankan — alasan historisnya masih
+            // berlaku (BottomCenter+imePadding menutupi kolom ketik).
+            .padding(
+                top = if (snackbarBelowTopBar) 72.dp else 8.dp,
+                start = 20.dp,
+                end = 20.dp
+            ),
         snackbar = { data ->
             // Compact pill — batasi lebar (bukan full-width) supaya terasa
             // minimalis & konsisten dengan bahasa floating-card aplikasi.

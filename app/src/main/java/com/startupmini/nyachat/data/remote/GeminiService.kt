@@ -217,7 +217,16 @@ object GeminiService {
 
         // 4) Fallback: teks biasa pakai mesin offline; foto nota tanpa AI hanya tersimpan
         //    (tidak bisa dibaca tanpa kunci AI vision). Juga dipakai saat habis waktu.
-        return@withContext aiParsed ?: offlineHeuristicParse(messageText, sender)
+        // r1.4.0 (audit Finance AI): AI ONLINE tapi salah bilang "tidak ada
+        // transaksi" pada pesan multi-nominal (paling rawan salah) → verifikasi
+        // ulang heuristik supaya transaksi tidak hilang. Pesan koreksi/pembatalan
+        // dan pertanyaan keuangan TIDAK diverifikasi (AI sengaja tidak mencatat).
+        return@withContext when {
+            aiParsed != null && aiParsed.containsTransaction -> aiParsed
+            aiParsed != null && !aiParsed.containsTransaction && shouldHeuristicBackup(messageText) ->
+                offlineHeuristicParse(messageText, sender)
+            else -> aiParsed ?: offlineHeuristicParse(messageText, sender)
+        }
     }
 
 
@@ -720,15 +729,16 @@ object GeminiService {
             4. KOREKSI / PEMBATALAN ("eh bukan 15 ribu, 25 ribu", "yang tadi salah", "batal", "hapus yang tadi"): JANGAN membuat transaksi baru. Kembalikan containsTransaction=false dengan aiReply singkat yang menjelaskan bahwa tidak ada transaksi baru dicatat dan user dapat mengedit pesan sebelumnya.
             5. AMBIGU: jika ada nominal tapi maksud tidak jelas / bukan transaksi yang pasti, JANGAN memaksakan. containsTransaction=false, aiReply meminta klarifikasi.
             6. JANGAN catat sebagai transaksi: pertanyaan keuangan, rencana, pengingat ("ingatkan saya beli bakso"), perintah non-transaksi.
-            7. NOMINAL: tulis RUPIAH PENUH tanpa desimal (50000, 2500000, bukan 50 atau 2.5).
+            7. NOMINAL: tulis RUPIAH PENUH tanpa desimal (50000, 2500000, bukan 50 atau 2.5). Jangan sertakan titik ribuan atau satuan ("rb"/"jt") di nilai amount — harus angka murni.
             8. KATEGORI: HANYA dari daftar valid di bawah dan harus sesuai TIPE transaksi (pengeluaran tidak boleh kategori pemasukan, dst). Jangan mengarang kategori.
             9. TANGGAL: jika pesan menyebut waktu transaksi ("kemarin", "kemarin sore", "minggu lalu", "tanggal 12"), isi "date" dengan format YYYY-MM-DD. Jika tidak disebut, biarkan "date": "".
             10. "aiReply" dalam Bahasa Indonesia, ringkas, menyebut jumlah transaksi & nominal total yang dicatat.
+            11. JANGAN MENGGABUNGKAN atau melakukan NETTING: satu nominal = SATU objek di array "transactions". Pesan "Gaji lembur 200000 Beli rokok 30000 Makan Malam 45000" = 3 objek (PEMASUKAN 200000, PENGELUARAN 30000, PENGELUARAN 45000). Nominal pemasukan dan pengeluaran TIDAK boleh saling dikurangi atau dijumlah jadi satu. "aiReply" tetap menyebut total SEMUA nominal (tanpa mengurangi).
 
             KATEGORI VALID:
             ${categoryListForPrompt()}
 
-            Keluarkan jawaban HANYA berupa JSON valid, tanpa teks lain. Contoh untuk banyak transaksi:
+            Keluarkan jawaban HANYA berupa JSON valid, tanpa teks lain. Contoh untuk banyak transaksi (semua pengeluaran):
             {
               "containsTransaction": true,
               "transactions": [
@@ -736,6 +746,17 @@ object GeminiService {
                 { "type": "PENGELUARAN", "category": "Transportasi", "amount": 30000, "description": "Bensin", "date": "" }
               ],
               "aiReply": "2 transaksi dicatat: Rp 15.000 (Makanan & Minuman) + Rp 30.000 (Transportasi)."
+            }
+
+            Contoh campuran pemasukan + pengeluaran (JANGAN digabung):
+            {
+              "containsTransaction": true,
+              "transactions": [
+                { "type": "PEMASUKAN", "category": "Gaji & Pemasukan", "amount": 200000, "description": "Gaji lembur", "date": "" },
+                { "type": "PENGELUARAN", "category": "Hiburan & Belanja", "amount": 30000, "description": "Beli rokok", "date": "" },
+                { "type": "PENGELUARAN", "category": "Makanan & Minuman", "amount": 45000, "description": "Makan malam", "date": "" }
+              ],
+              "aiReply": "3 transaksi dicatat: +Rp 200.000 (Gaji & Pemasukan) -Rp 30.000 (Hiburan & Belanja) -Rp 45.000 (Makanan & Minuman)."
             }
 
             Contoh satu transaksi:
@@ -859,7 +880,10 @@ object GeminiService {
             if (arr != null && arr.length() > 0) {
                 for (i in 0 until arr.length()) {
                     val o = arr.optJSONObject(i) ?: continue
-                    val amount = o.optDouble("amount", 0.0)
+                    // r1.4.0: nominal AI bisa berupa Number ATAU string
+                    // ("200000", "200.000", "Rp 1,5jt") — jangan dibuang hanya
+                    // karena format off (sebelumnya transaksi hilang diam-diam).
+                    val amount = parseAiAmount(o.opt("amount")) ?: continue
                     if (amount <= 0) continue
                     val type = if (o.optString("type", "") == Constants.TransactionTypes.INCOME) {
                         Constants.TransactionTypes.INCOME
@@ -891,8 +915,8 @@ object GeminiService {
             }
 
             // 2) Format lama: field tunggal
-            val amount = json.optDouble("amount", 0.0)
-            if (amount <= 0) {
+            val amount = parseAiAmount(json.opt("amount"))
+            if (amount == null || amount <= 0) {
                 return AiChatParseResult(
                     containsTransaction = false,
                     aiReply = json.optString("aiReply", "Tidak ada transaksi dicatat.")
@@ -948,6 +972,29 @@ object GeminiService {
             }
     }
 
+    /**
+     * Parse nominal dari JSON AI (r1.4.0 — audit Finance AI): menerima Number
+     * maupun String dengan format Indonesia ("200000", "200.000", "Rp 1.500.000",
+     * "50rb", "2,5jt"). null bila tidak bisa / ≤ 0. Sebelumnya optDouble hanya
+     * menerima Number — string membuat transaksi hilang diam-diam.
+     */
+    internal fun parseAiAmount(value: Any?): Double? {
+        if (value == null || value == JSONObject.NULL) return null
+        val amount: Double? = when (value) {
+            is Number -> value.toDouble()
+            is String -> {
+                val cleaned = value.trim().replace(Regex("""(?i)rp\.?\s*"""), "").trim()
+                if (cleaned.isEmpty()) return null
+                // Reuse parser nominal Indonesia (prefix tak-berarti agar
+                // ekstraksi angka pertama tetap aman; satuan "rb"/"jt" + spasi
+                // sudah ditangani NUMBER_UNIT_PATTERN).
+                extractAmountFromText("x $cleaned".lowercase())
+            }
+            else -> null
+        }
+        return amount?.takeIf { it > 0 }
+    }
+
     /** Konversi "YYYY-MM-DD" (zona lokal) ke epoch ms. null bila kosong/tidak valid. */
     internal fun parseDateString(date: String): Long? {
         if (date.isBlank()) return null
@@ -993,6 +1040,35 @@ object GeminiService {
      * ini mengurangi false-positive heuristik. Hanya nilai ≥ 10 (dianggap "ribuan"
      * lewat toRupiah) atau angka bersatuan yang diterima sebagai nominal.
      */
+    /**
+     * Deteksi "jam" dari angka HH.MM ("07.30", "14.00", "19.45") — bukan
+     * nominal. "07.30" sebelumnya terbaca Rp 730.000 (r1.4.0 — audit Finance AI):
+     * tanpa unit, titik dihapus → 0730 → ×1000. Pola: 1-2 digit, titik, PERSIS 2
+     * digit (menit 00-59) → jam. "1.500.000" (3 grup) & "15.000" (3 digit di
+     * belakang) tidak kena.
+     */
+    internal fun isClockTime(numStr: String): Boolean {
+        if (!numStr.contains('.')) return false
+        val parts = numStr.split('.')
+        if (parts.size != 2) return false
+        val h = parts[0].toIntOrNull() ?: return false
+        val m = parts[1].toIntOrNull() ?: return false
+        return parts[0].length in 1..2 && parts[1].length == 2 &&
+            h in 0..23 && m in 0..59
+    }
+
+    /**
+     * r1.4.0 (audit Finance AI): angka polos TANPA satuan dengan >= 10 digit
+     * = nomor rekening/telepon/ID, BUKAN nominal — "transfer ke rekening
+     * 1234567890 sebesar 200rb" tidak boleh jadi transaksi Rp 1,23 miliar.
+     * (Nominal Rupiah di chat praktis < 10 digit; nominal besar selalu ditulis
+     * dengan satuan "jt"/"M" atau titik ribuan yang jumlah digitnya tetap < 10
+     * untuk < 1 miliar.) Dipakai konsisten oleh ekstraksi, pemisahan batas
+     * nominal, dan penghitungan jumlah nominal.
+     */
+    internal fun isImplausiblePlainNumber(numStr: String): Boolean =
+        numStr.count { it.isDigit() } >= 10
+
     internal fun extractAmountFromText(textLower: String): Double? {
         val matcher = NUMBER_UNIT_PATTERN.matcher(textLower)
         var fallbackNum: String? = null
@@ -1002,6 +1078,10 @@ object GeminiService {
             if (!unit.isNullOrEmpty()) return toRupiah(numStr, unit)
             // L2: angka polos 1 digit (0–9) = kuantitas, bukan nominal.
             if (numStr.count { it.isDigit() } < 2) continue
+            // r1.4.0: "07.30"/"14.00" = jam, bukan nominal — lewati.
+            if (isClockTime(numStr)) continue
+            // r1.4.0: angka polos panjang = rekening/telepon, bukan nominal.
+            if (isImplausiblePlainNumber(numStr)) continue
             if (fallbackNum == null) fallbackNum = numStr
         }
         val num = fallbackNum ?: return null
@@ -1069,30 +1149,125 @@ object GeminiService {
     }
 
     /**
-     * Pisahkan teks menjadi segmen kandidat multi-transaksi. Separator: koma,
-     * titik koma, " dan ", " sama ", " atau " (kata utuh).
+     * Pisahkan teks menjadi segmen kandidat multi-transaksi (r1.4.0 — audit
+     * Finance AI: root cause "satu pesan berisi beberapa transaksi tidak
+     * terdeteksi").
      *
-     * ATURAN AMAN (tuning AI): hasil split dipakai HANYA jika tidak ada segmen
-     * yang MENGANDUNG ANGKA namun gagal jadi transaksi — mis. "beli sayur dan
-     * buah 20rb" maksudnya SATU transaksi; split " dan " akan memecahnya jadi
-     * "beli sayur" (tanpa angka) + "buah 20rb" (angka tanpa trigger). Dalam
-     * kasus seperti ini, fallback ke parse utuh supaya tidak ada transaksi yang
-     * hilang atau salah. Prinsip: jangan pernah salah catat.
+     * Strategi 1 — separator eksplisit: koma, titik koma, " dan ", " sama ",
+     * " atau " (kata utuh). Dipakai bila SETIAP segmen berangka ter-parse
+     * ("beli bakso 15rb, bensin 30rb sama rokok 20rb").
+     *
+     * Strategi 2 — batas nominal: pesan multi-transaksi TANPA separator
+     * ("Gaji lembur 200.000 Beli rokok 30.000 Makan Malam 45.000") — setiap
+     * nominal menandai AKHIR satu transaksi; teks antar-nominal = deskripsinya.
+     *
+     * ATURAN AMAN (tuning AI): separator split dipakai HANYA jika tidak ada
+     * segmen berangka yang gagal jadi transaksi — mis. "beli sayur dan buah
+     * 20rb" maksudnya SATU transaksi; split " dan " memecahnya jadi "beli
+     * sayur" (tanpa angka) + "buah 20rb" (angka tanpa trigger). Kasus ini
+     * jatuh ke strategi 2 → 1 nominal → parse utuh → 1 transaksi benar.
+     * Prinsip: jangan pernah salah catat.
      */
     internal fun splitTransactionSegments(text: String): List<String> {
-        val split = text.trim()
+        // Strategi 1: separator eksplisit.
+        val sepSplit = text.trim()
             .split(Regex(""",\s*|;\s*|\s+dan\s+|\s+sama\s+|\s+atau\s+"""))
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-        if (split.size <= 1) return split.ifEmpty { listOf(text.trim()) }
-
-        // Verifikasi: setiap segmen berisi angka harus menghasilkan transaksi.
-        val allValid = split.all { seg ->
-            val segLower = seg.lowercase()
-            val hasNumber = NUMBER_UNIT_PATTERN.matcher(segLower).find()
-            !hasNumber || parseSegment(segLower, seg) != null
+        if (sepSplit.size > 1) {
+            val allValid = sepSplit.all { seg ->
+                val segLower = seg.lowercase()
+                val hasNumber = NUMBER_UNIT_PATTERN.matcher(segLower).find()
+                !hasNumber || parseSegment(segLower, seg) != null
+            }
+            if (allValid) {
+                // r1.4.0 (stress test): segmen hasil separator BISA masih memuat
+                // ≥2 nominal ("bensin 30rb jajan 20rb") — pecah ulang per batas
+                // nominal supaya transaksi kedua tidak hilang. Segmen 1 nominal
+                // tetap utuh.
+                return sepSplit.flatMap { seg ->
+                    val sub = splitByAmountBoundaries(seg)
+                    if (sub.size > 1) sub else listOf(seg)
+                }
+            }
         }
-        return if (allValid) split else listOf(text.trim())
+
+        // Strategi 2: batas nominal (multi-transaksi tanpa separator).
+        val amountSegs = splitByAmountBoundaries(text)
+        if (amountSegs.size > 1) return amountSegs
+        return listOf(text.trim())
+    }
+
+    /**
+     * Pecah teks per batas nominal (r1.4.0): setiap angka yang berpotensi
+     * nominal menandai akhir satu segmen. Nominal jam (HH.MM), angka polos
+     * 1 digit (kuantitas) dilewati. Kurang dari 2 nominal → utuh (1 segmen).
+     */
+    internal fun splitByAmountBoundaries(text: String): List<String> {
+        val lower = text.lowercase()
+        val matches = mutableListOf<Pair<Int, Int>>() // start..end tiap nominal
+        val matcher = NUMBER_UNIT_PATTERN.matcher(lower)
+        while (matcher.find()) {
+            val numStr = matcher.group(1) ?: continue
+            val unit = matcher.group(2)
+            if (unit.isNullOrEmpty()) {
+                if (numStr.count { it.isDigit() } < 2) continue // kuantitas
+                if (isClockTime(numStr)) continue // jam
+                if (isImplausiblePlainNumber(numStr)) continue // rekening/telepon
+            }
+            matches += matcher.start() to matcher.end()
+        }
+        if (matches.size < 2) return listOf(text.trim())
+
+        val segs = mutableListOf<String>()
+        var prevEnd = 0
+        matches.forEach { (_, end) ->
+            segs += text.substring(prevEnd, end).trim()
+            prevEnd = end
+        }
+        // Teks sisa setelah nominal terakhir tetap milik segmen terakhir.
+        if (prevEnd < text.length) {
+            val last = segs.removeAt(segs.size - 1)
+            segs += (last + " " + text.substring(prevEnd)).trim()
+        }
+        return segs.filter { it.isNotEmpty() }
+    }
+
+    /**
+     * Hitung jumlah nominal dalam teks (r1.4.0) — dipakai [shouldHeuristicBackup]:
+     * pesan dengan ≥2 nominal adalah kandidat multi-transaksi yang paling rawan
+     * salah ditangani AI.
+     */
+    internal fun countAmounts(text: String): Int {
+        val matcher = NUMBER_UNIT_PATTERN.matcher(text.lowercase())
+        var count = 0
+        while (matcher.find()) {
+            val numStr = matcher.group(1) ?: continue
+            val unit = matcher.group(2)
+            if (unit.isNullOrEmpty()) {
+                if (numStr.count { it.isDigit() } < 2) continue
+                if (isClockTime(numStr)) continue
+                if (isImplausiblePlainNumber(numStr)) continue
+            }
+            count++
+        }
+        return count
+    }
+
+    /**
+     * Kapan hasil AI yang mengatakan "tidak ada transaksi" perlu diverifikasi
+     * ulang heuristik (r1.4.0): hanya untuk pesan dengan ≥2 nominal (paling
+     * rawan salah), dan TIDAK untuk pesan koreksi/pembatalan ("eh bukan 15rb,
+     * 25rb" — AI sengaja tidak mencatat) atau pertanyaan keuangan.
+     */
+    internal fun shouldHeuristicBackup(text: String): Boolean {
+        val lower = text.lowercase()
+        if (listOf("batal", "bukan", "salah", "hapus", "yang tadi", "jangan", "revisi", "eh ", "eh, ").any { lower.contains(it) }) {
+            return false
+        }
+        if (isFinancialQuestion(text)) return false
+        if (lower.contains("ingatkan") || lower.contains("reminder") || lower.contains("rencana")) return false
+        return countAmounts(text) >= 2
     }
 
     /**
@@ -1116,6 +1291,7 @@ object GeminiService {
             "terima uang", "dapat uang", "menerima uang", "uang masuk", "uang jajan masuk",
             "terima hadiah", "dapat hadiah", "menerima hadiah", "menang undian", "dapat undian", "undian",
             "hasil jualan", "hasil dagang", "hasil usaha", "omzet", "omset", "penjualan",
+            "jualan", // r1.4.0 (stress test): "jualan online 300rb" = pemasukan usaha
             "laku", "terjual", "dapat hasil", "terima hasil",
             "cashback", "refund", "pengembalian dana", "uang kembali",
             "terima thr", "dapat thr", "thr masuk", "thr cair",
@@ -1143,6 +1319,11 @@ object GeminiService {
                 textLower.contains("listrik") || textLower.contains("air") ||
                 textLower.contains("popok") || textLower.contains("susu") ||
                 textLower.contains("makan") || textLower.contains("transaksi") ||
+                // r1.4.0 (stress test): kata Indonesia umum yang selama ini lolos
+                // dari heuristik ("kopi 15 ribu", "jajan 20rb", "renovasi 75jt",
+                // "upgrade ram 0,5jt") — tanpa trigger, transaksi nyata hilang.
+                textLower.contains("kopi") || textLower.contains("jajan") ||
+                textLower.contains("renovasi") || textLower.contains("upgrade") ||
                 textLower.contains("bensin") || textLower.contains("taxi") ||
                 textLower.contains("ojek") || textLower.contains("grab") ||
                 textLower.contains("gojek") || textLower.contains("tol") ||
@@ -1186,7 +1367,9 @@ object GeminiService {
                 type = Constants.TransactionTypes.INCOME,
                 category = category,
                 amount = amount,
-                description = segText,
+                // r1.4.0: deskripsi tanpa nominal ("Gaji lembur 200.000" →
+                // "Gaji lembur") — konsisten dengan hasil AI & Rekap bersih.
+                description = cleanSuggestionDescription(segText),
                 timestamp = nowPlus(detectDateOffset(textLower))
             )
         }
@@ -1194,7 +1377,7 @@ object GeminiService {
         if (isExpenseTrigger) {
             val category = when {
                 textLower.contains("beras") || textLower.contains("minyak") || textLower.contains("sayur") || textLower.contains("sembako") || textLower.contains("pasar") || textLower.contains("supermarket") || textLower.contains("market") -> "Groceries & Sembako"
-                textLower.contains("makan") || textLower.contains("minum") || textLower.contains("kopi") || textLower.contains("bakso") || textLower.contains("snack") || textLower.contains("nasi") -> "Makanan & Minuman"
+                textLower.contains("makan") || textLower.contains("minum") || textLower.contains("kopi") || textLower.contains("jajan") || textLower.contains("bakso") || textLower.contains("snack") || textLower.contains("nasi") -> "Makanan & Minuman"
                 textLower.contains("listrik") || textLower.contains("air") || textLower.contains("wifi") || textLower.contains("pulsa") || textLower.contains("kontrakan") || textLower.contains("token") -> "Tagihan & Utilitas"
                 textLower.contains("spp") || textLower.contains("kuliah") ||
                     (textLower.contains("les") && !textLower.contains("lesehan")) ||
@@ -1215,13 +1398,16 @@ object GeminiService {
                     textLower.contains("pajak") ||
                     textLower.contains("stnk") || textLower.contains("pbb") || textLower.contains("bpjs") ||
                     textLower.contains("retribusi") -> "Asuransi & Pajak"
+                textLower.contains("renovasi") || textLower.contains("upgrade") ||
+                    textLower.contains("perbaikan") -> "Lain-lain"
                 else -> "Lain-lain"
             }
             return AiTransaction(
                 type = Constants.TransactionTypes.EXPENSE,
                 category = category,
                 amount = amount,
-                description = segText,
+                // r1.4.0: deskripsi tanpa nominal (lihat cabang income).
+                description = cleanSuggestionDescription(segText),
                 timestamp = nowPlus(detectDateOffset(textLower))
             )
         }

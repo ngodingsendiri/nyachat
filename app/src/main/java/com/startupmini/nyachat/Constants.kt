@@ -102,6 +102,9 @@ object Constants {
         const val DETECTED_AMOUNT = "detectedAmount"
         const val DETECTED_CATEGORY = "detectedCategory"
         const val DETECTED_TYPE = "detectedType"
+        // r1.4.0 (audit Finance AI): jumlah transaksi yang direkap dari satu pesan
+        // (badge multi-transaksi tanpa netting).
+        const val DETECTED_COUNT = "detectedCount"
         const val REPLY_TO_SENDER = "replyToSender"
         const val REPLY_TO_TEXT = "replyToText"
         const val EDITED_AT = "editedAt"
@@ -116,6 +119,10 @@ object Constants {
         // version untuk cache invalidation antar perangkat.
         const val AVATAR_BYTES = "avatarBytes"
         const val AVATAR_VERSION = "avatarVersion"
+        // r1.4.0 (avatar foto): URL foto Google anggota — fallback avatar di
+        // device lain saat avatarBytes belum pernah di-sync (URL foto Google
+        // publik, bisa diunduh langsung).
+        const val PHOTO_URL = "photoUrl"
         // M7: asal deteksi transaksi ("AI" | "HEURISTIK") di pesan chat.
         const val DETECTED_BY = "detectedBy"
         // M4: penanda waktu server Firestore — resolusi konflik deterministik.

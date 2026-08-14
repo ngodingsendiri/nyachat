@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [ChatMessage::class, FinancialTransaction::class, PendingOp::class],
-    version = 11,
+    version = 12,
     // Skema diekspor ke app/schemas (room.schemaLocation di build.gradle.kts)
     // supaya sejarah migrasi bisa direview di code review.
     exportSchema = true
@@ -149,6 +149,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v11 -> v12 (r1.4.0 — audit Finance AI): detectedCount di pesan — jumlah
+        // transaksi yang direkap dari satu pesan. Dipakai badge untuk menampilkan
+        // "N transaksi · total" (pesan multi-transaksi) tanpa men-netting
+        // pemasukan & pengeluaran. NULL = pesan lama / transaksi tunggal.
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN detectedCount INTEGER")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -156,7 +166,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "keuangan_pasutri_db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .build()
                 INSTANCE = instance
                 instance

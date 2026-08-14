@@ -209,6 +209,14 @@ fun ChatScreen(
         buildChatRows(messages, todayLabel, yesterdayLabel)
     }
 
+    // r1.4.0 (indikator AI memproses): bubble pesan TERAKHIR milik user yang
+    // sedang diproses AI. Pesan anggota lain yang tiba belakangan TIDAK
+    // diindikasi (aman lintas perangkat). null saat tidak ada proses berjalan
+    // → tidak ada titik di bubble mana pun.
+    val processingMessageId = if (isAiThinking) {
+        messages.lastOrNull { it.sender == activeSender }?.id
+    } else null
+
     // Tombol "lompat ke pesan terbaru" muncul saat user tidak di dasar obrolan.
     val shouldShowJumpButton by remember {
         derivedStateOf {
@@ -378,6 +386,7 @@ fun ChatScreen(
                                     onOpenFile = { openAttachedFile(context, msg) },
                                     onOpenTransaction = { onOpenTransaction(msg) },
                                     senderAvatarPath = senderAvatarPaths[msg.sender],
+                                    isProcessing = processingMessageId == msg.id,
                                     modifier = Modifier.animateItem()
                                 )
                                 DropdownMenu(
@@ -429,15 +438,6 @@ fun ChatScreen(
                     }
                 }
 
-                if (isAiThinking) {
-                    item {
-                        AiThinkingBubble(
-                            modifier = Modifier
-                                .animateItem()
-                                .padding(top = 10.dp)
-                        )
-                    }
-                }
                 }
 
                 // Chips saran cepat — kini OVERLAY di dasar Box (align

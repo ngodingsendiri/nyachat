@@ -62,10 +62,15 @@ private const val TAG_LOG = "PinConnect"
  * membuka workspace keluarga. Setiap anggota diidentifikasi lewat akun Google-nya,
  * dan data keluarga disatukan di Firestore lewat PIN (familyId = PIN).
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PinConnectScreen(
-    onPinConnected: (String, String, String) -> Unit // PIN, Role, Name
+    onPinConnected: (String, String, String) -> Unit, // PIN, Role, Name
+    // r1.4.0 (auto-connect): dipanggil SETELAH Google sign-in berhasil —
+    // MainActivity memakainya untuk menyalakan firebaseReady sehingga
+    // LaunchedEffect auto-connect berjalan (discover workspace → masuk tanpa
+    // PIN). Tanpa callback ini, auto-connect tidak pernah terpicu saat login.
+    onGoogleSignedIn: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -190,6 +195,7 @@ fun PinConnectScreen(
                         ).await()
                         val user = auth.currentUser
                         signedInEmail = user?.email ?: user?.displayName
+                        onGoogleSignedIn()
                         user?.displayName?.let {
                             if (myName.isBlank()) myName = it
                         }
@@ -272,7 +278,10 @@ fun PinConnectScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(24.dp),
+                    .padding(24.dp)
+                    // Ruang khusus footer versi (label dipin di dasar, ~50dp) —
+                    // konten terakhir tidak pernah menabrak/tertutup label.
+                    .padding(bottom = 56.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -550,22 +559,27 @@ fun PinConnectScreen(
                 }
             }
 
-            // Label versi kecil di bawah layar login — biar mudah memastikan APK
-            // yang terpasang dan melaporkan versinya saat ada masalah.
-            Text(
-                text = stringResource(
-                    R.string.login_version_label,
-                    BuildConfig.VERSION_NAME,
-                    BuildConfig.VERSION_CODE
-                ),
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-            )
+            // Label versi: footer TETAP di dasar layar, DI LUAR area scroll.
+            // Fix bug (audit 2026-08-14): sebelumnya label ini anak terakhir dari
+            // Column scrollable yang di-center — saat keyboard naik (mengetik nama),
+            // label ikut "terangkat" dan menutupi/mengganggu kolom pengetikan nama.
+            // Sekarang: dipin di dasar + disembunyikan selama keyboard terbuka.
+            if (!WindowInsets.isImeVisible) {
+                Text(
+                    text = stringResource(
+                        R.string.login_version_label,
+                        BuildConfig.VERSION_NAME,
+                        BuildConfig.VERSION_CODE
+                    ),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                )
+            }
         }
     }
 }

@@ -52,6 +52,9 @@ data class CloudMessage(
     val detectedAmount: Double? = null,
     val detectedCategory: String? = null,
     val detectedType: String? = null,
+    // r1.4.0 (audit Finance AI): jumlah transaksi dari pesan ini (badge
+    // multi-transaksi tanpa netting).
+    val detectedCount: Int? = null,
     val replyToSender: String? = null,
     val replyToText: String? = null,
     val editedAt: Long? = null,
@@ -460,6 +463,7 @@ val local = if (existing != null) {
                 detectedAmount = c.detectedAmount,
                 detectedCategory = c.detectedCategory,
                 detectedType = c.detectedType,
+                detectedCount = c.detectedCount,
                 replyToSender = c.replyToSender,
                 replyToText = c.replyToText,
                 editedAt = c.editedAt,
@@ -483,6 +487,7 @@ val local = if (existing != null) {
                 detectedAmount = c.detectedAmount,
                 detectedCategory = c.detectedCategory,
                 detectedType = c.detectedType,
+                detectedCount = c.detectedCount,
                 replyToSender = c.replyToSender,
                 replyToText = c.replyToText,
                 editedAt = c.editedAt,
@@ -588,6 +593,7 @@ val local = if (existing != null) {
                     Constants.Fields.DETECTED_AMOUNT to message.detectedAmount,
                     Constants.Fields.DETECTED_CATEGORY to message.detectedCategory,
                     Constants.Fields.DETECTED_TYPE to message.detectedType,
+                    Constants.Fields.DETECTED_COUNT to message.detectedCount,
                     Constants.Fields.REPLY_TO_SENDER to message.replyToSender,
                     Constants.Fields.REPLY_TO_TEXT to message.replyToText,
                     Constants.Fields.EDITED_AT to message.editedAt,

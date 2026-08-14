@@ -45,6 +45,10 @@ data class JoinRequest(
     val uid: String = "",
     val email: String = "",
     val name: String = "",
+    // r1.4.0 (avatar foto): URL foto Google pemohon — disalin ke member doc
+    // saat disetujui supaya device lain bisa menampilkan foto sebelum
+    // avatarBytes di-sync.
+    val photoUrl: String = "",
     val requestedAt: Long = 0L
 )
 
@@ -53,7 +57,96 @@ data class JoinRequest(
  * `members` by uid. `pin` = id dokumen keluarga (parent dari doc member),
  * `role` = peran akun di workspace itu.
  */
-data class MyWorkspace(val pin: String, val role: String)
+// r1.4.0 (auto-connect): name = nama tampilan member di workspace (dari doc
+// members/{uid}.name) — dipakai auto-connect untuk langsung mengisi userName
+// tanpa meminta ulang nama di layar PIN.
+data class MyWorkspace(val pin: String, val role: String, val name: String = "")
+
+/**
+ * Keputusan auto-connect (r1.4.0) dari [MembershipManager.resolveAutoConnect] —
+ * logika MURNI (tanpa I/O) supaya bisa di-unit-test, dipakai LaunchedEffect di
+ * MainActivity setelah Google login.
+ */
+sealed class AutoConnectDecision {
+    /** Sambungkan ke workspace ini (isi ulang PIN + role + nama). */
+    data class Connect(val ws: MyWorkspace) : AutoConnectDecision()
+
+    /** Akun terikat >1 workspace & tidak ada workspace aktif yang jelas → pilih. */
+    data object ShowPicker : AutoConnectDecision()
+
+    /** PIN lokal basi (akun tidak terikat workspace mana pun) → bersihkan. */
+    data object ClearStalePin : AutoConnectDecision()
+
+    /** Sudah tersambung / tidak ada yang perlu dilakukan. */
+    data object Noop : AutoConnectDecision()
+}
+
+/**
+ * Putuskan aksi auto-connect setelah `discoverMyWorkspaces` (r1.4.0).
+ *
+ * Aturan:
+ * - 0 workspace → PIN lokal basi (di-kick/sudah keluar) → [AutoConnectDecision.ClearStalePin]
+ *   hanya bila ada PIN lokal; kalau tidak ada, [AutoConnectDecision.Noop].
+ * - 1 workspace → sambungkan bila PIN aktif berbeda ATAU identitas belum terisi
+ *   (`userName == null` — kasus logout biasa: PIN pulih dari Keystore tapi
+ *   userName di-reset, tanpa kondisi ini user nyangkut di layar PIN).
+ * - >1 workspace (user lama) → resume workspace aktif bila PIN-nya ada di daftar
+ *   (isi ulang userName bila kosong); selain itu tampilkan pemilih.
+ */
+fun resolveAutoConnect(
+    discovered: List<MyWorkspace>,
+    workspacePin: String?,
+    userName: String?
+): AutoConnectDecision = when {
+    discovered.isEmpty() ->
+        if (workspacePin != null) AutoConnectDecision.ClearStalePin else AutoConnectDecision.Noop
+
+    discovered.size == 1 -> {
+        val ws = discovered[0]
+        if (workspacePin != ws.pin || userName == null) AutoConnectDecision.Connect(ws)
+        else AutoConnectDecision.Noop
+    }
+
+    else -> {
+        val active = discovered.firstOrNull { it.pin == workspacePin }
+        when {
+            active != null && userName != null -> AutoConnectDecision.Noop
+            active != null -> AutoConnectDecision.Connect(active)
+            else -> AutoConnectDecision.ShowPicker
+        }
+    }
+}
+
+/**
+ * Apakah photoUrl di member doc perlu di-refresh (r1.4.0): true bila photoUrl
+ * Google baru tidak kosong dan berbeda dari yang tersimpan — dipakai
+ * [MembershipManager.ensureSelfMemberDoc] untuk member lama (doc dibuat sebelum
+ * fitur avatar foto) saat connect.
+ */
+fun shouldRefreshPhotoUrl(currentPhoto: String?, newPhoto: String?): Boolean =
+    !newPhoto.isNullOrBlank() && newPhoto != currentPhoto
+
+enum class AvatarSourceDecision { USE_BYTES, DOWNLOAD_PHOTO_URL, SKIP }
+
+/**
+ * Putuskan sumber avatar untuk satu member (r1.4.0):
+ * - [AvatarSourceDecision.USE_BYTES] — ada versi avatarBytes lebih baru dari
+ *   yang sudah di-publish → cache/decode bytes (foto ter-upload menang).
+ * - [AvatarSourceDecision.DOWNLOAD_PHOTO_URL] — bytes tidak baru (atau belum
+ *   pernah sync), tapi URL foto Google berbeda dari yang sudah di-publish →
+ *   unduh URL (fallback: anggota belum pernah upload avatarBytes).
+ * - [AvatarSourceDecision.SKIP] — tidak ada sumber baru (hindari unduh ulang).
+ */
+fun decideAvatarSource(
+    avatarVersion: Long,
+    publishedVersion: Long,
+    photoUrl: String?,
+    publishedPhotoUrl: String?
+): AvatarSourceDecision = when {
+    avatarVersion > 0L && avatarVersion > publishedVersion -> AvatarSourceDecision.USE_BYTES
+    !photoUrl.isNullOrBlank() && photoUrl != publishedPhotoUrl -> AvatarSourceDecision.DOWNLOAD_PHOTO_URL
+    else -> AvatarSourceDecision.SKIP
+}
 
 /** Status keanggotaan untuk alur masuk workspace (PIN perlu persetujuan owner). */
 enum class MembershipStatus { MEMBER, PENDING, NOT_REQUESTED, FAILED, TIMED_OUT }
@@ -212,6 +305,11 @@ object MembershipManager {
     // masih menulis cache). ConcurrentHashMap aman diakses lintas thread.
     private val publishedAvatarVersions = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
+    // r1.4.0 (avatar foto): URL photoUrl per uid yang sudah di-publish ke
+    // [memberAvatarPaths] — mencegah mengunduh foto Google berulang kali di
+    // tiap snapshot. URL berubah → diunduh ulang.
+    private val publishedPhotoUrls = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     private fun attachListeners(pin: String, role: String) {
         val famRef = db().collection(Constants.Collections.FAMILIES).document(pin)
         membersListener = famRef.collection(Constants.Collections.MEMBERS).addSnapshotListener { snap, err ->
@@ -228,6 +326,26 @@ object MembershipManager {
             snap ?: return@addSnapshotListener
             // Guard kick (audit workspace): snapshot sukses = sempat jadi anggota.
             hadMembersSnapshot = true
+            // r1.4.0 (avatar foto): backfill photoUrl di member doc SENDIRI bila
+            // belum tersimpan (member lama, doc dibuat sebelum fitur) atau foto
+            // Google berubah. Satu update ter-target, konvergen — snapshot
+            // berikutnya tidak menulis lagi. Dijalankan tiap connect supaya
+            // device lain punya sumber foto (fallback) untuk avatar.
+            val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            if (myUid != null) {
+                val myDoc = snap.documents.firstOrNull { it.id == myUid }
+                if (myDoc != null) {
+                    val currentPhoto = myDoc.data?.get(Constants.Fields.PHOTO_URL) as? String
+                    val googlePhoto =
+                        com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()
+                    if (shouldRefreshPhotoUrl(currentPhoto, googlePhoto)) {
+                        myDoc.reference.update(Constants.Fields.PHOTO_URL, googlePhoto)
+                            .addOnFailureListener {
+                                Log.w(TAG, "refresh photoUrl member doc gagal: ${it.message}")
+                            }
+                    }
+                }
+            }
             val list = snap.documents.mapNotNull { doc ->
                 val d = doc.data ?: return@mapNotNull null
                 FamilyMember(
@@ -257,23 +375,41 @@ object MembershipManager {
                     val paths = mutableMapOf<String, String>()
                     docs.forEach { doc ->
                         val uid = doc.id
+                        // Prioritas: avatarBytes (foto ter-upload, versi bernomor) —
+                        // fallback: photoUrl Google dari member doc (r1.4.0).
+                        // Keputusan sumber diekstrak ke fungsi murni [decideAvatarSource]
+                        // (di-unit-test) — loop ini HANYA mengeksekusi hasilnya.
                         val version = (doc.data?.get(Constants.Fields.AVATAR_VERSION) as? Number)?.toLong() ?: 0L
-                        if (version <= 0L) return@forEach
-                        // Skip bila versi ini sudah ter-publish (atau ada yang lebih baru).
                         val prev = publishedAvatarVersions[uid] ?: 0L
-                        if (version <= prev) return@forEach
-                        val existing = AvatarStore.getMemberAvatarPath(ctx, uid, version)
-                        if (existing != null) {
-                            paths[uid] = existing
-                            publishedAvatarVersions[uid] = version
-                        } else {
-                            val bytes = (doc.data?.get(Constants.Fields.AVATAR_BYTES) as? com.google.firebase.firestore.Blob)?.toBytes()
-                            if (bytes != null && bytes.isNotEmpty()) {
-                                AvatarStore.cacheMemberAvatar(ctx, uid, version, bytes)
-                                    ?.let {
-                                        paths[uid] = it
-                                        publishedAvatarVersions[uid] = version
-                                    }
+                        val photoUrl = (doc.data?.get(Constants.Fields.PHOTO_URL) as? String)
+                            ?.takeIf { it.isNotBlank() }
+                        val decision = decideAvatarSource(version, prev, photoUrl, publishedPhotoUrls[uid])
+                        var havePath = false
+                        if (decision == AvatarSourceDecision.USE_BYTES) {
+                            val existing = AvatarStore.getMemberAvatarPath(ctx, uid, version)
+                            if (existing != null) {
+                                paths[uid] = existing
+                                publishedAvatarVersions[uid] = version
+                                havePath = true
+                            } else {
+                                val bytes = (doc.data?.get(Constants.Fields.AVATAR_BYTES) as? com.google.firebase.firestore.Blob)?.toBytes()
+                                if (bytes != null && bytes.isNotEmpty()) {
+                                    AvatarStore.cacheMemberAvatar(ctx, uid, version, bytes)
+                                        ?.let {
+                                            paths[uid] = it
+                                            publishedAvatarVersions[uid] = version
+                                            havePath = true
+                                        }
+                                }
+                            }
+                        }
+                        // Fallback (r1.4.0): bytes tidak tersedia/tidak baru — pakai
+                        // URL foto Google dari member doc (join/connect). Guard
+                        // per-uid: URL sama → tidak unduh ulang (SKIP).
+                        if (!havePath && photoUrl != null && publishedPhotoUrls[uid] != photoUrl) {
+                            AvatarStore.cacheGooglePhoto(ctx, photoUrl, uid)?.let {
+                                paths[uid] = it
+                                publishedPhotoUrls[uid] = photoUrl
                             }
                         }
                     }
@@ -355,6 +491,11 @@ object MembershipManager {
             if (currentLabel.isNullOrBlank() || currentLabel == currentName) {
                 updates[Constants.Fields.LABEL] = name
             }
+            // r1.4.0 (avatar foto): segarkan URL foto Google di member doc saat
+            // connect/rename — device lain selalu punya sumber foto terbaru.
+            FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()?.let {
+                updates[Constants.Fields.PHOTO_URL] = it
+            }
             selfRef.update(updates).await()
             true
         }.onFailure { Log.w(TAG, "updateMyIdentity gagal: ${it.message}") }
@@ -432,8 +573,19 @@ object MembershipManager {
         role: String
     ) {
         val selfRef = famRef.collection(Constants.Collections.MEMBERS).document(uid)
-        if (selfRef.get().await().exists()) return
         val user = FirebaseAuth.getInstance().currentUser
+        val existing = selfRef.get().await()
+        if (existing.exists()) {
+            // r1.4.0 (avatar foto): refresh photoUrl untuk member LAMA (doc dibuat
+            // sebelum fitur ini) — update ter-target satu field saat connect, bukan
+            // per-launch. Rules mengizinkan self-update photoUrl.
+            val currentPhoto = existing.data?.get(Constants.Fields.PHOTO_URL) as? String
+            val newPhoto = user?.photoUrl?.toString()
+            if (shouldRefreshPhotoUrl(currentPhoto, newPhoto)) {
+                selfRef.update(Constants.Fields.PHOTO_URL, newPhoto).await()
+            }
+            return
+        }
         selfRef.set(
             nonNullMap(
                 Constants.Fields.UID to uid,
@@ -441,6 +593,10 @@ object MembershipManager {
                 Constants.Fields.NAME to user?.displayName,
                 Constants.Fields.ROLE to role,
                 Constants.Fields.LABEL to (user?.displayName ?: Constants.Defaults.LABEL),
+                // r1.4.0 (avatar foto): URL foto Google disimpan di member doc
+                // sejak awal — device lain bisa menampilkan foto via URL
+                // fallback sebelum avatarBytes di-sync.
+                Constants.Fields.PHOTO_URL to user?.photoUrl?.toString(),
                 // P3 (audit keanggotaan): jam SERVER (bukan jam klien) — konsisten
                 // dengan createdAt di dokumen keluarga.
                 Constants.Fields.ADDED_AT to FieldValue.serverTimestamp()
@@ -551,6 +707,9 @@ object MembershipManager {
                         Constants.Fields.UID to uid,
                         Constants.Fields.EMAIL to user?.email,
                         Constants.Fields.NAME to user?.displayName,
+                        // r1.4.0 (avatar foto): URL foto Google pemohon dibawa ke
+                        // join request → disalin ke member doc saat disetujui.
+                        Constants.Fields.PHOTO_URL to user?.photoUrl?.toString(),
                         Constants.Fields.REQUESTED_AT to System.currentTimeMillis()
                     )
                 ).await()
@@ -636,6 +795,10 @@ object MembershipManager {
                             Constants.Fields.NAME to request.name,
                             Constants.Fields.ROLE to Constants.Roles.MEMBER,
                             Constants.Fields.LABEL to request.name.ifBlank { Constants.Defaults.LABEL },
+                            // r1.4.0 (avatar foto): URL foto Google pemohon disalin
+                            // ke member doc saat persetujuan. Blank → null →
+                            // di-drop nonNullMap (hindari string kosong di doc).
+                            Constants.Fields.PHOTO_URL to request.photoUrl.takeIf { it.isNotBlank() },
                             // P3 (audit keanggotaan): jam server, bukan jam klien
                             // (selisih jam antar perangkat tidak memengaruhi addedAt).
                             Constants.Fields.ADDED_AT to FieldValue.serverTimestamp()
@@ -698,7 +861,8 @@ object MembershipManager {
                     val pin = doc.reference.parent.parent?.id
                     if (pin.isNullOrBlank()) return@mapNotNull null
                     val role = doc.data?.get(Constants.Fields.ROLE) as? String ?: ROLE_MEMBER
-                    MyWorkspace(pin = pin, role = role)
+                    val name = doc.data?.get(Constants.Fields.NAME) as? String ?: ""
+                    MyWorkspace(pin = pin, role = role, name = name)
                 }
         } catch (e: Exception) {
             Log.w(TAG, "discoverMyWorkspaces gagal: ${e.message}")

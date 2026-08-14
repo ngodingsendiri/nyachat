@@ -107,7 +107,9 @@ fun MainAppDialogs(
     // cloud (leaveWorkspace) + cleanup — dialog hanya memicu konfirmasi.
     onLeaveWorkspaceConfirmed: () -> Unit = {},
     // r1.4.0 (auto-connect): pilihan workspace untuk akun lama yang terikat >1.
-    onPickWorkspace: (pin: String, role: String) -> Unit = { _, _ -> }
+    // r1.4.0: name ikut dikirim (dari MyWorkspace.name) supaya picker bisa
+    // mengisi userName tanpa meminta ulang nama.
+    onPickWorkspace: (pin: String, role: String, name: String) -> Unit = { _, _, _ -> }
 ) {
     val backupBusy by driveController.busy.collectAsStateWithLifecycle()
 
@@ -337,7 +339,7 @@ fun MainAppDialogs(
             choices = dialogs.workspaceChoices,
             onPick = { ws ->
                 dialogs.workspaceChoices = emptyList()
-                onPickWorkspace(ws.pin, ws.role)
+                onPickWorkspace(ws.pin, ws.role, ws.name)
             },
             onDismiss = { dialogs.workspaceChoices = emptyList() }
         )
@@ -414,7 +416,7 @@ fun MainAppDialogs(
  * workspace (sebelum ada fitur keluar): user memilih workspace yang dimasuki.
  */
 @Composable
-private fun WorkspacePickerDialog(
+internal fun WorkspacePickerDialog(
     choices: List<MyWorkspace>,
     onPick: (MyWorkspace) -> Unit,
     onDismiss: () -> Unit

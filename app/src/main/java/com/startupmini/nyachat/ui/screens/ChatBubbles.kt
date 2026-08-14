@@ -6,7 +6,13 @@ import android.graphics.Bitmap
 import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -15,6 +21,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,11 +37,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.OfflineBolt
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Receipt
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -51,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -67,6 +75,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -149,7 +158,11 @@ fun ChatMessageBubble(
     modifier: Modifier = Modifier,
     // r1.2.3 (P1): path foto avatar pengirim (dari map nama→foto di ChatScreen).
     // null → fallback lingkaran inisial berwarna unik.
-    senderAvatarPath: String? = null
+    senderAvatarPath: String? = null,
+    // r1.4.0 (indikator AI memproses): true untuk bubble pesan milik user yang
+    // sedang diproses AI — titik kecil muncul di samping waktu (menyatu dengan
+    // bubble, bukan elemen terpisah di sisi chat).
+    isProcessing: Boolean = false
 ) {
     val isAi = message.sender == Constants.Sender.AI
     val isMe = message.sender == currentActiveSender
@@ -403,6 +416,7 @@ fun ChatMessageBubble(
                     timeColor = timeColor,
                     senderColor = senderColor,
                     timeDisplay = timeDisplay,
+                    isProcessing = isProcessing,
                     onOpenFile = onOpenFile,
                     onOpenTransaction = onOpenTransaction
                 )
@@ -458,13 +472,10 @@ fun ChatMessageBubble(
                 }
 
                 if (isMe) {
-                    Text(
-                        text = timeDisplay,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = timeColor,
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .padding(top = 4.dp)
+                    MessageTimeRow(
+                        timeDisplay = timeDisplay,
+                        timeColor = timeColor,
+                        isProcessing = isProcessing
                     )
                 }
 
@@ -585,12 +596,26 @@ private fun FinancialBadge(
                 modifier = Modifier.size(12.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = "${if (isIncome) "+" else "-"} $formatRp · ${message.detectedCategory}",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Medium,
-                color = tagColor
-            )
+            // r1.4.0 (audit Finance AI): pesan multi-transaksi menampilkan jumlah
+            // transaksi + TOTAL semua nominal — tanpa tanda +/-, tanpa kategori
+            // transaksi pertama (tidak men-netting pemasukan vs pengeluaran).
+            // Transaksi tunggal tetap "+/- RpX · kategori" seperti sebelumnya.
+            val multiCount = message.detectedCount ?: 0
+            if (multiCount > 1) {
+                Text(
+                    text = "$multiCount transaksi · $formatRp",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = tagColor
+                )
+            } else {
+                Text(
+                    text = "${if (isIncome) "+" else "-"} $formatRp · ${message.detectedCategory}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = tagColor
+                )
+            }
             // M7: indikator sumber deteksi (AI vs heuristik offline).
             // Ringkas: "AI" = teks pendek; heuristik = ikon ⚡ (OfflineBolt).
             message.detectedBy?.let { source ->
@@ -637,6 +662,7 @@ private fun ChatMediaBubbleContent(
     timeColor: Color,
     senderColor: Color,
     timeDisplay: String,
+    isProcessing: Boolean,
     onOpenFile: (() -> Unit)?,
     onOpenTransaction: (() -> Unit)?
 ) {
@@ -713,10 +739,12 @@ private fun ChatMediaBubbleContent(
             contentScale = ContentScale.Fit
         )
 
-        // Bagian bawah: caption + waktu + badge finansial — padding kecil
+        // Bagian bawah: caption + waktu + badge finansial — padding kecil.
+        // r1.4.0: baris waktu juga dirender saat bubble sedang diproses AI
+        // (foto nota tanpa caption tetap memperlihatkan indikator).
         val hasCaption = message.messageText.isNotBlank()
         val hasBadge = message.isFinancial && message.detectedAmount != null
-        if (hasCaption || hasBadge) {
+        if (hasCaption || hasBadge || isProcessing) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                 if (hasCaption) {
                     Text(
@@ -726,13 +754,10 @@ private fun ChatMediaBubbleContent(
                     )
                 }
                 if (isMe) {
-                    Text(
-                        text = timeDisplay,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = timeColor,
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .padding(top = 4.dp)
+                    MessageTimeRow(
+                        timeDisplay = timeDisplay,
+                        timeColor = timeColor,
+                        isProcessing = isProcessing
                     )
                 }
                 if (hasBadge) {
@@ -757,40 +782,74 @@ private fun ChatMediaBubbleContent(
     }
 }
 
+/**
+ * Baris waktu pesan milik user — menyatu dengan indikator "AI memproses"
+ * (r1.4.0, permintaan user): saat [isProcessing], tiga titik kecil tampil di
+ * kiri waktu. Dipakai footer bubble teks & media. Harus dipanggil dalam
+ * ColumnScope (memakai [ColumnScope.align]).
+ */
 @Composable
-fun AiThinkingBubble(modifier: Modifier = Modifier) {
-    val semantic = LocalSemanticColors.current
-    // Teks/spinner AI di atas tint AiBlueLight pakai AiBlueText (lebih gelap) —
-    // #0066FF di atas #E3ECFF hanya ~3.4:1, di bawah AA untuk teks kecil.
-    val aiColor = semantic.aiText
+private fun ColumnScope.MessageTimeRow(
+    timeDisplay: String,
+    timeColor: Color,
+    isProcessing: Boolean
+) {
     Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
+        modifier = Modifier
+            .align(Alignment.End)
+            .padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = if (semantic.isDark) MaterialTheme.colorScheme.surfaceVariant else semantic.aiBg,
-            border = androidx.compose.foundation.BorderStroke(1.dp, aiColor.copy(alpha = 0.3f))
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    color = aiColor,
-                    strokeWidth = 2.dp
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.chat_ai_thinking),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = aiColor,
-                    fontWeight = FontWeight.Medium
-                )
-            }
+        if (isProcessing) {
+            AiProcessingSpark(
+                tint = timeColor,
+                modifier = Modifier.padding(end = 5.dp)
+            )
         }
+        Text(
+            text = timeDisplay,
+            style = MaterialTheme.typography.labelSmall,
+            color = timeColor
+        )
     }
+}
+
+/**
+ * Indikator "AI memproses" minimalis (r1.4.0 — permintaan user): ikon spark
+ * kecil (✨ AutoAwesome) di pojok bubble pesan yang sedang diproses AI —
+ * menggantikan bubble "AI sedang memproses..." yang terpisah di sisi chat.
+ * Pulse alpha halus menandakan proses berjalan; reduced-motion → statis.
+ * Label aksesibilitas [R.string.chat_ai_thinking] dibawa Icon (contentDescription)
+ * dan ter-merge ke node bubble (bubble bersifat clickable).
+ */
+@Composable
+fun AiProcessingSpark(
+    tint: Color,
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 13.dp
+) {
+    val alpha = if (Motion.reducedMotion) {
+        // Reduced-motion (ANIMATOR_DURATION_SCALE=0): ikon statis, tanpa pulse.
+        1f
+    } else {
+        val transition = rememberInfiniteTransition(label = "aiSpark")
+        val a by transition.animateFloat(
+            initialValue = 0.45f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "aiSparkAlpha"
+        )
+        a
+    }
+    Icon(
+        imageVector = Icons.Rounded.AutoAwesome,
+        contentDescription = stringResource(R.string.chat_ai_thinking),
+        tint = tint,
+        modifier = modifier
+            .size(iconSize)
+            .graphicsLayer { this.alpha = alpha }
+    )
 }

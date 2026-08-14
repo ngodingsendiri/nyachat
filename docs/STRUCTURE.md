@@ -81,7 +81,7 @@ nyachat/
 │   │
 │   └── AndroidManifest.xml
 │
-├── app/src/test/                  ← 🧪 36 file test (Robolectric + Roborazzi + Compose UI)
+├── app/src/test/                  ← 🧪 43 file test (Robolectric + Roborazzi + Compose UI)
 │   ├── ConstantsTest              ← kontrak nilai Constants.Fields (anti-regresi rename)
 │   ├── data/analytics/  FinancialInsightsTest · MonthlyAnalyticsTest · WeeklyInsightsTest
 │   ├── data/backup/     BackupCryptoTest · DataExporterTest · DriveBackupControllerTest · PendingOpSerializationTest
@@ -90,14 +90,18 @@ nyachat/
 │   │                     · GitHubUpdateCheckerTest · ImageFileUtilSamplingTest
 │   │                     · ImageFileUtilAttachmentCleanupTest (pembersihan lampiran rekursif)
 │   │                     · MembershipKickLogicTest · CloudMessageMappingTest · AiTuningAuditTest
+│   │                     · MembershipAutoConnectTest (keputusan auto-connect r1.4.0)
+│   │                     · MembershipAvatarSourceTest (sumber avatar: bytes/photoUrl)
+│   │                     · MultiTransactionExtractionTest (multi-transaksi r1.4.0)
+│   │                     · TransactionExtractionStressTest (uji ketangguhan variasi chat)
 │   ├── data/repository/ FinanceRepositoryTest · FinanceRepositoryBadgeTest
 │   ├── ui/              AiThinkingCounterTest · MainViewModelTest (undo hapus · clear data · AI report · jalur error)
 │   ├── ui/screens/      AppSnapshotTest (golden Roborazzi) · BackupDialogsTest
 │   │                     · ChatBubbleGestureTest · ChatScreenGestureTest · ImageViewerDialogTest
-│   │                     · RekapScreenStateTest (Saver round-trip & validasi restore)
+│   │                     · AiProcessingIndicatorTest (titik memproses di bubble) · RekapScreenStateTest
 │   │                     · MembershipGateLogicTest · PinAttemptLimiterTest · AmountFormatterTest
 │   ├── ui/theme/        MotionReducedMotionTest
-│   └── ui/util/         DateLabelsTest
+│   └── ui/util/         DateLabelsTest · AvatarImageFallbackTest (foto → inisial)
 │
 └── 📐 Teknologi utama
     ├── Kotlin + Jetpack Compose (Material 3, BOM) · Room (KSP) · Coroutines
@@ -114,8 +118,8 @@ nyachat/
 |---|---|
 | File Kotlin produksi | 70 |
 | Baris kode (produksi + test) | ±25.094 |
-| File test | 36 |
-| Jumlah test (unit, Robolectric/Compose) | 368 |
+| File test | 43 |
+| Jumlah test (unit, Robolectric/Compose) | 439 |
 | `minSdk` / `targetSdk` | 24 / 36 |
 | `applicationId` | `com.startupmini.nyachat` |
 | Bahasa UI | Indonesia (strings.xml terpusat) |
