@@ -18,6 +18,15 @@
     <string name="menu_openrouter_key">Kunci OpenRouter API</string>
     <string name="menu_clear_data">Hapus Semua Data</string>
     <string name="menu_logout">Logout (%1$s)</string>
+    <!-- r1.4.0: keluar dari workspace — lepas diri, akun tetap login Google. -->
+    <string name="menu_leave_workspace">Keluar dari Workspace</string>
+    <string name="leave_workspace_confirm_title">Keluar dari workspace ini?</string>
+    <string name="leave_workspace_confirm_message">Kamu tidak lagi terikat ke workspace ini. Data lokal dihapus, data cloud milik anggota lain tetap aman. Untuk kembali, kamu harus diundang lagi lewat PIN.</string>
+    <string name="leave_workspace_done">Kamu keluar dari workspace.</string>
+    <string name="leave_workspace_needs_transfer">Kamu pemilik satu-satunya. Jadikan anggota lain pemilik (Kelola Anggota) sebelum keluar.</string>
+    <string name="leave_workspace_failed">Gagal keluar dari workspace. Coba lagi nanti.</string>
+    <!-- r1.4.0: pilih workspace (akun lama yang terikat lebih dari satu). -->
+    <string name="workspace_picker_title">Pilih workspace</string>
     <string name="menu_check_update">Periksa Update</string>
     <string name="menu_version">Versi %1$s</string>
     <string name="menu_pin">PIN Workspace</string>

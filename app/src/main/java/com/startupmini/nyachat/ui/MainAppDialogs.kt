@@ -7,7 +7,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.GroupOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
@@ -19,6 +31,7 @@ import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.backup.DriveBackupController
 import com.startupmini.nyachat.data.local.SecureStorage
 import com.startupmini.nyachat.data.remote.GitHubUpdateChecker
+import com.startupmini.nyachat.data.remote.MyWorkspace
 import com.startupmini.nyachat.ui.screens.AddTransactionDialog
 import com.startupmini.nyachat.ui.screens.AiReportDialog
 import com.startupmini.nyachat.ui.screens.ApiKeyDialog
@@ -89,7 +102,12 @@ fun MainAppDialogs(
     onAvatarSourceChanged: (String?) -> Unit,
     onCustomAvatarPicked: (Uri) -> Unit,
     onRenameUser: (String) -> Unit,
-    onPerformLogoutCleanup: () -> Unit
+    onPerformLogoutCleanup: () -> Unit,
+    // r1.4.0 (keluar dari workspace): MainActivity yang mengeksekusi operasi
+    // cloud (leaveWorkspace) + cleanup — dialog hanya memicu konfirmasi.
+    onLeaveWorkspaceConfirmed: () -> Unit = {},
+    // r1.4.0 (auto-connect): pilihan workspace untuk akun lama yang terikat >1.
+    onPickWorkspace: (pin: String, role: String) -> Unit = { _, _ -> }
 ) {
     val backupBusy by driveController.busy.collectAsStateWithLifecycle()
 
@@ -184,6 +202,10 @@ fun MainAppDialogs(
             onRestore = {
                 dialogs.showSettingsSheet = false
                 driveController.startRestore()
+            },
+            onLeaveWorkspace = {
+                dialogs.showSettingsSheet = false
+                dialogs.showLeaveWorkspaceDialog = true
             },
             onClearData = {
                 dialogs.showSettingsSheet = false
@@ -308,6 +330,54 @@ fun MainAppDialogs(
         )
     }
 
+    // r1.4.0 (auto-connect): akun lama bisa terikat >1 workspace (dulu tidak ada
+    // fitur keluar) — minta user pilih yang mana.
+    if (dialogs.workspaceChoices.isNotEmpty()) {
+        WorkspacePickerDialog(
+            choices = dialogs.workspaceChoices,
+            onPick = { ws ->
+                dialogs.workspaceChoices = emptyList()
+                onPickWorkspace(ws.pin, ws.role)
+            },
+            onDismiss = { dialogs.workspaceChoices = emptyList() }
+        )
+    }
+
+    // r1.4.0 (keluar dari workspace): lepaskan diri dari workspace — akun tetap
+    // login, tapi tidak lagi terikat → bisa buat/bergabung workspace baru.
+    if (dialogs.showLeaveWorkspaceDialog) {
+        AlertDialog(
+            onDismissRequest = { dialogs.showLeaveWorkspaceDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.GroupOff,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text(stringResource(R.string.leave_workspace_confirm_title)) },
+            text = { Text(stringResource(R.string.leave_workspace_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        dialogs.showLeaveWorkspaceDialog = false
+                        onLeaveWorkspaceConfirmed()
+                    }
+                ) {
+                    Text(
+                        stringResource(R.string.menu_leave_workspace),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialogs.showLeaveWorkspaceDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
+
     auditReport?.let { report ->
         AiReportDialog(
             reportText = report,
@@ -337,4 +407,45 @@ fun MainAppDialogs(
             onDismiss = { viewModel.dismissMonthlyReport() }
         )
     }
+}
+
+/**
+ * Pilih workspace (r1.4.0 — auto-connect). Untuk akun lama yang terikat >1
+ * workspace (sebelum ada fitur keluar): user memilih workspace yang dimasuki.
+ */
+@Composable
+private fun WorkspacePickerDialog(
+    choices: List<MyWorkspace>,
+    onPick: (MyWorkspace) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(imageVector = Icons.Rounded.GroupOff, contentDescription = null) },
+        title = { Text(stringResource(R.string.workspace_picker_title)) },
+        text = {
+            Column {
+                choices.forEach { ws ->
+                    TextButton(
+                        onClick = { onPick(ws) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = ws.pin + " · " + stringResource(
+                                if (ws.role == com.startupmini.nyachat.Constants.Roles.OWNER)
+                                    R.string.pin_role_owner
+                                else R.string.pin_role_member
+                            ),
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Start
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        }
+    )
 }

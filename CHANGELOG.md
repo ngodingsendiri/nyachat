@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [r1.4.0] - 2026-08-14 (auto-connect workspace + keluar dari workspace)
+
+### Added
+- **Auto-connect**: login Google otomatis masuk ke workspace milik akun TANPA
+  PIN — model 1 akun = 1 workspace aktif. Query `collectionGroup members by uid`
+  (`MembershipManager.discoverMyWorkspaces`) + index `firestore.indexes.json`;
+  PIN lokal tetap dipakai sebagai fast path offline-first, lalu divalidasi
+  terhadap cloud (PIN basi dari workspace yang sudah di-kick dibersihkan).
+- **Keluar dari Workspace** (Settings → Zona Berbahaya): lepaskan diri dari
+  workspace — akun tetap login Google, data lokal dihapus, data cloud anggota
+  lain aman. Owner SATU-SATUNYA ditolak (wajib promote anggota lain jadi
+  owner dulu — guard anti-yatim `canLeaveWorkspace`, +4 unit test).
+- **Picker workspace**: akun lama yang terikat >1 workspace (dulu tidak ada
+  fitur keluar) memilih workspace saat login.
+- `firestore.rules`: siapa pun boleh menghapus doc member-nya sendiri
+  (self-leave; guard anti-yatim di sisi app karena rules tidak bisa query).
+
+### Fixed
+- **Bug (login ulang akun sama)**: workspace hilang karena logout biasa
+  menghapus WORKSPACE_PIN & API key dari Keystore. Kini logout biasa hanya
+  mereset identitas akun sesi — PIN & key BYOK dipertahankan, login ulang
+  langsung kembali ke workspace (via auto-connect).
+
+### Changed
+- `performLogoutCleanup` tidak lagi `clearAll` prefs + Keystore (hanya
+  identitas akun).
+
 ## [r1.3.0] - 2026-08-14 (audit menyeluruh semua lapisan + test + docs)
 
 > Rilis audit: semua lapisan (data, ui, screens, res, root, test) diaudit &

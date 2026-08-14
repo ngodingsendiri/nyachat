@@ -239,6 +239,12 @@ class MainActivity : ComponentActivity() {
                 // template berargumen.
                 val undoLabel = stringResource(R.string.action_undo)
                 val txRecordedTemplate = stringResource(R.string.tx_recorded)
+                // r1.4.0 (keluar dari workspace): resolved di composable scope
+                // (lint LocalContextGetResourceValueCall — jangan context.getString
+                // di dalam coroutine).
+                val leaveWorkspaceDoneLabel = stringResource(R.string.leave_workspace_done)
+                val leaveWorkspaceNeedsTransferLabel = stringResource(R.string.leave_workspace_needs_transfer)
+                val leaveWorkspaceFailedLabel = stringResource(R.string.leave_workspace_failed)
                 val exportCsvSuccessLabel = stringResource(R.string.export_csv_success)
                 val exportCsvFailedLabel = stringResource(R.string.export_csv_failed)
                 val showSnack: (String, String?, (() -> Unit)?) -> Unit = { message, actionLabel, onAction ->
@@ -563,22 +569,25 @@ driveController.getAutoPassphrase = {
                 }
 
                 // Bersihkan sesi & kembali ke layar login setelah logout.
+                // r1.4.0 (bug 1): logout biasa TIDAK menghapus PIN workspace & API
+                // key BYOK dari Keystore — login ulang akun sama otomatis kembali
+                // ke workspace (auto-connect di bawah), keys milik perangkat bukan
+                // akun. Hanya identitas akun sesi yang di-reset.
                 val performLogoutCleanup = {
                     viewModel.stopCloudSync()
                     com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
                     firebaseReady = false
-                    appPrefs.edit().clear().apply()
-                    // Keystore crypto di IO (audit local/ 2026-08-13) — jangan
-                    // blok main thread saat hardware-backed key.
-                    scope.launch { secureStorage.clearAllAsync(context) }
+                    listOf(
+                        Constants.Prefs.USER_NAME, Constants.Prefs.USER_EMAIL,
+                        Constants.Prefs.AVATAR_SOURCE, Constants.Prefs.LAST_UPLOADED_AVATAR,
+                        Constants.Prefs.NAME_SYNCED
+                    ).forEach { key -> appPrefs.edit().remove(key).apply() }
                     workspaceRole = Constants.Defaults.ROLE
                     userName = null
                     avatarSource = null
                     avatarPath = null
                     userEmail = null
                     workspacePin = null
-                    geminiKey = null
-                    openRouterKey = null
                     dialogs.showSettingsSheet = false
                     dialogs.showProfileAccount = false
                     // BUG-2 lanjutan (reviewer): draf yang di-hoist tidak boleh bocor
@@ -619,6 +628,90 @@ driveController.getAutoPassphrase = {
                         .remove(Constants.Prefs.LAST_UPLOADED_AVATAR)
                         .apply()
                     showSnack(kickedMessage, null, null)
+                }
+
+                // r1.4.0 (auto-connect): sambungkan ke workspace & simpan ke
+                // Keystore/prefs (dipakai auto-connect saat login ulang + picker).
+                val connectToWorkspace: (String, String) -> Unit = { pin, role ->
+                    workspacePin = pin
+                    workspaceRole = role
+                    scope.launch {
+                        secureStorage.putSecretAsync(context, Constants.Prefs.WORKSPACE_PIN, pin)
+                    }
+                    appPrefs.edit().putString(Constants.Prefs.WORKSPACE_ROLE, role).apply()
+                }
+
+                // r1.4.0 (keluar dari workspace): bersihkan sesi & kembali ke layar
+                // PIN — akun tetap login Google, tapi tidak lagi terikat. Data lokal
+                // (Room + pending) dihapus; data cloud milik anggota lain tetap.
+                val performLeaveWorkspaceCleanup = {
+                    viewModel.stopCloudSync()
+                    workspaceRole = Constants.Defaults.ROLE
+                    workspacePin = null
+                    dialogs.showSettingsSheet = false
+                    dialogs.showProfileAccount = false
+                    chatDraft = ""
+                    rekapState.selectedMonth = null
+                    rekapState.selectedCategory = null
+                    rekapState.selectedFilterTab = 0
+                    scope.launch {
+                        viewModel.clearLocalData()
+                        secureStorage.deleteSecretAsync(context, Constants.Prefs.WORKSPACE_PIN)
+                    }
+                    appPrefs.edit().remove(Constants.Prefs.WORKSPACE_ROLE).apply()
+                }
+
+                // r1.4.0 (auto-connect): setelah login Google, temukan workspace milik
+                // akun & masuk OTOMATIS tanpa PIN (model 1 akun = 1 workspace aktif).
+                // Picker hanya untuk kasus defensif user lama yang terikat >1.
+                var workspaceChoices by remember {
+                    mutableStateOf<List<com.startupmini.nyachat.data.remote.MyWorkspace>>(emptyList())
+                }
+                LaunchedEffect(firebaseReady, secretsLoaded) {
+                    if (!firebaseReady || !secretsLoaded) return@LaunchedEffect
+                    // Fast path offline-friendly: pulihkan PIN & API key BYOK dari
+                    // Keystore (state di-reset saat logout — reread tanpa recreate).
+                    if (workspacePin == null) {
+                        workspacePin = secureStorage.getSecretAsync(context, Constants.Prefs.WORKSPACE_PIN)
+                    }
+                    if (geminiKey == null) {
+                        geminiKey = secureStorage.getSecretAsync(context, Constants.Prefs.GEMINI_API_KEY)
+                    }
+                    if (openRouterKey == null) {
+                        openRouterKey = secureStorage.getSecretAsync(context, Constants.Prefs.OPENROUTER_API_KEY)
+                    }
+                    // Validasi dari CLOUD (bukan percaya PIN lokal): daftar workspace
+                    // milik akun. null = offline/error → biarkan fast path PIN lokal.
+                    val discovered = com.startupmini.nyachat.data.remote.MembershipManager
+                        .discoverMyWorkspaces() ?: return@LaunchedEffect
+                    when {
+                        discovered.isEmpty() -> {
+                            // Tidak terikat workspace mana pun — PIN lokal basi
+                            // (di-kick / sudah keluar) → bersihkan supaya tidak
+                            // auto-connect ke workspace lama.
+                            if (workspacePin != null) {
+                                workspacePin = null
+                                workspaceRole = Constants.Defaults.ROLE
+                                viewModel.stopCloudSync()
+                                scope.launch {
+                                    secureStorage.deleteSecretAsync(context, Constants.Prefs.WORKSPACE_PIN)
+                                }
+                                appPrefs.edit().remove(Constants.Prefs.WORKSPACE_ROLE).apply()
+                            }
+                        }
+                        discovered.size == 1 -> {
+                            val ws = discovered[0]
+                            if (workspacePin != ws.pin) connectToWorkspace(ws.pin, ws.role)
+                        }
+                        else -> {
+                            // Defensif: user lama bisa terikat >1 (dulu tidak ada
+                            // fitur keluar) — tampilkan pemilih bila PIN aktif tidak
+                            // ada di daftar.
+                            if (workspacePin == null || discovered.none { it.pin == workspacePin }) {
+                                workspaceChoices = discovered
+                            }
+                        }
+                    }
                 }
 
                 // Audit workspace (2026-08-12): kick saat app TERBUKA — owner
@@ -966,7 +1059,30 @@ driveController.getAutoPassphrase = {
                                 onAvatarSourceChanged = handleAvatarSourceChanged,
                                 onCustomAvatarPicked = handleCustomAvatarPicked,
                                 onRenameUser = handleRenameUser,
-                                onPerformLogoutCleanup = { performLogoutCleanup() }
+                                onPerformLogoutCleanup = { performLogoutCleanup() },
+                                // r1.4.0 (keluar dari workspace): konfirmasi di
+                                // dialog → eksekusi cloud + cleanup di sini.
+                                onLeaveWorkspaceConfirmed = {
+                                    val pin = workspacePin
+                                    if (pin != null) {
+                                        scope.launch {
+                                            when (com.startupmini.nyachat.data.remote.MembershipManager.leaveWorkspace(pin)) {
+                                            com.startupmini.nyachat.data.remote.LeaveWorkspaceResult.LEFT -> {
+                                                performLeaveWorkspaceCleanup()
+                                                showSnack(leaveWorkspaceDoneLabel, null, null)
+                                            }
+                                            com.startupmini.nyachat.data.remote.LeaveWorkspaceResult.NEED_OWNER_TRANSFER ->
+                                                showSnack(leaveWorkspaceNeedsTransferLabel, null, null)
+                                            com.startupmini.nyachat.data.remote.LeaveWorkspaceResult.FAILED ->
+                                                showSnack(leaveWorkspaceFailedLabel, null, null)
+                                            }
+                                        }
+                                    }
+                                },
+                                onPickWorkspace = { pin, role ->
+                                    dialogs.workspaceChoices = emptyList()
+                                    connectToWorkspace(pin, role)
+                                }
                             )
                         }
                             }

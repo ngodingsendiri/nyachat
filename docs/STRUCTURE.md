@@ -115,7 +115,7 @@ nyachat/
 | File Kotlin produksi | 70 |
 | Baris kode (produksi + test) | ±25.094 |
 | File test | 36 |
-| Jumlah test (unit, Robolectric/Compose) | 364 |
+| Jumlah test (unit, Robolectric/Compose) | 368 |
 | `minSdk` / `targetSdk` | 24 / 36 |
 | `applicationId` | `com.startupmini.nyachat` |
 | Bahasa UI | Indonesia (strings.xml terpusat) |

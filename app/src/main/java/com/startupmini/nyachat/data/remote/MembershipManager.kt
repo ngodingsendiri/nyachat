@@ -48,6 +48,13 @@ data class JoinRequest(
     val requestedAt: Long = 0L
 )
 
+/**
+ * Workspace milik akun (r1.4.0 — auto-connect): hasil query collectionGroup
+ * `members` by uid. `pin` = id dokumen keluarga (parent dari doc member),
+ * `role` = peran akun di workspace itu.
+ */
+data class MyWorkspace(val pin: String, val role: String)
+
 /** Status keanggotaan untuk alur masuk workspace (PIN perlu persetujuan owner). */
 enum class MembershipStatus { MEMBER, PENDING, NOT_REQUESTED, FAILED, TIMED_OUT }
 
@@ -56,6 +63,9 @@ enum class JoinRequestResult { SUCCESS, NOT_FOUND, FAILED }
 
 /** Hasil penyiapan workspace pemilik. */
 enum class OwnerSetupResult { SUCCESS, ALREADY_OWNED, FAILED }
+
+/** Hasil keluar dari workspace (r1.4.0). */
+enum class LeaveWorkspaceResult { LEFT, NEED_OWNER_TRANSFER, FAILED }
 
 /**
  * Keanggotaan workspace (P5 — hasil dekomposisi `FirestoreSyncManager`).
@@ -91,6 +101,14 @@ object MembershipManager {
      */
     internal fun shouldTriggerKick(hadSnapshot: Boolean, permissionDenied: Boolean): Boolean =
         hadSnapshot && permissionDenied
+
+    /**
+     * Keputusan murni (r1.4.0): bolehkah user keluar dari workspace?
+     * Owner TIDAK boleh keluar kalau tidak ada owner lain — workspace yatim.
+     * Member bebas keluar. Diekstrak supaya bisa di-unit-test.
+     */
+    internal fun canLeaveWorkspace(myRole: String, otherOwnerCount: Int): Boolean =
+        myRole != ROLE_OWNER || otherOwnerCount >= 1
 
 
     /**
@@ -655,6 +673,74 @@ object MembershipManager {
                 .collection(Constants.Collections.MEMBERS).document(uid)
                 .update(updates).await()
         }.onFailure { Log.w(TAG, "setMemberRole gagal: ${it.message}") }
+    }
+
+    /**
+     * Temukan workspace milik akun (r1.4.0 — auto-connect).
+     *
+     * Query collectionGroup `members` by uid → setiap doc member milik akun;
+     * PIN workspace = id dokumen KELUARGA (parent dari doc member). Dengan
+     * model 1 akun = 1 workspace aktif, hasil biasanya 0 atau 1 — tapi user
+     * lama bisa punya >1 (sebelum ada fitur keluar), jadi pemanggil harus
+     * menangani daftar.
+     *
+     * Return null kalau query GAGAL (offline/error) — pemanggil HARUS
+     * memperlakukan null sebagai "tidak tahu", BUKAN "tidak terikat":
+     * fallback ke PIN lokal supaya alur offline-first tidak putus.
+     */
+    suspend fun discoverMyWorkspaces(uid: String? = null): List<MyWorkspace>? {
+        val myUid = uid ?: currentUid() ?: return null
+        return try {
+            db().collectionGroup(Constants.Collections.MEMBERS)
+                .whereEqualTo(Constants.Fields.UID, myUid)
+                .get().await()
+                .documents.mapNotNull { doc ->
+                    val pin = doc.reference.parent.parent?.id
+                    if (pin.isNullOrBlank()) return@mapNotNull null
+                    val role = doc.data?.get(Constants.Fields.ROLE) as? String ?: ROLE_MEMBER
+                    MyWorkspace(pin = pin, role = role)
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "discoverMyWorkspaces gagal: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Keluar dari workspace (r1.4.0): hapus doc members/{uid} diri sendiri.
+     *
+     * Guard anti-yatim (keputusan r1.4.0): owner TIDAK boleh keluar kalau dia
+     * satu-satunya owner — wajib promote anggota lain jadi owner DULU
+     * (dikembalikan sebagai [LeaveWorkspaceResult.NEED_OWNER_TRANSFER]). Guard
+     * ini di sisi app karena rules Firestore tidak bisa query daftar member.
+     *
+     * Catatan: setelah keluar, data lokal masih ada sampai pemanggil
+     * membersihkannya ([MainViewModel.clearLocalData] + hapus PIN lokal).
+     */
+    suspend fun leaveWorkspace(pin: String): LeaveWorkspaceResult {
+        val uid = currentUid() ?: return LeaveWorkspaceResult.FAILED
+        return try {
+            val membersRef = db().collection(Constants.Collections.FAMILIES).document(pin)
+                .collection(Constants.Collections.MEMBERS)
+            val selfRef = membersRef.document(uid)
+            val self = selfRef.get().await()
+            if (!self.exists()) return LeaveWorkspaceResult.FAILED
+            val myRole = self.getString(Constants.Fields.ROLE) ?: ROLE_MEMBER
+            // Owner: hitung owner LAIN (bukan diri sendiri) untuk guard anti-yatim.
+            val otherOwners = if (myRole == ROLE_OWNER) {
+                membersRef.get().await().documents.count { d ->
+                    d.id != uid && d.getString(Constants.Fields.ROLE) == ROLE_OWNER
+                }
+            } else 0
+            if (!canLeaveWorkspace(myRole, otherOwners)) {
+                return LeaveWorkspaceResult.NEED_OWNER_TRANSFER
+            }
+            selfRef.delete().await()
+            LeaveWorkspaceResult.LEFT
+        } catch (e: Exception) {
+            Log.w(TAG, "leaveWorkspace gagal: ${e.message}")
+            LeaveWorkspaceResult.FAILED
+        }
     }
 
     /**

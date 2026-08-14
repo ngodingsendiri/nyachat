@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.EnhancedEncryption
+import androidx.compose.material.icons.rounded.GroupOff
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
@@ -100,6 +101,9 @@ fun SettingsSheet(
     onRestore: () -> Unit,
     onClearData: () -> Unit,
     onLogout: () -> Unit,
+    // r1.4.0 (keluar dari workspace): lepaskan diri dari workspace — akun tetap
+    // login Google, tapi tidak lagi terikat → bisa buat/bergabung workspace baru.
+    onLeaveWorkspace: () -> Unit = {},
     // Audit menu Pengaturan (2026-08-12): kebijakan privasi dibuka dari seksi
     // Tentang (wajib untuk rilis Play Store).
     onPrivacyPolicy: () -> Unit = {},
@@ -145,6 +149,7 @@ fun SettingsSheet(
     val restoreAction = { dismissThen { onRestore() } }
     val clearDataAction = { dismissThen { onClearData() } }
     val logoutAction = { dismissThen { onLogout() } }
+    val leaveWorkspaceAction = { dismissThen { onLeaveWorkspace() } }
     val privacyPolicyAction = { dismissThen { onPrivacyPolicy() } }
     // onOpenProfile nullable (kartu profil hanya bisa di-tap bila tidak null).
     val openProfileAction = onOpenProfile?.let { profile -> { dismissThen { profile() } } }
@@ -320,6 +325,12 @@ fun SettingsSheet(
                 title = stringResource(R.string.menu_clear_data),
                 tint = MaterialTheme.colorScheme.error,
                 onClick = clearDataAction
+            )
+            SettingRow(
+                icon = Icons.Rounded.GroupOff,
+                title = stringResource(R.string.menu_leave_workspace),
+                tint = MaterialTheme.colorScheme.error,
+                onClick = leaveWorkspaceAction
             )
             SettingRow(
                 icon = Icons.AutoMirrored.Rounded.ExitToApp,

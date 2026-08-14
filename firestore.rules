@@ -86,8 +86,16 @@ service cloud.firestore {
       // Audit workspace: owner tidak bisa menghapus owner lain LANGSUNG — harus
       // di-demote jadi anggota dulu. Mencegah workspace yatim tanpa pemilik
       // (guard "Pemilik tidak bisa dihapus" kini ditegakkan di UI & rules).
+      // r1.4.0 (keluar dari workspace): siapa pun boleh menghapus doc-nya
+      // SENDIRI (self-leave) — termasuk owner. Guard "workspace tidak boleh
+      // yatim" (harus ada owner lain / promote dulu) ditegakkan di sisi APP
+      // (leaveWorkspace menghitung owner lain sebelum delete) karena Firestore
+      // rules TIDAK bisa query daftar member. Trade-off disengaja: klien nakal
+      // bisa membuat workspace yatim, tapi tidak bisa merusak data orang lain.
+      // Owner tetap TIDAK bisa self-demote diam-diam (guard update di atas).
       allow delete: if signedInGoogle() && isOwner(familyId)
         && resource.data.role != 'owner';
+      allow delete: if signedInGoogle() && request.auth.uid == uid;
     }
 
     // Permintaan bergabung: pemohon boleh membuat/mengubah/mencabut permintaan

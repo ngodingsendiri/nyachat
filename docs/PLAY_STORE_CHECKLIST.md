@@ -1,6 +1,6 @@
 # Checklist Rilis ke Google Play (Nyachat)
 
-Checklist langkah demi langkah untuk mengirim **Nyachat** (r1.3.0 / versionCode 28)
+Checklist langkah demi langkah untuk mengirim **Nyachat** (r1.4.0 / versionCode 29)
 ke Google Play Console. Dibuat untuk memastikan tidak ada item yang terlewat.
 
 ---
@@ -21,7 +21,7 @@ ke Google Play Console. Dibuat untuk memastikan tidak ada item yang terlewat.
 1. Pastikan semua secret di atas tersedia (khususnya keystore upload).
 2. Buka tab **Actions → Build APK**.
 3. Jalankan build (Workflow dispatch), atau `push` tag `r*` (r1.2.0, ...).
-4. Unduh artifact **`Nyachat-r1.3.0-release-aab`** → file `app-release.aab`.
+4. Unduh artifact **`Nyachat-r1.4.0-release-aab`** → file `app-release.aab`.
    - Artifact debug (`...-debug.apk`) & release APK juga dibuat.
 5. *(Opsional lokal)* `./gradlew :app:bundleRelease` — butuh `KEYSTORE_PATH`/`STORE_PASSWORD`/`KEY_PASSWORD`.
 
@@ -128,7 +128,7 @@ Formulir "Data safety" di Console → **Kebijakan → Data safety & content rati
 1. Console → **Release → Production → Buat rilis baru** → buat release tracks
    (Production, atau Internal Testing untuk uji awal).
 2. Unggah `app-release.aab`.
-3. Catatan rilis: versi `r1.3.0` – `Audit menyeluruh semua lapisan (local/remote/backup/analytics/repository/ui/screens/res/root/test): dead code & duplikasi dibersihkan (idrCurrencyFormat satu sumber, konstanta mati dihapus), bug splash dark & BuildConfig.TEMPLATE diperbaiki, fallback versi L11 disinkronkan, 364 test hijau, lint bersih, peta struktur/navigasi/alur data di docs.`
+3. Catatan rilis: versi `r1.4.0` – `Auto-connect workspace: login Google otomatis masuk ke workspace milik akun tanpa PIN (1 akun = 1 workspace). Keluar dari Workspace baru di Settings (owner satu-satunya wajib promote dulu). Fix: workspace hilang saat login ulang akun sama. 368 test hijau, lint bersih.`
 4. Terbitkan → tunggu review Google (biasanya jam–hari).
 
 ---

@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.data.remote.GitHubRelease
+import com.startupmini.nyachat.data.remote.MyWorkspace
 
 /**
  * TASK-1.3 lanjutan — state holder SEMUA dialog/overlay layar utama.
@@ -34,6 +35,10 @@ class MainDialogController {
     var connectGate by mutableStateOf<Triple<String, String, String>?>(null)
     var showOpenRouterKeyDialog by mutableStateOf(false)
     var showConfirmClearDialog by mutableStateOf(false)
+    // r1.4.0 (keluar dari workspace): dialog konfirmasi lepas dari workspace.
+    var showLeaveWorkspaceDialog by mutableStateOf(false)
+    // r1.4.0 (auto-connect): daftar pilihan workspace untuk akun lama >1.
+    var workspaceChoices by mutableStateOf<List<MyWorkspace>>(emptyList())
     var showPinDialog by mutableStateOf(false)
     var editTarget by mutableStateOf<FinancialTransaction?>(null)
 

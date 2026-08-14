@@ -86,11 +86,11 @@ export KEY_PASSWORD=...
 Versi diambil dari **`gradle.properties`** (satu sumber kebenaran):
 
 ```properties
-appVersion=r1.3.0
-appVersionCode=28
+appVersion=r1.4.0
+appVersionCode=29
 ```
 
-Override tanpa edit file: `./gradlew -PappVersion=r2.0.0 -PappVersionCode=29 :app:assembleDebug`.
+Override tanpa edit file: `./gradlew -PappVersion=r2.0.0 -PappVersionCode=30 :app:assembleDebug`.
 (versionCode harus SELALU naik — Play Store menolak versionCode menurun.)
 
 ---
