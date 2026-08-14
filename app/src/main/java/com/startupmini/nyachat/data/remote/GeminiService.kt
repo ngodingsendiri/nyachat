@@ -1109,6 +1109,76 @@ object GeminiService {
     internal fun isImplausiblePlainNumber(numStr: String): Boolean =
         numStr.count { it.isDigit() } >= 10
 
+    // ---- r1.4.0 (audit input 2026-08-14): angka polos NON-NOMINAL ----
+    // Dua kelas angka polos (tanpa satuan) yang selama ini DIANGGAP nominal
+    // sehingga transaksi asli hilang / tercatat salah:
+    //  1) TAHUN 19xx/20xx — "bayar spp 2025 sebesar 2jt" → tadinya tercatat
+    //     Rp 2.025 dan 2jt HILANG (split batas nominal memecah di "2025").
+    //  2) KUANTITAS >= 2 digit diikuti satuan — "beli 12 buku seharga 50rb"
+    //     → tadinya Rp 12.000 (12 buku) dan 50rb hilang.
+    // Guard dipakai KONSISTEN oleh countAmounts, splitByAmountBoundaries, dan
+    // extractAmountFromText (satu sumber kebenaran seperti isClockTime).
+
+    internal fun isYearNumber(numStr: String): Boolean =
+        numStr.length == 4 && numStr.matches(Regex("(?:19|20)\\d{2}"))
+
+    private val QUANTITY_UNITS = listOf(
+        "buku", "buah", "pcs", "kg", "kilo", "liter", "orang", "ekor",
+        "lembar", "pasang", "unit", "potong", "gelas", "botol", "kantong",
+        "butir", "batang", "helai", "kotak", "dus", "kardus", "rim", "lusin",
+        "kali", "item", "produk", "bungkus", "kaleng", "tabung", "meter",
+        "jam", "hari", "minggu", "bulan", "tahun", "porsi", "piring", "ekor"
+    )
+
+    /** Apakah ada NOMINAL BERSATUAN (rb/ribu/k/jt/juta) di luar posisi ini? */
+    private fun hasUnitNumberElsewhere(textLower: String, numStart: Int, numEnd: Int): Boolean {
+        val m = NUMBER_UNIT_PATTERN.matcher(textLower)
+        while (m.find()) {
+            if (m.start() == numStart && m.end() == numEnd) continue
+            if (!m.group(2).isNullOrEmpty()) return true
+        }
+        return false
+    }
+
+    /**
+     * true jika angka polos di posisi [numStart, numEnd) pada [textLower] BUKAN
+     * nominal: jam (HH.MM), rekening/telepon (>=10 digit), tahun 19xx/20xx dalam
+     * konteks (didahului spp/tahun/angkatan ATAU diikuti tahun/gelombang ATAU ada
+     * nominal bersatuan lain di pesan), atau kuantitas >= 2 digit yang diikuti
+     * satuan ("12 buku", "20 pcs", "25 tahun").
+     */
+    internal fun isNonMonetaryNumber(
+        textLower: String,
+        numStr: String,
+        numStart: Int,
+        numEnd: Int
+    ): Boolean {
+        if (isClockTime(numStr)) return true
+        if (isImplausiblePlainNumber(numStr)) return true
+        if (isYearNumber(numStr)) {
+            val before = textLower.substring(0, numStart).trimEnd()
+            val after = textLower.substring(numEnd).trimStart()
+            val ctxBefore = listOf("spp", "tahun", "angkatan", "gelombang", "semester")
+                .any { before.endsWith(it) }
+            val ctxAfter = listOf("tahun", "gelombang", "angkatan", "semester")
+                .any { after.startsWith(it) }
+            if (ctxBefore || ctxAfter || hasUnitNumberElsewhere(textLower, numStart, numEnd)) {
+                return true
+            }
+        }
+        if (numStr.count { it.isDigit() } >= 2) {
+            val after = textLower.substring(numEnd).trimStart()
+            if (QUANTITY_UNITS.any { u ->
+                    after.startsWith(u) &&
+                        (after.length == u.length || !after[u.length].isLetter())
+                }
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
     internal fun extractAmountFromText(textLower: String): Double? {
         val matcher = NUMBER_UNIT_PATTERN.matcher(textLower)
         var fallbackNum: String? = null
@@ -1118,10 +1188,9 @@ object GeminiService {
             if (!unit.isNullOrEmpty()) return toRupiah(numStr, unit)
             // L2: angka polos 1 digit (0–9) = kuantitas, bukan nominal.
             if (numStr.count { it.isDigit() } < 2) continue
-            // r1.4.0: "07.30"/"14.00" = jam, bukan nominal — lewati.
-            if (isClockTime(numStr)) continue
-            // r1.4.0: angka polos panjang = rekening/telepon, bukan nominal.
-            if (isImplausiblePlainNumber(numStr)) continue
+            // r1.4.0 (audit input): jam, rekening, TAHUN dalam konteks, dan
+            // kuantitas bersatuan ("12 buku") bukan nominal — lewati.
+            if (isNonMonetaryNumber(textLower, numStr, matcher.start(), matcher.end())) continue
             if (fallbackNum == null) fallbackNum = numStr
         }
         val num = fallbackNum ?: return null
@@ -1252,8 +1321,8 @@ object GeminiService {
             val unit = matcher.group(2)
             if (unit.isNullOrEmpty()) {
                 if (numStr.count { it.isDigit() } < 2) continue // kuantitas
-                if (isClockTime(numStr)) continue // jam
-                if (isImplausiblePlainNumber(numStr)) continue // rekening/telepon
+                // r1.4.0 (audit input): jam/rekening/tahun/kuantitas bukan nominal.
+                if (isNonMonetaryNumber(lower, numStr, matcher.start(), matcher.end())) continue
             }
             matches += matcher.start() to matcher.end()
         }
@@ -1279,19 +1348,37 @@ object GeminiService {
      * salah ditangani AI.
      */
     internal fun countAmounts(text: String): Int {
-        val matcher = NUMBER_UNIT_PATTERN.matcher(text.lowercase())
+        val lower = text.lowercase()
+        val matcher = NUMBER_UNIT_PATTERN.matcher(lower)
         var count = 0
         while (matcher.find()) {
             val numStr = matcher.group(1) ?: continue
             val unit = matcher.group(2)
             if (unit.isNullOrEmpty()) {
                 if (numStr.count { it.isDigit() } < 2) continue
-                if (isClockTime(numStr)) continue
-                if (isImplausiblePlainNumber(numStr)) continue
+                // r1.4.0 (audit input): jam/rekening/tahun/kuantitas bukan nominal.
+                if (isNonMonetaryNumber(lower, numStr, matcher.start(), matcher.end())) continue
             }
             count++
         }
         return count
+    }
+
+    /**
+     * Deteksi pesan KOREKSI/PEMBATALAN ("eh bukan 15rb, 25rb", "yang tadi
+     * salah, hapus") — SATU sumber kebenaran (audit live 2026-08-14): dipakai
+     * oleh [shouldHeuristicBackup] DAN [offlineHeuristicParse]. Sebelumnya
+     * guard ini hanya ada di jalur AI online; saat AI offline pesan koreksi
+     * lolos ke heuristik dan TERCATAT sebagai transaksi baru (bug ditemukan
+     * live test: "eh bukan makan 45rb maksudnya 50rb" → PENGELUARAN 45rb).
+     * Prinsip: koreksi = perbaikan pesan lama, BUKAN transaksi baru.
+     */
+    internal fun isCorrectionOrCancellation(text: String): Boolean {
+        val lower = text.lowercase()
+        return listOf(
+            "batal", "bukan", "salah", "hapus", "yang tadi", "jangan",
+            "revisi", "maksudnya", "eh ", "eh, ", "eh,", "bukan berarti"
+        ).any { lower.contains(it) }
     }
 
     /**
@@ -1301,11 +1388,9 @@ object GeminiService {
      * 25rb" — AI sengaja tidak mencatat) atau pertanyaan keuangan.
      */
     internal fun shouldHeuristicBackup(text: String): Boolean {
-        val lower = text.lowercase()
-        if (listOf("batal", "bukan", "salah", "hapus", "yang tadi", "jangan", "revisi", "eh ", "eh, ").any { lower.contains(it) }) {
-            return false
-        }
+        if (isCorrectionOrCancellation(text)) return false
         if (isFinancialQuestion(text)) return false
+        val lower = text.lowercase()
         if (lower.contains("ingatkan") || lower.contains("reminder") || lower.contains("rencana")) return false
         return countAmounts(text) >= 2
     }
@@ -1494,6 +1579,16 @@ object GeminiService {
         // Guard false-positive (tuning AI): reminder/rencana BUKAN transaksi —
         // "ingatkan saya beli bakso 15rb" tidak boleh tercatat.
         val textLower = messageText.lowercase()
+        // Guard koreksi/pembatalan (audit live 2026-08-14): pesan koreksi
+        // ("eh bukan makan 45rb maksudnya 50rb") adalah perbaikan transaksi
+        // LAMA, bukan transaksi baru — jangan dicatat. Sebelumnya guard ini
+        // hanya di jalur AI online; kini konsisten di jalur offline.
+        if (isCorrectionOrCancellation(textLower)) {
+            return AiChatParseResult(
+                containsTransaction = false,
+                aiReply = "Pesan ini terlihat sebagai koreksi/pembatalan, jadi tidak dicatat sebagai transaksi baru. Edit pesan sebelumnya jika perlu."
+            )
+        }
         if (textLower.contains("ingatkan") || textLower.contains("reminder") ||
             textLower.contains("tolong catat nanti") || textLower.contains("rencana beli")
         ) {

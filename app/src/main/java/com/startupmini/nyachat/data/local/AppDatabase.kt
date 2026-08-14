@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [ChatMessage::class, FinancialTransaction::class, PendingOp::class],
-    version = 12,
+    version = 13,
     // Skema diekspor ke app/schemas (room.schemaLocation di build.gradle.kts)
     // supaya sejarah migrasi bisa direview di code review.
     exportSchema = true
@@ -159,6 +159,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v12 -> v13 (r1.4.0 — badge campuran): hasMixedTypes di pesan — true jika
+        // pesan berisi PEMASUKAN DAN PENGELUARAN sekaligus. Badge chat menampilkan
+        // warna pelangi sebagai penanda campuran. NULL/false = single-type.
+        // Pesan LAMA di-backfill dari transaksi tersimpan (GROUP BY chatMessageId
+        // dengan lebih dari satu tipe) supaya badge pelangi muncul retroaktif.
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN hasMixedTypes INTEGER")
+                db.execSQL(
+                    "UPDATE chat_messages SET hasMixedTypes = 1 WHERE id IN (" +
+                        "SELECT chatMessageId FROM financial_transactions " +
+                        "GROUP BY chatMessageId HAVING COUNT(DISTINCT type) > 1)"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -166,7 +182,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "keuangan_pasutri_db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .build()
                 INSTANCE = instance
                 instance

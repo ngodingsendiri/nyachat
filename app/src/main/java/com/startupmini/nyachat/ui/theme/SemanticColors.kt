@@ -38,6 +38,10 @@ data class SemanticColors(
     val moneyTagIncomeBg: Color,
     /** Latar badge tag finansial pengeluaran di bubble chat. */
     val moneyTagExpenseBg: Color,
+    /** Latar badge CAMPURAN (pemasukan+pengeluaran) — gradien pelangi pastel. */
+    val moneyTagMixedBg: List<Color>,
+    /** Teks/ikon di atas gradien pelangi badge campuran (mode-aware kontras). */
+    val moneyTagMixedText: Color,
     /** Identitas anggota "istri"/perempuan. */
     val wife: Color,
     /** Identitas anggota "suami"/laki-laki (= biru brand). */
@@ -57,6 +61,8 @@ val LightSemanticColors = SemanticColors(
     aiText = AiBlueText,
     moneyTagIncomeBg = MoneyTagIncomeBg,
     moneyTagExpenseBg = MoneyTagExpenseBg,
+    moneyTagMixedBg = MoneyTagMixedBgLight,
+    moneyTagMixedText = MoneyTagMixedTextLight,
     wife = WifePink,
     husband = HusbandBlue,
     categoryPalette = CategoryColorsLight
@@ -73,6 +79,8 @@ val DarkSemanticColors = SemanticColors(
     aiText = AiBlueDark,
     moneyTagIncomeBg = MoneyTagIncomeDark,
     moneyTagExpenseBg = MoneyTagExpenseDark,
+    moneyTagMixedBg = MoneyTagMixedBgDark,
+    moneyTagMixedText = MoneyTagMixedTextDark,
     wife = WifePinkDark,
     husband = HusbandBlueDark,
     categoryPalette = CategoryColorsDark

@@ -67,6 +67,7 @@ class ConstantsTest {
         assertEquals("detectedCategory", Constants.Fields.DETECTED_CATEGORY)
         assertEquals("detectedType", Constants.Fields.DETECTED_TYPE)
         assertEquals("detectedCount", Constants.Fields.DETECTED_COUNT)
+        assertEquals("hasMixedTypes", Constants.Fields.HAS_MIXED_TYPES)
         assertEquals("replyToSender", Constants.Fields.REPLY_TO_SENDER)
         assertEquals("replyToText", Constants.Fields.REPLY_TO_TEXT)
         assertEquals("editedAt", Constants.Fields.EDITED_AT)
@@ -95,6 +96,7 @@ class ConstantsTest {
             Constants.Fields.TIMESTAMP, Constants.Fields.IS_FINANCIAL,
             Constants.Fields.DETECTED_AMOUNT, Constants.Fields.DETECTED_CATEGORY,
             Constants.Fields.DETECTED_TYPE, Constants.Fields.DETECTED_COUNT,
+            Constants.Fields.HAS_MIXED_TYPES,
             Constants.Fields.REPLY_TO_SENDER, Constants.Fields.REPLY_TO_TEXT,
             Constants.Fields.EDITED_AT, Constants.Fields.TYPE, Constants.Fields.CATEGORY,
             Constants.Fields.AMOUNT, Constants.Fields.DESCRIPTION,
@@ -223,6 +225,7 @@ class ConstantsTest {
         Constants.Fields.TIMESTAMP, Constants.Fields.IS_FINANCIAL,
         Constants.Fields.DETECTED_AMOUNT, Constants.Fields.DETECTED_CATEGORY,
         Constants.Fields.DETECTED_TYPE, Constants.Fields.DETECTED_COUNT,
+        Constants.Fields.HAS_MIXED_TYPES,
         Constants.Fields.REPLY_TO_SENDER, Constants.Fields.REPLY_TO_TEXT,
         Constants.Fields.EDITED_AT, Constants.Fields.TYPE, Constants.Fields.CATEGORY,
         Constants.Fields.AMOUNT, Constants.Fields.DESCRIPTION,
@@ -246,6 +249,7 @@ class ConstantsTest {
             detectedAmount = 15_000.0,
             detectedCategory = "Makanan & Minuman",
             detectedType = "PENGELUARAN",
+            hasMixedTypes = true,
             replyToSender = "Budi",
             replyToText = "ok",
             editedAt = 2_000L,

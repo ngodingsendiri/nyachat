@@ -168,6 +168,76 @@ class TransactionExtractionStressTest {
         assertEquals(20_000.0, r.all[0].amount, 0.001)
     }
 
+    // ===== r1.4.0 (audit input 2026-08-14): angka polos NON-NOMINAL =====
+    // Tahun 19xx/20xx & kuantitas >=2 digit ("12 buku") sebelumnya dianggap
+    // nominal sehingga transaksi ASLI hilang ("bayar spp 2025 sebesar 2jt"
+    // tadinya tercatat Rp 2.025 dan 2jt hilang). Guard isNonMonetaryNumber
+    // menyingkirkannya dari split/ekstraksi/perhitungan nominal.
+
+    @Test
+    fun `tahun dalam konteks spp tidak jadi nominal dan nominal asli tetap`() {
+        val r = parse("bayar spp 2025 sebesar 2jt")
+        assertEquals(1, r.all.size)
+        assertEquals(2_000_000.0, r.all[0].amount, 0.001)
+
+        val r2 = parse("SPP 2025 gelombang 2 sebesar 5jt")
+        assertEquals(1, r2.all.size)
+        assertEquals(5_000_000.0, r2.all[0].amount, 0.001)
+    }
+
+    @Test
+    fun `tahun dengan nominal bersatuan lain di pesan tidak jadi nominal`() {
+        val r = parse("bayar asuransi 2025 2jt")
+        assertEquals(1, r.all.size)
+        assertEquals(2_000_000.0, r.all[0].amount, 0.001)
+    }
+
+    @Test
+    fun `kuantitas dua digit diikuti satuan tidak jadi nominal`() {
+        val r = parse("beli 12 buku seharga 50rb")
+        assertEquals(1, r.all.size)
+        assertEquals(50_000.0, r.all[0].amount, 0.001)
+
+        val r2 = parse("beli 20 pcs kaos 100rb")
+        assertEquals(1, r2.all.size)
+        assertEquals(100_000.0, r2.all[0].amount, 0.001)
+    }
+
+    @Test
+    fun `umur dalam tahun tidak jadi nominal`() {
+        val r = parse("umur 25 tahun, beli hadiah 50rb")
+        assertEquals(1, r.all.size)
+        assertEquals(50_000.0, r.all[0].amount, 0.001)
+        // Angka umur tidak mencemari deskripsi
+        assertEquals(false, r.all[0].description.contains("25"))
+    }
+
+    @Test
+    fun `tahun polos tanpa konteks tetap dianggap nominal`() {
+        // "bayar 2000" = Rp 2.000 (2 ribu), BUKAN tahun — hanya di-skip saat
+        // ada konteks tahun (spp/angkatan) atau nominal bersatuan lain.
+        val r = parse("bayar 2000")
+        assertEquals(1, r.all.size)
+        assertEquals(2_000.0, r.all[0].amount, 0.001)
+    }
+
+    @Test
+    fun `nomor telepon dan rekening panjang tetap tidak jadi nominal`() {
+        val r = parse("transfer ke rekening 1234567890 sebesar 200rb")
+        assertFalse(r.containsTransaction)
+        val r2 = parse("nomor hp 08123456789 isi pulsa 25rb")
+        assertEquals(1, r2.all.size)
+        assertEquals(25_000.0, r2.all[0].amount, 0.001)
+    }
+
+    @Test
+    fun `gaji dengan potongan pajak tercatat dua transaksi terpisah`() {
+        val r = parse("gaji 5jt potong pajak 500rb")
+        assertEquals(2, r.all.size)
+        assertEquals(listOf(5_000_000.0, 500_000.0), r.all.map { it.amount })
+        assertEquals(listOf("PEMASUKAN", "PENGELUARAN"), r.all.map { it.type })
+    }
+
     // ===== Pesan kosong / hanya angka =====
 
     @Test
@@ -205,5 +275,37 @@ class TransactionExtractionStressTest {
     fun `koreksi dengan banyak angka tidak di-backup`() {
         assertFalse(GeminiService.shouldHeuristicBackup("eh bukan 15rb, maksudnya 25rb"))
         assertFalse(GeminiService.shouldHeuristicBackup("yang tadi salah, 30rb bukan 20rb"))
+    }
+
+    // ===== Pesan koreksi/pembatalan TIDAK dicatat di jalur OFFLINE =====
+    // (regression live test 2026-08-14: "eh bukan makan 45rb maksudnya 50rb"
+    // tadinya TERCATAT sebagai PENGELUARAN 45rb saat AI offline — guard
+    // koreksi hanya ada di shouldHeuristicBackup, tidak di offlineHeuristicParse.)
+
+    @Test
+    fun `pesan koreksi tidak tercatat di jalur offline`() {
+        val cases = listOf(
+            "eh bukan makan 45rb maksudnya 50rb",
+            "bukan 15rb, yang benar 25rb",
+            "yang tadi salah, hapus",
+            "batal, salah catat",
+            "revisi dong, 30rb bukan 20rb",
+            "eh salah, uang keluar 3jt bukan 5jt"
+        )
+        cases.forEach { c ->
+            val r = GeminiService.offlineHeuristicParse(c, "Ari")
+            assertFalse("koreksi '$c' tidak boleh dicatat", r.containsTransaction)
+        }
+    }
+
+    @Test
+    fun `pesan koreksi tetap membedakan dari transaksi asli di jalur offline`() {
+        // Transaksi asli tetap terekam; hanya pesan koreksi yang ditolak.
+        val normal = GeminiService.offlineHeuristicParse("beli makan 45rb", "Ari")
+        assertTrue(normal.containsTransaction)
+        assertTrue(normal.all.any { it.amount == 45_000.0 })
+
+        val corrected = GeminiService.offlineHeuristicParse("eh bukan makan 45rb maksudnya 50rb", "Ari")
+        assertFalse(corrected.containsTransaction)
     }
 }

@@ -136,6 +136,9 @@ class FinanceRepository(
                         // r1.4.0 (audit Finance AI): jumlah transaksi — badge
                         // multi-transaksi tidak men-netting pemasukan/pengeluaran.
                         detectedCount = insertedList.size,
+                        // r1.4.0 (badge campuran): penanda pesan berisi pemasukan
+                        // DAN pengeluaran sekaligus → badge pelangi di chat.
+                        hasMixedTypes = hasMixedTypes(insertedList.map { it.type }),
                         // M7: catat asal deteksi (AI atau heuristik offline) untuk
                         // indikator transparansi di badge financisial.
                         detectedBy = aiResult.detectedBy
@@ -187,6 +190,8 @@ class FinanceRepository(
                 detectedType = if (isFinancial) txs.first().type else null,
                 // r1.4.0: jumlah transaksi ikut diperbarui saat edit.
                 detectedCount = if (isFinancial) txs.size else null,
+                // r1.4.0 (badge campuran): penanda pemasukan+pengeluaran sekaligus.
+                hasMixedTypes = if (isFinancial) hasMixedTypes(txs.map { it.type }) else null,
                 // M7: perbarui asal deteksi juga saat edit.
                 detectedBy = if (isFinancial) aiResult.detectedBy else null
             )
@@ -389,7 +394,12 @@ class FinanceRepository(
 
             edited.chatMessageId?.let { messageId ->
                 chatMessageDao.getById(messageId)?.let { msg ->
-                    val updatedMsg = edited.applyFinancialBadgeTo(msg)
+                    // Audit badge campuran (2026-08-14): badge dihitung ulang dari
+                    // SEMUA transaksi pesan ini (bukan hanya transaksi yang diedit)
+                    // — jumlah total, detectedCount, DAN hasMixedTypes ikut konsisten
+                    // kalau user mengubah tipe transaksi di pesan campuran
+                    // (pelangi muncul/hilang sesuai kenyataan).
+                    val updatedMsg = msg.rebuildBadge(transactionDao.getAllByChatMessageId(messageId))
                     chatMessageDao.updateMessage(updatedMsg)
                     FirestoreSyncManager.syncMessage(updatedMsg)
                 }
@@ -442,18 +452,9 @@ class FinanceRepository(
             // menghapus SEMUA badge padahal transaksi lain masih ada).
             transaction.chatMessageId?.let { messageId ->
                 chatMessageDao.getById(messageId)?.let { msg ->
-                    val remaining = transactionDao.getAllByChatMessageId(messageId)
-                    val updated = if (remaining.isEmpty()) {
-                        msg.clearFinancialBadge()
-                    } else {
-                        msg.copy(
-                            isFinancial = true,
-                            detectedAmount = remaining.sumOf { it.amount },
-                            detectedCategory = remaining.first().category,
-                            detectedType = remaining.first().type,
-                            detectedCount = remaining.size
-                        )
-                    }
+                    // Audit badge campuran (2026-08-14): recompute via helper murni
+                    // — kalau tinggal satu tipe, penanda pelangi hilang otomatis.
+                    val updated = msg.rebuildBadge(transactionDao.getAllByChatMessageId(messageId))
                     chatMessageDao.updateMessage(updated)
                     FirestoreSyncManager.syncMessage(updated)
                 }
@@ -492,18 +493,9 @@ class FinanceRepository(
             // semua transaksinya setelah semua insert selesai).
             affectedMessageIds.forEach { mid ->
                 chatMessageDao.getById(mid)?.let { m ->
-                    val all = transactionDao.getAllByChatMessageId(mid)
-                    val updated = if (all.isEmpty()) {
-                        m.clearFinancialBadge()
-                    } else {
-                        m.copy(
-                            isFinancial = true,
-                            detectedAmount = all.sumOf { it.amount },
-                            detectedCategory = all.first().category,
-                            detectedType = all.first().type,
-                            detectedCount = all.size
-                        )
-                    }
+                    // Audit badge campuran (2026-08-14): recompute via helper murni
+                    // dari semua transaksi pesan ini (pelangi ikut konsisten).
+                    val updated = m.rebuildBadge(transactionDao.getAllByChatMessageId(mid))
                     chatMessageDao.updateMessage(updated)
                     FirestoreSyncManager.syncMessage(updated)
                 }
@@ -608,16 +600,25 @@ data class ChatDeleted(
 )
 
 /**
- * Terapkan nilai transaksi terbaru ke badge finansial pesan chat terkait
- * (dipakai saat edit transaksi dari Rekap). Murni — mudah di-unit-test.
+ * Bangun ulang badge finansial pesan dari SEMUA transaksinya (audit badge
+ * campuran 2026-08-14): jumlah total, kategori & tipe transaksi pertama,
+ * detectedCount, dan hasMixedTypes (pelangi) — dihitung dari kenyataan,
+ * bukan dari satu transaksi yang diedit/dihapus. Murni & deterministik.
+ * Daftar kosong → badge dicabut (pesan tetap ada).
  */
-internal fun FinancialTransaction.applyFinancialBadgeTo(message: ChatMessage): ChatMessage =
-    message.copy(
-        isFinancial = true,
-        detectedAmount = amount,
-        detectedCategory = category,
-        detectedType = type
-    )
+internal fun ChatMessage.rebuildBadge(transactions: List<FinancialTransaction>): ChatMessage =
+    if (transactions.isEmpty()) {
+        clearFinancialBadge()
+    } else {
+        copy(
+            isFinancial = true,
+            detectedAmount = transactions.sumOf { it.amount },
+            detectedCategory = transactions.first().category,
+            detectedType = transactions.first().type,
+            detectedCount = transactions.size,
+            hasMixedTypes = hasMixedTypes(transactions.map { it.type })
+        )
+    }
 
 /**
  * Cabut badge finansial dari pesan chat (dipakai saat transaksi dihapus dari Rekap).
@@ -629,8 +630,22 @@ internal fun ChatMessage.clearFinancialBadge(): ChatMessage =
         detectedAmount = null,
         detectedCategory = null,
         detectedType = null,
-        detectedBy = null
+        detectedCount = null,
+        detectedBy = null,
+        hasMixedTypes = null
     )
+
+/**
+ * true jika daftar tipe transaksi berisi PEMASUKAN DAN PENGELUARAN sekaligus
+ * (r1.4.0 badge campuran). Murni & deterministik — mudah di-unit-test.
+ * Daftar kosong / satu tipe → false. Terima Collection<String> supaya bisa
+ * dipakai untuk AiTransaction (hasil parse) maupun FinancialTransaction.
+ */
+internal fun hasMixedTypes(types: Collection<String>): Boolean {
+    val hasIncome = types.any { it == Constants.TransactionTypes.INCOME }
+    val hasExpense = types.any { it == Constants.TransactionTypes.EXPENSE }
+    return hasIncome && hasExpense
+}
 
 /**
  * Guard dedup bubble (Sprint-3): satu cloudId harus tampil sebagai SATU bubble.

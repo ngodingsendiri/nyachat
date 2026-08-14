@@ -55,6 +55,9 @@ data class CloudMessage(
     // r1.4.0 (audit Finance AI): jumlah transaksi dari pesan ini (badge
     // multi-transaksi tanpa netting).
     val detectedCount: Int? = null,
+    // r1.4.0 (badge campuran): true jika pesan berisi PEMASUKAN DAN
+    // PENGELUARAN sekaligus — badge pelangi di chat.
+    val hasMixedTypes: Boolean? = null,
     val replyToSender: String? = null,
     val replyToText: String? = null,
     val editedAt: Long? = null,
@@ -464,6 +467,7 @@ val local = if (existing != null) {
                 detectedCategory = c.detectedCategory,
                 detectedType = c.detectedType,
                 detectedCount = c.detectedCount,
+                hasMixedTypes = c.hasMixedTypes,
                 replyToSender = c.replyToSender,
                 replyToText = c.replyToText,
                 editedAt = c.editedAt,
@@ -488,6 +492,7 @@ val local = if (existing != null) {
                 detectedCategory = c.detectedCategory,
                 detectedType = c.detectedType,
                 detectedCount = c.detectedCount,
+                hasMixedTypes = c.hasMixedTypes,
                 replyToSender = c.replyToSender,
                 replyToText = c.replyToText,
                 editedAt = c.editedAt,
@@ -594,6 +599,7 @@ val local = if (existing != null) {
                     Constants.Fields.DETECTED_CATEGORY to message.detectedCategory,
                     Constants.Fields.DETECTED_TYPE to message.detectedType,
                     Constants.Fields.DETECTED_COUNT to message.detectedCount,
+                    Constants.Fields.HAS_MIXED_TYPES to message.hasMixedTypes,
                     Constants.Fields.REPLY_TO_SENDER to message.replyToSender,
                     Constants.Fields.REPLY_TO_TEXT to message.replyToText,
                     Constants.Fields.EDITED_AT to message.editedAt,

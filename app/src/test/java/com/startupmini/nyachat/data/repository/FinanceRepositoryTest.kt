@@ -14,7 +14,7 @@ import org.junit.Test
  *
  * Helper murni yang dipakai `FinanceRepository` saat transaksi diedit/dihapus dari
  * layar Rekap — diuji langsung tanpa Room/Firestore supaya regresi mudah terdeteksi:
- * - `applyFinancialBadgeTo`: edit transaksi → badge pesan ikut diperbarui (Rekap = chat).
+ * - `rebuildBadge`: recompute badge dari SEMUA transaksi pesan (edit/hapus/restore).
  * - `clearFinancialBadge`: hapus transaksi → badge pesan dicabut (tidak ada badge hantu).
  */
 class FinanceRepositoryTest {
@@ -36,13 +36,15 @@ class FinanceRepositoryTest {
     )
 
     @Test
-    fun applyFinancialBadgeMenyinkronkanNilaiTransaksiKePesan() {
-        val updated = transaction.applyFinancialBadgeTo(message)
+    fun rebuildBadgeMenyinkronkanNilaiTransaksiKePesan() {
+        val updated = message.rebuildBadge(listOf(transaction))
 
         assertTrue(updated.isFinancial)
         assertEquals(20000.0, updated.detectedAmount!!, 0.001)
         assertEquals(Constants.Categories.FOOD, updated.detectedCategory)
         assertEquals(Constants.TransactionTypes.EXPENSE, updated.detectedType)
+        assertEquals(1, updated.detectedCount)
+        assertFalse(updated.hasMixedTypes!!)
         // Field lain pesan tidak berubah.
         assertEquals("beli kopi 20rb", updated.messageText)
         assertEquals("Suami", updated.sender)
@@ -69,13 +71,29 @@ class FinanceRepositoryTest {
     }
 
     @Test
+    fun rebuildBadgeDenganDaftarKosongMencabutBadge() {
+        val financial = message.copy(
+            isFinancial = true,
+            detectedAmount = 20000.0,
+            detectedCount = 2,
+            hasMixedTypes = true
+        )
+        val cleared = financial.rebuildBadge(emptyList())
+
+        assertFalse(cleared.isFinancial)
+        assertNull(cleared.detectedAmount)
+        assertNull(cleared.detectedCount)
+        assertNull(cleared.hasMixedTypes)
+    }
+
+    @Test
     fun badgePemasukanIkutTersinkronDenganTipeDanKategori() {
         val income = transaction.copy(
             type = Constants.TransactionTypes.INCOME,
             category = Constants.Categories.SALARY,
             amount = 5000000.0
         )
-        val updated = income.applyFinancialBadgeTo(message)
+        val updated = message.rebuildBadge(listOf(income))
 
         assertTrue(updated.isFinancial)
         assertEquals(Constants.TransactionTypes.INCOME, updated.detectedType)

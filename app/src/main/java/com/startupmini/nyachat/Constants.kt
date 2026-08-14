@@ -105,6 +105,9 @@ object Constants {
         // r1.4.0 (audit Finance AI): jumlah transaksi yang direkap dari satu pesan
         // (badge multi-transaksi tanpa netting).
         const val DETECTED_COUNT = "detectedCount"
+        // r1.4.0 (badge campuran): true jika pesan berisi PEMASUKAN DAN
+        // PENGELUARAN sekaligus — badge menampilkan warna paduan pelangi.
+        const val HAS_MIXED_TYPES = "hasMixedTypes"
         const val REPLY_TO_SENDER = "replyToSender"
         const val REPLY_TO_TEXT = "replyToText"
         const val EDITED_AT = "editedAt"

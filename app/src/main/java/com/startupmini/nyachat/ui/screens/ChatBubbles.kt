@@ -56,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -562,10 +563,24 @@ private fun FinancialBadge(
 ) {
     val semantic = LocalSemanticColors.current
     val isIncome = message.detectedType == Constants.TransactionTypes.INCOME
+    // r1.4.0 (badge campuran): pesan berisi pemasukan DAN pengeluaran sekaligus
+    // → latar gradien PELANGI (bukan hijau/merah) sebagai penanda campuran.
+    val isMixed = message.hasMixedTypes == true
     // Token semantik sudah mode-aware: di dark mode teks memakai varian terang
     // (audit P0: sebelumnya teks hijau gelap di atas latar hijau gelap ≈1.5:1).
-    val tagBg = if (isIncome) semantic.moneyTagIncomeBg else semantic.moneyTagExpenseBg
-    val tagColor = if (isIncome) semantic.income else semantic.expense
+    val tagBg = when {
+        isMixed -> Color.Transparent // diganti brush gradien di bawah
+        isIncome -> semantic.moneyTagIncomeBg
+        else -> semantic.moneyTagExpenseBg
+    }
+    val tagColor = when {
+        isMixed -> semantic.moneyTagMixedText
+        isIncome -> semantic.income
+        else -> semantic.expense
+    }
+    val tagBrush = if (isMixed) {
+        Brush.horizontalGradient(semantic.moneyTagMixedBg)
+    } else null
 
     // Formatter dibuat SEKALI per nominal (bukan tiap komposisi) — murah &
     // deterministik; satu sumber kebenaran idrCurrencyFormat (audit screens/ 2026-08-14).
@@ -588,16 +603,28 @@ private fun FinancialBadge(
     Surface(
         // Badge ringkas (2026-08-10): padding ramping + indikator sumber jadi
         // ikon kecil (AI teks 2 huruf / ⚡ heuristik) — bukan teks "heuristik".
+        // Badge campuran: warna Surface dibiarkan transparan dan gradien
+        // pelangi digambar lewat Modifier.background(brush) — Surface M3 tidak
+        // punya param brush, jadi background modifier dipasang paling luar.
         shape = RoundedCornerShape(8.dp),
         color = tagBg,
-        modifier = badgeClickModifier.then(modifier).testTag("financial_badge_${message.id}")
+        modifier = badgeClickModifier
+            .then(if (tagBrush != null) Modifier.background(tagBrush, RoundedCornerShape(8.dp)) else Modifier)
+            .then(modifier)
+            .testTag("financial_badge_${message.id}")
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (isIncome) Icons.Rounded.CheckCircle else Icons.Rounded.Receipt,
+                // Badge campuran: ikon pelangi (AutoAwesome) menandakan lebih dari
+                // satu jenis transaksi; single-type tetap CheckCircle/Receipt.
+                imageVector = when {
+                    isMixed -> Icons.Rounded.AutoAwesome
+                    isIncome -> Icons.Rounded.CheckCircle
+                    else -> Icons.Rounded.Receipt
+                },
                 contentDescription = null,
                 tint = tagColor,
                 modifier = Modifier.size(12.dp)

@@ -30,6 +30,28 @@ val MoneyTagExpenseBg  = Color(0xFFFAECEA) // Soft red tint (light)
 val MoneyTagIncomeDark  = Color(0xFF1A4D30) // Deep green for dark mode bg
 val MoneyTagExpenseDark = Color(0xFF4D1A17) // Deep red for dark mode bg
 
+// Badge CAMPURAN (pemasukan+pengeluaran dalam satu pesan, r1.4.0): gradien
+// pelangi pastel mode-aware. Light = pastel lembut dengan teks gelap (kontras
+// AA); Dark = tone dalam dengan teks terang. Urutan: merah→oranye→kuning→
+// hijau→biru→ungu (pelangi), di-render horizontalBrush.
+val MoneyTagMixedBgLight = listOf(
+    Color(0xFFFFE3E0), // merah muda
+    Color(0xFFFFF3D6), // oranye/kuning muda
+    Color(0xFFE8F5E9), // hijau muda
+    Color(0xFFE3F2FD), // biru muda
+    Color(0xFFF3E5F5)  // ungu muda
+)
+val MoneyTagMixedTextLight = Color(0xFF37474F) // Slate gelap — kontras di atas pastel (>=7:1)
+
+val MoneyTagMixedBgDark = listOf(
+    Color(0xFF4A2320), // merah dalam
+    Color(0xFF4A3B1F), // kuning dalam
+    Color(0xFF1E3A2A), // hijau dalam
+    Color(0xFF1B2F4A), // biru dalam
+    Color(0xFF3A2A4A)  // ungu dalam
+)
+val MoneyTagMixedTextDark = Color(0xFFE8EAF6) // Putih kebiruan — kontras di atas tone dalam
+
 // Kategori chart - light mode. Versi DIGELAPKAN dari Google palette supaya ikon &
 // teks persentase kategori tetap AA (>=4.5:1) di atas latar putih — hasil audit
 // WCAG: versi vivid sebelumnya (Yellow 1.67:1, Orange 2.59:1, Cyan 2.41:1) gagal.

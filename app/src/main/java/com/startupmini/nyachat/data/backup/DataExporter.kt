@@ -231,6 +231,7 @@ object DataExporter {
             .putOpt(Constants.Fields.DETECTED_CATEGORY, m.detectedCategory)
             .putOpt(Constants.Fields.DETECTED_TYPE, m.detectedType)
             .putOpt(Constants.Fields.DETECTED_COUNT, m.detectedCount)
+            .putOpt(Constants.Fields.HAS_MIXED_TYPES, m.hasMixedTypes)
             .putOpt("imagePath", m.imagePath)
             .putOpt("filePath", m.filePath)
             .putOpt("fileName", m.fileName)
@@ -273,6 +274,7 @@ object DataExporter {
             detectedCategory = o.optNullableString(Constants.Fields.DETECTED_CATEGORY),
             detectedType = o.optNullableString(Constants.Fields.DETECTED_TYPE),
             detectedCount = o.optNullableInt(Constants.Fields.DETECTED_COUNT),
+            hasMixedTypes = o.optNullableBoolean(Constants.Fields.HAS_MIXED_TYPES),
             // Lampiran lokal tidak ikut di-backup; referensi yang file-nya
             // sudah tidak ada dibuang biar tidak muncul bubble rusak.
             imagePath = imagePath?.takeIf { File(it).exists() },
@@ -301,4 +303,7 @@ object DataExporter {
 
     private fun JSONObject.optNullableInt(key: String): Int? =
         if (has(key) && !isNull(key)) getInt(key) else null
+
+    private fun JSONObject.optNullableBoolean(key: String): Boolean? =
+        if (has(key) && !isNull(key)) getBoolean(key) else null
 }

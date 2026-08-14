@@ -212,4 +212,68 @@ class AppDatabaseMigrationTest {
             rows.close()
         }
     }
+
+    /**
+     * v12→v13 (r1.4.0 — badge campuran): kolom hasMixedTypes (chat) — penanda
+     * pesan berisi pemasukan DAN pengeluaran sekaligus. Kolom harus ada, dan
+     * pesan lama DI-BACKFILL = 1 kalau transaksinya punya 2 tipe berbeda
+     * (GROUP BY chatMessageId HAVING COUNT(DISTINCT type) > 1).
+     */
+    @Test
+    fun migrate12To13_addsHasMixedTypes_withBackfill() {
+        helper.createDatabase(TEST_DB, 12).apply {
+            // Pesan 1: campuran PEMASUKAN+PENGELUARAN → backfill hasMixedTypes=1.
+            execSQL(
+                "INSERT INTO chat_messages (id, sender, messageText, timestamp, isFinancial, detectedCount) " +
+                    "VALUES (1, 'Suami', 'uang masuk 5jt uang keluar 3jt', 1752000000000, 1, 2)"
+            )
+            // Pesan 2: hanya PENGELUARAN → backfill tetap NULL/false.
+            execSQL(
+                "INSERT INTO chat_messages (id, sender, messageText, timestamp, isFinancial, detectedCount) " +
+                    "VALUES (2, 'Istri', 'beli bensin 50rb', 1752000001000, 1, 1)"
+            )
+            execSQL(
+                "INSERT INTO financial_transactions " +
+                    "(id, type, category, amount, description, loggedBy, timestamp, chatMessageId, cloudId) " +
+                    "VALUES (1, 'PEMASUKAN', 'Gaji', 5000000.0, 'Uang masuk', 'Suami', " +
+                    "1752000000000, 1, 'tx-m-1')"
+            )
+            execSQL(
+                "INSERT INTO financial_transactions " +
+                    "(id, type, category, amount, description, loggedBy, timestamp, chatMessageId, cloudId) " +
+                    "VALUES (2, 'PENGELUARAN', 'Lainnya', 3000000.0, 'Uang keluar', 'Suami', " +
+                    "1752000000000, 1, 'tx-m-2')"
+            )
+            execSQL(
+                "INSERT INTO financial_transactions " +
+                    "(id, type, category, amount, description, loggedBy, timestamp, chatMessageId, cloudId) " +
+                    "VALUES (3, 'PENGELUARAN', 'Transportasi', 50000.0, 'Bensin', 'Istri', " +
+                    "1752000001000, 2, 'tx-s-1')"
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DB, 13, true, AppDatabase.MIGRATION_12_13
+        ).use { db ->
+            // Kolom baru ada.
+            val cols = db.query("PRAGMA table_info(chat_messages)")
+            val msgColNames = mutableSetOf<String>()
+            while (cols.moveToNext()) { msgColNames.add(cols.getString(1)) }
+            cols.close()
+            assertTrue("chat_messages.hasMixedTypes hilang", msgColNames.contains("hasMixedTypes"))
+
+            // Backfill: pesan 1 (campuran) = 1, pesan 2 (single) = NULL.
+            val rows = db.query(
+                "SELECT id, hasMixedTypes FROM chat_messages ORDER BY id"
+            )
+            assertTrue(rows.moveToFirst())
+            assertEquals(1, rows.getLong(0))
+            assertEquals(1, rows.getInt(1))
+            assertTrue(rows.moveToNext())
+            assertEquals(2, rows.getLong(0))
+            assertTrue("pesan single-type harus NULL", rows.isNull(1))
+            rows.close()
+        }
+    }
 }

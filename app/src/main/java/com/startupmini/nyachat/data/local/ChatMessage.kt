@@ -23,6 +23,11 @@ data class ChatMessage(
     // >1 = pesan multi-transaksi (badge menampilkan "N transaksi · total" tanpa
     // tanda — tidak men-netting pemasukan & pengeluaran).
     val detectedCount: Int? = null,
+    // r1.4.0 (badge campuran): true jika pesan berisi PEMASUKAN DAN PENGELUARAN
+    // sekaligus (detectedCount >= 2 dengan tipe berbeda). Badge menampilkan
+    // warna paduan pelangi sebagai penanda campuran; null/false = single-type
+    // (badge hijau pemasukan / merah pengeluaran seperti biasa).
+    val hasMixedTypes: Boolean? = null,
     val imagePath: String? = null, // path file foto lampiran (nota belanja) di penyimpanan internal
     val filePath: String? = null, // path file dokumen (PDF/invoice/nota) di penyimpanan internal
     val fileName: String? = null, // nama asli file dokumen untuk ditampilkan di bubble
