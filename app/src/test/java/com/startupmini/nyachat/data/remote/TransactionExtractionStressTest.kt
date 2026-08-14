@@ -32,6 +32,49 @@ class TransactionExtractionStressTest {
         assertEquals(5_650_000.0, r.amount!!, 0.001)
     }
 
+    // ===== Campuran income + expense frasa "uang masuk"/"uang keluar" =====
+    // (audit 2026-08-14: "uang keluar 3jt" dulu HILANG — "keluar" bukan
+    // trigger expense, hanya income "uang masuk" yang terekam)
+
+    @Test
+    fun `uang masuk dan uang keluar dalam satu pesan`() {
+        val r = parse("uang masuk 5jt uang keluar 3jt")
+        assertEquals(2, r.all.size)
+        assertEquals("PEMASUKAN", r.all[0].type)
+        assertEquals(5_000_000.0, r.all[0].amount, 0.001)
+        assertEquals("PENGELUARAN", r.all[1].type)
+        assertEquals(3_000_000.0, r.all[1].amount, 0.001)
+        // Total = jumlah semua, bukan netting.
+        assertEquals(8_000_000.0, r.amount!!, 0.001)
+    }
+
+    @Test
+    fun `uang keluar saja tetap terekam sebagai pengeluaran`() {
+        val r = parse("uang keluar 3jt")
+        assertEquals(1, r.all.size)
+        assertEquals("PENGELUARAN", r.all[0].type)
+        assertEquals(3_000_000.0, r.all[0].amount, 0.001)
+    }
+
+    @Test
+    fun `keluar saja tanpa uang terekam sebagai pengeluaran`() {
+        val r = parse("dapet gaji 5jt keluar 3jt")
+        assertEquals(2, r.all.size)
+        assertEquals(listOf("PEMASUKAN", "PENGELUARAN"), r.all.map { it.type })
+        assertEquals(listOf(5_000_000.0, 3_000_000.0), r.all.map { it.amount })
+    }
+
+    @Test
+    fun `uang masuk dan uang keluar bergantian tiga transaksi`() {
+        val r = parse("uang masuk 5jt uang keluar 3jt uang masuk 2jt")
+        assertEquals(3, r.all.size)
+        assertEquals(
+            listOf("PEMASUKAN", "PENGELUARAN", "PEMASUKAN"),
+            r.all.map { it.type }
+        )
+        assertEquals(listOf(5_000_000.0, 3_000_000.0, 2_000_000.0), r.all.map { it.amount })
+    }
+
     // ===== Nominal dengan spasi / Rp prefix / kata "ribu" =====
 
     @Test

@@ -222,11 +222,49 @@ object GeminiService {
         // ulang heuristik supaya transaksi tidak hilang. Pesan koreksi/pembatalan
         // dan pertanyaan keuangan TIDAK diverifikasi (AI sengaja tidak mencatat).
         return@withContext when {
-            aiParsed != null && aiParsed.containsTransaction -> aiParsed
+            aiParsed != null && aiParsed.containsTransaction -> {
+                // r1.4.0 (audit campuran pemasukan+pengeluaran): AI ONLINE juga bisa
+                // mengembalikan transaksi TIDAK LENGKAP — hanya 1 dari 2+ nominal
+                // (paling sering pada pesan campuran income+expense). Bila jumlah
+                // transaksi AI < jumlah nominal di pesan, lengkapi dengan hasil
+                // heuristik yang BELUM terwakili (anti-duplikat).
+                val aiCount = aiParsed.all.size
+                if (aiCount < countAmounts(messageText) && shouldHeuristicBackup(messageText)) {
+                    mergeAiWithHeuristic(aiParsed, offlineHeuristicParse(messageText, sender))
+                } else {
+                    aiParsed
+                }
+            }
             aiParsed != null && !aiParsed.containsTransaction && shouldHeuristicBackup(messageText) ->
                 offlineHeuristicParse(messageText, sender)
             else -> aiParsed ?: offlineHeuristicParse(messageText, sender)
         }
+    }
+
+    /**
+     * Gabungkan hasil AI yang kurang lengkap dengan transaksi heuristik yang
+     * belum terwakili (r1.4.0 — audit campuran income+expense). Anti-duplikat:
+     * transaksi heuristik dengan tipe+nominal yang SAMA dengan AI tidak
+     * ditambahkan lagi. Hanya melengkapi, tidak pernah mengganti hasil AI.
+     */
+    internal fun mergeAiWithHeuristic(
+        ai: AiChatParseResult,
+        heuristic: AiChatParseResult
+    ): AiChatParseResult {
+        if (!ai.containsTransaction || heuristic.transactions.isEmpty()) return ai
+        val existing = ai.all
+        val additions = heuristic.transactions.filter { h ->
+            existing.none { e ->
+                e.type == h.type &&
+                    kotlin.math.abs(e.amount - h.amount) < 0.5
+            }
+        }
+        if (additions.isEmpty()) return ai
+        val merged = existing + additions
+        return ai.copy(
+            transactions = merged,
+            amount = merged.sumOf { it.amount }
+        )
     }
 
 
@@ -1324,6 +1362,11 @@ object GeminiService {
                 // r1.4.0 (stress test): kata Indonesia umum yang selama ini lolos
                 // dari heuristik ("kopi 15 ribu", "jajan 20rb", "renovasi 75jt",
                 // "upgrade ram 0,5jt") — tanpa trigger, transaksi nyata hilang.
+                // r1.4.0 (audit campuran income+expense): "uang keluar 3jt" /
+                // "keluar 3jt" = frasa pengeluaran umum yang selama ini LOLOS
+                // (hanya income "uang masuk" yang terekam → transaksi hilang).
+                // "uang keluar" dicek dulu supaya tidak tertangkap "uang masuk".
+                textLower.contains("uang keluar") || textLower.contains("keluar") ||
                 textLower.contains("kopi") || textLower.contains("jajan") ||
                 textLower.contains("renovasi") || textLower.contains("upgrade") ||
                 textLower.contains("bensin") || textLower.contains("taxi") ||

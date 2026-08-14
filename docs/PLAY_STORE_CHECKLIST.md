@@ -128,7 +128,7 @@ Formulir "Data safety" di Console → **Kebijakan → Data safety & content rati
 1. Console → **Release → Production → Buat rilis baru** → buat release tracks
    (Production, atau Internal Testing untuk uji awal).
 2. Unggah `app-release.aab`.
-3. Catatan rilis: versi `r1.4.0` – `Auto-connect workspace: login Google otomatis masuk ke workspace milik akun tanpa PIN (1 akun = 1 workspace). Keluar dari Workspace baru di Settings (owner satu-satunya wajib promote dulu). Fix: workspace hilang saat login ulang akun sama. Avatar foto profil di bubble chat + ekstraksi multi-transaksi yang akurat (detectedCount, tanpa netting). 455 test hijau, lint bersih.`
+3. Catatan rilis: versi `r1.4.0` – `Auto-connect workspace: login Google otomatis masuk ke workspace milik akun tanpa PIN (1 akun = 1 workspace). Keluar dari Workspace baru di Settings (owner satu-satunya wajib promote dulu). Fix: workspace hilang saat login ulang akun sama. Avatar foto profil di bubble chat + ekstraksi multi-transaksi yang akurat (detectedCount, tanpa netting). Fix pesan campuran pemasukan+pengeluaran ("uang keluar" tidak hilang lagi, AI tidak lengkap dilengkapi heuristik). 462 test hijau, lint bersih.`
 4. Terbitkan → tunggu review Google (biasanya jam–hari).
 
 ---

@@ -227,4 +227,53 @@ class AiAccuracyTest {
         // Pesan tanpa nominal tidak butuh backup.
         assertFalse(GeminiService.shouldHeuristicBackup("halo apa kabar"))
     }
+
+    // ===== Merge AI + heuristik (audit 2026-08-14: AI online bisa
+    // mengembalikan transaksi TIDAK LENGKAP pada pesan campuran) =====
+
+    @Test
+    fun `merge menambah transaksi campuran yang hilang dari AI`() {
+        // AI hanya mengembalikan PEMASUKAN (uang masuk) — PENGELUARAN (uang
+        // keluar 3jt) hilang dari respons AI.
+        val ai = parse(
+            """{"containsTransaction":true,"transactions":[
+            {"type":"PEMASUKAN","category":"Gaji & Pemasukan","amount":5000000,"description":"uang masuk","date":""}
+            ],"aiReply":"1 transaksi dicatat."}"""
+        )!!
+        val heuristic = GeminiService.offlineHeuristicParse("uang masuk 5jt uang keluar 3jt", "Ari")
+        val merged = GeminiService.mergeAiWithHeuristic(ai, heuristic)
+        assertEquals(2, merged.all.size)
+        assertEquals(listOf("PEMASUKAN", "PENGELUARAN"), merged.all.map { it.type })
+        assertEquals(listOf(5_000_000.0, 3_000_000.0), merged.all.map { it.amount })
+        // Total tetap jumlah semua, bukan netting.
+        assertEquals(8_000_000.0, merged.amount!!, 0.001)
+    }
+
+    @Test
+    fun `merge tidak menduplikat transaksi yang sudah ada di AI`() {
+        val ai = parse(
+            """{"containsTransaction":true,"transactions":[
+            {"type":"PEMASUKAN","category":"Gaji & Pemasukan","amount":5000000,"description":"uang masuk","date":""},
+            {"type":"PENGELUARAN","category":"Lain-lain","amount":3000000,"description":"uang keluar","date":""}
+            ],"aiReply":"2 transaksi dicatat."}"""
+        )!!
+        val heuristic = GeminiService.offlineHeuristicParse("uang masuk 5jt uang keluar 3jt", "Ari")
+        val merged = GeminiService.mergeAiWithHeuristic(ai, heuristic)
+        // AI sudah lengkap 2 → heuristik tidak menambah apa pun.
+        assertEquals(2, merged.all.size)
+        assertEquals(8_000_000.0, merged.amount!!, 0.001)
+    }
+
+    @Test
+    fun `merge mengembalikan AI apa adanya saat heuristik kosong`() {
+        val ai = parse(
+            """{"containsTransaction":true,"transactions":[
+            {"type":"PEMASUKAN","category":"Gaji & Pemasukan","amount":5000000,"description":"gajian","date":""}
+            ],"aiReply":"1 transaksi dicatat."}"""
+        )!!
+        // Heuristik tidak mengenali pesan → tidak ada tambahan, AI tetap utuh.
+        val merged = GeminiService.mergeAiWithHeuristic(ai, GeminiService.offlineHeuristicParse("halo", "Ari"))
+        assertEquals(1, merged.all.size)
+        assertEquals(5_000_000.0, merged.amount!!, 0.001)
+    }
 }

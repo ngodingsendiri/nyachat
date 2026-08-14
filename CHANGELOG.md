@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [r1.4.0] - 2026-08-14 (auto-connect workspace + keluar dari workspace)
 
+### Fixed (audit campuran pemasukan+pengeluaran 2026-08-14)
+- **"uang keluar 3jt" tidak terekam** saat satu pesan berisi pemasukan DAN
+  pengeluaran (mis. "uang masuk 5jt uang keluar 3jt" hanya merekap 1
+  transaksi). Frasa "uang keluar"/"keluar" (frasa pengeluaran umum) tidak
+  ada di trigger heuristik — kini ditambahkan; total pesan campuran tercatat
+  lengkap tanpa netting. +4 regression test.
+- **AI online yang mengembalikan transaksi tidak lengkap** (hanya 1 dari 2+
+  nominal pada pesan campuran) kini dilengkapi heuristik: `mergeAiWithHeuristic`
+  menambah transaksi yang belum terwakili (anti-duplikat by tipe+nominal),
+  total dijumlah penuh. Sebelumnya backup heuristik hanya aktif saat AI
+  bilang "tidak ada transaksi", bukan saat AI kehilangan sebagian. +3 test.
+
 ### Changed (clean-code & lint 2026-08-14)
 - **Konvensi Compose `modifier` diperbaiki** (7 fungsi): parameter `modifier`
   kini di posisi pertama parameter opsional (lint ModifierParameter) di
