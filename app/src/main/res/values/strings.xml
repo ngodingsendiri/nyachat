@@ -63,6 +63,12 @@
     <string name="chat_image_desc">Foto nota</string>
     <string name="chat_image_attached">Foto nota terlampir — AI akan membacanya</string>
     <string name="chat_image_remove">Hapus lampiran</string>
+    <!-- Audit gestur (2026-08-13): menu bubble hanya via tahan lama; akses TalkBack lewat custom action -->
+    <string name="chat_open_menu_desc">Buka menu pesan</string>
+    <!-- Viewer foto full-screen (2026-08-13): sentuh sekali pada bubble gambar -->
+    <string name="image_viewer_close_desc">Tutup</string>
+    <!-- Zoom viewer (2026-08-13): dibaca TalkBack & dipakai uji otomatis -->
+    <string name="image_viewer_zoom_desc">Perbesaran %1$d persen</string>
     <string name="chat_ask_ai_desc">Tanya AI</string>
     <string name="chat_ai_thinking">AI sedang memproses...</string>
     <!-- M7: indikator asal deteksi transaksi di badge finansial pesan -->
@@ -96,6 +102,10 @@
     <string name="expense_label">Pengeluaran</string>
     <string name="donut_total">Total</string>
     <string name="donut_expense">Total Pengeluaran</string>
+    <!-- P2-18: ringkasan aksesibel donut chart (audit res/ 2026-08-14) —
+         sebelumnya prefix & satuan hardcoded di contentDescription. -->
+    <string name="donut_chart_summary">Ringkasan pengeluaran per kategori: %1$s</string>
+    <string name="donut_chart_category_part">%1$s %2$d persen</string>
     <string name="tag_bendahara">💳 Bendahara</string>
     <string name="tag_anggota">👤 Anggota</string>
     <string name="tag_ketua">👑 Ketua</string>

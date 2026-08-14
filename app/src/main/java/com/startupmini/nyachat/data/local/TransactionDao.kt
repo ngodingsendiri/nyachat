@@ -29,9 +29,6 @@ interface TransactionDao {
     @Query("SELECT * FROM financial_transactions WHERE cloudId = :cloudId LIMIT 1")
     suspend fun getByCloudId(cloudId: String): FinancialTransaction?
 
-    @Query("SELECT * FROM financial_transactions WHERE chatMessageId = :chatMessageId LIMIT 1")
-    suspend fun getByChatMessageId(chatMessageId: Long): FinancialTransaction?
-
     // r1.2.4 (tuning AI): SATU pesan bisa memuat BANYAK transaksi (multi-transaksi)
     // — dibutuhkan untuk rebuild transaksi saat pesan diedit.
     @Query("SELECT * FROM financial_transactions WHERE chatMessageId = :chatMessageId")

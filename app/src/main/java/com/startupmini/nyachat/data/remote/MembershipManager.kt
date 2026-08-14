@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -666,13 +665,11 @@ object MembershipManager {
      * Rules mengizinkan tiap anggota meng-update field avatarBytes/avatarVersion
      * miliknya sendiri (lihat firestore.rules). [bytes] null → reset avatar
      * (hapus foto dari cloud, member lain kembali ke inisial berwarna).
-     */
-    /**
-     * Upload foto avatar Diri Sendiri ke Firestore. Return true hanya bila
-     * upload BENAR-BENAR berhasil — pemanggil (MainActivity) memakai ini untuk
-     * menandai pref "terakhir di-upload". Tanpa return ini, upload yang gagal
-     * (mis. offline) ikut ditandai sukses dan tidak pernah dicoba ulang sampai
-     * user mengganti foto lagi (review P1).
+     *
+     * Return true hanya bila upload BENAR-BENAR berhasil — pemanggil
+     * (MainActivity) memakai ini untuk menandai pref "terakhir di-upload".
+     * Tanpa return ini, upload yang gagal (mis. offline) ikut ditandai sukses
+     * dan tidak pernah dicoba ulang sampai user mengganti foto lagi (review P1).
      */
     suspend fun uploadMyAvatar(pin: String, bytes: ByteArray?): Boolean {
         val uid = currentUid() ?: return false

@@ -4,11 +4,9 @@ import androidx.compose.ui.graphics.Color
 
 // Palet aksen yang dipakai di seluruh UI (warna utama mengikuti tema Material 3)
 val WifePink = Color(0xFFD81B60) // Clean Pink
-val WifePinkLight = Color(0xFFFCE4EC)
 val WifePinkDark = Color(0xFFFF80AB)  // Lebih terang untuk dark mode
 
 val HusbandBlue = Color(0xFF0066FF) // Brand blue Nyachat (logo #0066FF)
-val HusbandBlueLight = Color(0xFFE3ECFF) // Tint lembut brand blue
 val HusbandBlueDark = Color(0xFFAAC7FF)  // Lebih terang untuk dark mode
 
 // Identitas AI memakai keluarga brand blue — nilai sengaja MIRROR dari HusbandBlue
@@ -57,6 +55,4 @@ val CategoryColorsDark = listOf(
     Color(0xFFFFD180)  // Muted Orange
 )
 
-val CardBackground = Color(0xFFFFFFFF)
-val TextDark = Color(0xFF202124)
-val TextMuted = Color(0xFF5E6368)
+

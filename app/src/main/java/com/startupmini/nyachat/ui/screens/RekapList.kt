@@ -75,6 +75,7 @@ import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.ui.theme.ExpenseRed
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.theme.Motion
+import com.startupmini.nyachat.ui.util.idrCurrencyFormat
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -425,11 +426,8 @@ fun TransactionItemCard(
 ) {
     val isIncome = transaction.type == Constants.TransactionTypes.INCOME
     val semantic = LocalSemanticColors.current
-    val currencyFormat = remember {
-        NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
-            maximumFractionDigits = 0
-        }
-    }
+    // Formatter Rupiah dari SATU sumber kebenaran (audit screens/ 2026-08-14).
+    val currencyFormat = remember { idrCurrencyFormat() }
 
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.forLanguageTag("id-ID")) }
 

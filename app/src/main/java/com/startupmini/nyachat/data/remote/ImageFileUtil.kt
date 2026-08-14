@@ -146,17 +146,23 @@ object ImageFileUtil {
         val safe = workspace.replace(Regex("[^A-Za-z0-9_-]"), "_")
         runCatching {
             val dir = File(File(context.filesDir, "attachments"), safe)
-            dir.listFiles()?.forEach { file -> runCatching { file.delete() } }
+            // Rekursif + hapus folder-nya juga (konsisten dengan deleteAllAttachments).
+            dir.deleteRecursively()
         }
     }
 
-    /** Hapus semua file lampiran (foto nota & dokumen) di penyimpanan internal. */
+    /**
+     * Hapus semua file lampiran (foto nota & dokumen) di penyimpanan internal.
+     *
+     * Rekursif (audit remote/ 2026-08-13): lampiran kini di-namespace per
+     * workspace (`attachments/<pin>/...`, M9) — `File.delete()` pada direktori
+     * non-kosong gagal diam-diam, jadi clear data / logout sebelumnya
+     * MENINGGALKAN semua foto workspace lama di disk (storage leak + privasi).
+     */
     fun deleteAllAttachments(context: Context) {
         runCatching {
             val dir = File(context.filesDir, "attachments")
-            dir.listFiles()?.forEach { file ->
-                runCatching { file.delete() }
-            }
+            dir.listFiles()?.forEach { file -> file.deleteRecursively() }
         }
     }
 

@@ -280,10 +280,15 @@ internal class TintedSnackbarVisuals(
  * Catatan: material3 1.3.x TIDAK menyediakan swipe-to-dismiss bawaan (hanya
  * tombol dismissAction + aksesibilitas dismiss), jadi gesture diimplementasi
  * manual: drag bebas 2 sumbu (horizontal & vertikal) via pointerInput,
- * disertai fade-out proporsional. Saat dilepas: di atas ambang (jarak 72dp
- * atau kecepatan >= 2000px/s) -> dismiss; di bawah ambang -> animasi kembali
- * ke posisi semula (spring lembut). Tap pada tombol aksi (mis. "Urungkan")
- * tetap berfungsi karena drag hanya aktif setelah melewati touch slop.
+ * disertai fade-out proporsional. Saat dilepas: di atas ambang jarak 72dp
+ * -> dismiss; di bawah ambang -> animasi kembali ke posisi semula (spring
+ * lembut). Tap pada tombol aksi (mis. "Urungkan") tetap berfungsi karena
+ * drag hanya aktif setelah melewati touch slop.
+ *
+ * (audit 2026-08-13) Komentar lama menyebut "atau kecepatan >= 2000px/s"
+ * tapi implementasi TIDAK memeriksa kecepatan — hanya jarak. Komentar
+ * diperbaiki agar jujur; kecepatan sengaja tidak ditambahkan supaya flick
+ * cepat berjarak pendek tidak men-dismiss snackbar secara tak sengaja.
  */
 @Composable
 private fun DismissibleSnackbar(

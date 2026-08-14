@@ -51,7 +51,6 @@ fun SyncLifecycleGlue(
     appPrefs: SharedPreferences,
     driveController: DriveBackupController,
     scope: CoroutineScope,
-    onLogoutCleanup: () -> Unit,
     // Audit keanggotaan: member di-kick/ditolak ≠ logout penuh — cleanup ringan
     // (kembali ke layar PIN, PERTAHANKAN sesi Google & API key BYOK).
     onKickedCleanup: () -> Unit,

@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Star
@@ -30,7 +29,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -118,8 +116,11 @@ fun ManageMembersScreen(
         contentWindowInsets = { WindowInsets(0) },
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Header diseragamkan dengan SettingsSheet (audit 2026-08-12):
-            // padding 20/8 + ikon 20dp + titleMedium — sebelumnya 16/12.
+            // Header diseragamkan penuh dengan SettingsSheet & ProfileAccountSheet
+            // (audit 2026-08-12): padding 20/8 + ikon 20dp + titleMedium, TANPA
+            // tombol X & garis bawah — dua sheet lain tidak memilikinya, sheet
+            // ditutup via swipe/scrim/back. Sebelumnya header ini memakai X +
+            // HorizontalDivider sehingga menyimpang dari pola dasar.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -137,18 +138,9 @@ fun ManageMembersScreen(
                     text = stringResource(R.string.manage_members_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                IconButton(onClick = ::dismiss) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = stringResource(R.string.action_cancel),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
-            HorizontalDivider()
 
             LazyColumn(
                 // Batasi tinggi supaya sheet tidak penuh layar — daftar panjang

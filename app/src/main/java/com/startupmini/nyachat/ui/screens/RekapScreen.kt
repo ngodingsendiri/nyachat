@@ -38,7 +38,7 @@ import com.startupmini.nyachat.data.remote.SyncStatus
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.util.TransactionRow
 import com.startupmini.nyachat.ui.util.buildTransactionRows
-import java.text.NumberFormat
+import com.startupmini.nyachat.ui.util.idrCurrencyFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -113,11 +113,8 @@ fun RekapScreen(
         balance < 0 -> semantic.expense
         else -> MaterialTheme.colorScheme.onSurface
     }
-    val currencyFormat = remember {
-        NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
-            maximumFractionDigits = 0
-        }
-    }
+    // Formatter Rupiah dari SATU sumber kebenaran (audit screens/ 2026-08-14).
+    val currencyFormat = remember { idrCurrencyFormat() }
 
     val filteredTransactions = remember(monthTransactions, state.selectedFilterTab, state.selectedCategory) {
         val byCategory = state.selectedCategory?.let { cat -> monthTransactions.filter { it.category == cat } } ?: monthTransactions

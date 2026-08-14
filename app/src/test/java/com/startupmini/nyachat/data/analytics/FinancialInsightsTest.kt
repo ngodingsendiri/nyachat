@@ -93,6 +93,17 @@ class FinancialInsightsTest {
     }
 
     @Test
+    fun savingsRateTanpaPemasukanAdalahNol() {
+        // Hanya pengeluaran → savingsRate/expenseRate 0 (bukan pembagian nol).
+        val txs = listOf(
+            tx(Constants.TransactionTypes.EXPENSE, 700_000.0, Constants.Categories.FOOD, "Suami", now)
+        )
+        val ins = FinancialInsightsEngine.compute(txs, now)
+        assertEquals(0.0, ins.savingsRate, 0.01)
+        assertEquals(0.0, ins.expenseRate, 0.01)
+    }
+
+    @Test
     fun savingsRateMenghitungSisaKas() {
         val txs = listOf(
             tx(Constants.TransactionTypes.INCOME, 1_000_000.0, Constants.Categories.SALARY, "Suami", now),

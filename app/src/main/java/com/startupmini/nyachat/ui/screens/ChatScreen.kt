@@ -140,6 +140,9 @@ fun ChatScreen(
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var cameraTempUri by remember { mutableStateOf<Uri?>(null) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
+    // Viewer foto full-screen (audit gestur 2026-08-13): sentuh sekali pada
+    // bubble GAMBAR membuka foto diperbesar — bukan menu (menu = tahan lama).
+    var viewerMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -365,6 +368,12 @@ fun ChatScreen(
                                     currentActiveSender = activeSender,
                                     showHeader = row.showSenderHeader,
                                     onLongPress = { menuOpen = true },
+                                    // Sentuh sekali pada bubble GAMBAR → buka viewer
+                                    // full-screen; bubble teks tidak punya aksi tap
+                                    // (menu hanya via tahan lama).
+                                    onOpenImage = if (msg.imagePath != null) {
+                                        { viewerMessage = msg }
+                                    } else null,
                                     onReply = { replyTarget = msg },
                                     onOpenFile = { openAttachedFile(context, msg) },
                                     onOpenTransaction = { onOpenTransaction(msg) },
@@ -702,6 +711,16 @@ fun ChatScreen(
                     }
                 }
             )
+        }
+
+        // Viewer foto full-screen — sentuh sekali pada bubble gambar (bukan menu).
+        viewerMessage?.let { msg ->
+            msg.imagePath?.let { path ->
+                ImageViewerDialog(
+                    imagePath = path,
+                    onDismiss = { viewerMessage = null }
+                )
+            }
         }
     }
 }

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Splash screen dark mode (2026-08-12): menyatu dengan tema app gelap
-         supaya cold start tidak tampil terang lalu "melompat" ke UI gelap. -->
-    <color name="splash_background">#191C1B</color>
+         supaya cold start tidak tampil terang lalu "melompat" ke UI gelap.
+         Audit res/ (2026-08-14): nilai diperbaiki #191C1B (warna onBackground/
+         TEKS) -> #101414 (background gelap asli di Theme.kt) — sebelumnya
+         cold start gelap menyala ke #191C1B lalu melompat ke #101414. -->
+    <color name="splash_background">#101414</color>
 </resources>

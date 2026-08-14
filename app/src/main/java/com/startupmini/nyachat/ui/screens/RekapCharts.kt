@@ -68,8 +68,7 @@ import com.startupmini.nyachat.data.remote.SyncStatus
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.theme.Motion
 import com.startupmini.nyachat.ui.util.formatClockTime
-import java.text.NumberFormat
-import java.util.Locale
+import com.startupmini.nyachat.ui.util.idrCurrencyFormat
 
 // Kartu & grafik analitik layar Rekap — diekstrak dari RekapScreen.kt (TASK-1.2.1)
 // tanpa perubahan behavior. Warna kategori dipilih sesuai tema.
@@ -84,11 +83,8 @@ fun BalanceBannerCard(
     lastSyncedAtMillis: Long? = null
 ) {
     val semantic = LocalSemanticColors.current
-    val currencyFormat = remember {
-        NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
-            maximumFractionDigits = 0
-        }
-    }
+    // Formatter Rupiah dari SATU sumber kebenaran (audit screens/ 2026-08-14).
+    val currencyFormat = remember { idrCurrencyFormat() }
     // Warna balance dihitung per-state di dalam AnimatedContent (audit motion:
     // angka lama pudar dengan warnanya sendiri saat saldo berpindah tanda).
 
@@ -315,11 +311,8 @@ fun CategoryProgressRow(
     onClick: (() -> Unit)? = null
 ) {
     val semantic = LocalSemanticColors.current
-    val currencyFormat = remember {
-        NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
-            maximumFractionDigits = 0
-        }
-    }
+    // Formatter Rupiah dari SATU sumber kebenaran (audit screens/ 2026-08-14).
+    val currencyFormat = remember { idrCurrencyFormat() }
 
     val categoryIcon = getCategoryIcon(category)
     val percentText = (percentage * 100).toInt()
@@ -518,26 +511,27 @@ fun DonutChart(
 ) {
     if (totalExpense <= 0 || categoryTotals.isEmpty()) return
 
-    val currencyFormat = remember {
-        NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
-            maximumFractionDigits = 0
-        }
-    }
+    // Formatter Rupiah dari SATU sumber kebenaran (audit screens/ 2026-08-14).
+    val currencyFormat = remember { idrCurrencyFormat() }
 
     // P2-18: ringkasan aksesibel — pembaca layar membacakan proporsi kategori
-    // daripada "grafik tanpa deskripsi".
+    // daripada "grafik tanpa deskripsi". Teks lewat strings.xml (audit res/ 2026-08-14)
+    // — sebelumnya prefix & satuan "persen" hardcoded di contentDescription.
+    val categoryPartFormat = stringResource(R.string.donut_chart_category_part)
     val chartSummary = categoryTotals
         .joinToString(", ") { (category, amount) ->
             val pct = (amount / totalExpense * 100).toInt()
-            "$category $pct persen"
+            categoryPartFormat.format(category, pct)
         }
+    // Resolve di context composable (blok semantics bukan composable context).
+    val chartSummaryDesc = stringResource(R.string.donut_chart_summary, chartSummary)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(16.dp)
             .semantics {
-                contentDescription = "Ringkasan pengeluaran per kategori: $chartSummary"
+                contentDescription = chartSummaryDesc
             },
         contentAlignment = Alignment.Center
     ) {

@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Perubahan setelah r1.2.0 (belum dirilis — versi tetap r1.2.0/27).
 
 ### Added
+- **Unit test `MainViewModel` — state machine UI (2026-08-13)**: 12 test
+  Robolectric + Room in-memory (di-inject ke singleton `AppDatabase.INSTANCE`
+  via refleksi, tanpa mengubah kode produksi) mengunci perilaku inti:
+  - **Undo hapus**: `deleteTransaction` memicu event `DeleteUndo` →
+    `undoDelete` memulihkan transaksi dengan `cloudId` SAMA (tanpa duplikat
+    cloud); `emitUndo=false` TIDAK mengirim event (anti snackbar ganda);
+    hapus pesan finansial mengembalikan pesan + SEMUA transaksi terkait,
+    undo memulihkan keduanya dengan relasi dijaga ulang & badge dihitung
+    ulang; `addManualTransaction` memicu event snackbar "Tercatat".
+  - **Clear data**: `clearAllData` mengosongkan pesan/transaksi + membuang
+    op sync lama, menyisakan HANYA op `CLEAR_FAMILY` (desain: cloud ikut
+    dibersihkan saat online); `clearLocalData` mengosongkan data lokal +
+    antrian pending (anti-replay workspace).
+  - **AI report**: generate/dismiss audit & bulanan (loading lifecycle benar);
+    **jalur error** — AI service tiruan (`FailingAiService`) yang melempar
+    di `auditReport`/`monthlyAnalysis` → `is*Error=true` + teks dari
+    `R.string.rekap_*_failed` + dismiss tetap berfungsi.
+  - **Testability**: `FinanceAiService` & `MainViewModel` kini `open`;
+    repository dibuat lewat factory `MainViewModel.createRepository()` yang
+    bisa di-override — selaras dengan niat P3-1 ("dependency injectable")
+    yang sebelumnya tidak mungkin karena class `final`.
 - **Reduced-motion (audit motion 2026-08-12)**: hormati pengaturan sistem
   "Hapus animasi" (`ANIMATOR_DURATION_SCALE=0`) — `Motion.reducedMotion`
   di-baca sekali dari `MainActivity.onCreate` (`Motion.applySystemSetting`);
@@ -51,6 +72,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   murni yang nyaris seterang surface saat di-blend).
 
 ### Fixed
+- **Komentar `DismissibleSnackbar` menyesatkan (2026-08-13)**: klaim "dismiss
+  saat jarak ≥72dp ATAU kecepatan ≥2000px/s" — implementasi hanya memeriksa
+  jarak (tidak ada perhitungan kecepatan). Komentar dikoreksi agar jujur +
+  catatan audit: kecepatan sengaja TIDAK ditambahkan supaya flick cepat
+  berjarak pendek tidak men-dismiss snackbar secara tak sengaja. Perilaku
+  tidak berubah (ditemukan saat audit `MainOverlays.kt`).
+- **Konstanta `Fields` pesan/transaksi mati di-wire + test keselarasan DTO
+  (2026-08-13)**: 17 konstanta `Constants.Fields` (cloudId, sender, type, dll.)
+  dideklarasikan tapi TIDAK pernah direferensikan — `FirestoreSyncManager` &
+  `DataExporter` menulis nama field sebagai literal mentah, jadi konstanta
+  mengkhianati tujuannya (rename tidak merambat → risiko divergence diam-diam
+  yang bisa merusak data lintas perangkat). Kini literal diganti
+  `Constants.Fields.*` di kedua jalur (write map pesan/transaksi, enqueue &
+  parse antrian delete, serialisasi & parse JSON backup/pending op) + 3
+  konstanta baru (`detectedBy`, `serverUpdatedAt`, `sourceMessageCloudId`).
+  Nilai identik dengan literal lama → format cloud/backup TIDAK berubah
+  (kompatibel data lama). Test baru `ConstantsTest` (12 test): mengunci kontrak
+  nilai semua Fields/koleksi/peran/pref/kategori, dan memverifikasi keselarasan
+  dengan DTO lewat `CustomClassMapper` (jalur serialisasi Firestore yang sama
+  dengan `toObject()`) — setiap field `CloudMessage`/`CloudTransaction` yang
+  diserialisasi harus punya konstanta bernilai sama, plus anotasi
+  `@PropertyName("isFinancial")` konsisten dengan `Constants.Fields.IS_FINANCIAL`
+  (regresi BUG-1).
 - **Motion Kelola Anggota & Pengaturan diseragamkan (2026-08-12)**:
   - **Kelola Anggota** diubah dari Dialog full-screen (muncul fade/zoom) menjadi
     **ModalBottomSheet** — muncul slide dari bawah, shape 24dp,
@@ -160,6 +204,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`join_${uid}` / `member_${uid}`) — unik di seluruh list.
 
 ### Changed
+- **Dokumentasi proyek (2026-08-13)**: peta proyek baru di `docs/` —
+  `STRUCTURE.md` (pohon proyek + statistik), `NAVIGATION.md` (peta
+  layar/sheet/dialog + pola konsisten), `DATA_FLOW.md` (alur offline-first
+  Room → Firestore → PendingOp); `DEVELOPER.md` menautkan ketiganya di seksi
+  "Peta Proyek" — orientasi repo cepat tanpa membaca kode.
 - **Audit & rapikan SEMUA animasi (2026-08-11)**: satu motion language
   terpusat di `ui/theme/Motion.kt` — QUICK 150ms (dismiss), FAST 200ms
   (composer/toggle), BASE 250ms (chip/navbar/snackbar), NAV 300ms
@@ -208,6 +257,313 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   diset otomatis (tanpa ini deploy berakhir non-zero walau fungsi sukses),
   catatan WIF (resource wajib di proyek `nyachat-in`, bukan
   `ngodingsendiri-note`) + trigger deploy ulang.
+
+### Added
+- **Viewer foto full-screen + zoom/pan (2026-08-13, permintaan user)**: sentuh
+  SEKALI pada bubble gambar membuka foto diperbesar (bukan menu). Gestur gaya
+  galeri: **pinch** zoom 1×–5× (titik di bawah jari stabil), **geser** pan
+  (di-clamp ke tepi konten, otomatis pusat saat 1×), **double-tap** toggle
+  2.5×/1×, **tap / ✕** tutup. Dekode 2200px (lebih tajam dari bubble 1100px)
+  via `BitmapCache`. Logika transform diekstrak ke fungsi murni
+  `applyZoomPan` + persentase zoom di-announce TalkBack (`stateDescription`).
+  +10 unit test `ImageViewerDialogTest` (pinch nyata via `performTouchInput`,
+  double-tap, tap, clamp/centroid-stabil).
+- **Uji otomatis gestur bubble untuk CI (2026-08-13)**: `ChatBubbleGestureTest`
+  (6 test — tap vs tahan lama bubble teks/gambar, geser balas, badge) &
+  `ChatScreenGestureTest` (4 test integrasi — menu Dropdown muncul hanya via
+  tahan lama, tap gambar buka viewer) — Robolectric, jalan di step
+  `testDebugUnitTest` workflow `build-apk.yml`.
+
+### Fixed
+- **Gestur bubble chat (2026-08-13, permintaan user)**: sentuh SEKALI tidak
+  lagi membuka menu — menu hanya lewat **TAHAN LAMA**; bubble gambar: sentuh
+  sekali membuka viewer foto, tahan lama menu. TalkBack/keyboard tetap punya
+  jalur ke menu lewat custom accessibility action "Buka menu pesan".
+  Sebelumnya `combinedClickable(onClick = menu)` membuat tap = menu dan tidak
+  ada cara memperbesar foto lampiran.
+- **Audit lapisan `local/` — Room & penyimpanan lokal (2026-08-13)**:
+  - **Dead code dihapus**: `TransactionDao.getByChatMessageId` (LIMIT 1 —
+    tanpa pemanggil; sistem sudah multi-transaksi via `getAllByChatMessageId`)
+    & `AvatarStore.saveAvatar`/`getAvatarPath`/`deleteAvatar`/`keyHash`/`fileFor`
+    (sistem avatar sudah pindah ke `custom.jpg` + member cache — 0 pemanggil
+    eksternal; risiko collision `String.hashCode()` ikut hilang);
+  - **Keystore off main thread**: 4 tulis `SecureStorage` sinkron (logout,
+    set PIN, API key ×2) → varian `*Async` via `scope.launch`; anotasi
+    `@MainThread` yang basi dihapus — hardware-backed key tidak lagi memblokir
+    main thread, konsisten dengan semua `getSecret` yang sudah async;
+  - `cacheGooglePhoto` kini **sample-decode** (bounds → `inSampleSize`,
+    sebelumnya decode penuh 12MP+ ≈ 48MB alokasi transien per foto);
+  - Cache avatar anggota dibersihkan: versi lama `member_<uid>_*` dihapus
+    saat versi baru disimpan (sebelumnya menumpuk selamanya).
+- **Audit lapisan `remote/` — Firebase & layanan eksternal (2026-08-13)**:
+  - 🔴 **BUG: `deleteAllAttachments` tidak rekursif** — lampiran per-workspace
+    (`attachments/<pin>/`, M9) tidak pernah terhapus saat clear data/logout
+    (`File.delete()` pada direktori non-kosong gagal diam-diam) → storage
+    leak + sisa privasi di disk. Kini `deleteRecursively()` +
+    `deleteWorkspaceAttachments` ikut rekursif + **3 test regresi**
+    (`ImageFileUtilAttachmentCleanupTest`);
+  - **Repo GitHub diduplikasi** — `Constants.Links.REPO` (URL penuh) vs
+    `GitHubUpdateChecker.REPO` (path literal) → rename tidak merambat, update
+    checker 404 diam-diam. Kini `Constants.Links.GITHUB_OWNER_REPO` satu
+    sumber kebenaran; `REPO` & `API_URL` diturunkan dari sana + asersi
+    konsistensi di `ConstantsTest`;
+  - KDoc ganda `MembershipManager.uploadMyAvatar` digabung; 2 import mati
+    dihapus (`Job`, `withContext`);
+  - Test flaky `MainViewModelTest` (race badge: state dibaca sebelum badge
+    mendarat) diperbaiki dengan `awaitTrue` — deterministik.
+- **Audit lapisan `backup/` — Drive terenkripsi + CSV (2026-08-13)**:
+  `DriveBackupController.showMessage()` = dead code (setter publik tanpa satu
+  pun pemanggil — produksi menulis `_message.value` langsung, UI hanya
+  meng-koleksi flow) dihapus + komentar audit.
+- **Tutup celah audit lapisan test (2026-08-13)**:
+  - **`RekapScreenStateTest` baru (+6 test, JUnit murni)**: default state,
+    `Saver` round-trip (tab/bulan/kategori bertahan), `pendingDelete`
+    sengaja TIDAK disimpan (dialog transien), validasi restore (tab di luar
+    0..2 ditolak, bulan invalid ditolak, kategori kosong ditolak, list
+    kosong/pendek tidak crash dan isi yang hilang jadi default). Pemanggilan
+    `Saver.save` memakai `Saver.run { scope.save(...) }` — bentuk member
+    extension yang valid (receiver `SaverScope` wajib).
+  - **Asersi lemah diganti di `ImageFileUtilAttachmentCleanupTest`**:
+    `assertTrue(true)` (test "no-crash") diganti asersi bermakna — delete
+    tanpa lampiran tidak membuat folder baru di disk, dan +1 test baru:
+    workspace blank → early return tanpa efek samping.
+- **Audit lapisan test `data/` — paritas kategori (2026-08-14)**:
+  - **Celah `ConstantsTest` ditutup**: `Constants.Categories` punya 18
+    konstanta (12 pengeluaran + 6 pemasukan) tapi test hanya mengunci 4 inti
+    + cek duplikat — konstanta baru yang lupa dimasukkan ke
+    `EXPENSE_ALL`/`INCOME_ALL`/`ALL` akan hilang dari dropdown UI tanpa
+    terdeteksi. Kini ada paritas dua arah: `ALL.toSet()` harus sama persis
+    dengan ke-18 konstanta, plus `EXPENSE_ALL ∩ INCOME_ALL` kosong (tidak
+    boleh bocor antar jenis). +1 test (`setiap konstanta kategori tercakup di
+    daftar ALL`);
+  - Diaudit & dinyatakan sehat: seluruh 22 file test `data/` (3.773+ baris,
+    nol TODO/`!!`) — semua punya asersi bermakna, 3 `assertEquals(true, x)`
+    adalah gaya (nilai boolean nyata), bukan `assertTrue(true)` kosong;
+    `ConstantsTest` tetap mengunci 32/32 Fields + DTO CloudMessage/
+    CloudTransaction via `CustomClassMapper` + `@PropertyName isFinancial`
+    anti-BUG-1.
+- **Audit lapisan test `ui/` — dinyatakan sehat (2026-08-14)**:
+  13 class / 93 test (1.853 baris), nol TODO/`!!`, nol `@Ignore`/`assumeTrue`
+  — semua ter-execute penuh di CI. `MainViewModelTest` (13) meng-cover state
+  machine undo hapus (cloudId dipertahankan, relasi pesan→transaksi dijaga
+  ulang, emitUndo=false anti-snackbar-ganda), clear data (hanya op
+  CLEAR_FAMILY tersisa saat offline — desain), AI report loading/error/dismiss
+  (teks error dari resource, bukan literal), indikator AI berpikir via
+  `DelayedAiService` (parse 800ms). `AppSnapshotTest` (11 golden Roborazzi
+  via `captureRoboImage` + `mainClock.advanceTimeBy` untuk settle animasi)
+  benar-benar diverifikasi di CI runner (verify default, record opsional).
+  `AiThinkingCounterTest` uji thread-safety 8 thread; `MotionReducedMotionTest`
+  snap 0ms + `springOrSnap` → `TweenSpec`; `DateLabelsTest` 10 murni;
+  `RekapScreenStateTest` Saver round-trip; gesture test tap vs tahan vs swipe.
+  Nol asersi lemah — `assertTrue(x == 0)` di AiThinkingCounterTest hanyalah
+  gaya, bukan `assertTrue(true)` kosong.
+- **Audit root proyek (2026-08-14)**:
+  - **Fallback versi usang di `app/build.gradle.kts`** — `appVersion`/`appVersionCode`
+    fallback literal `r1.1.3`/`26` padahal `gradle.properties` (satu sumber
+    kebenaran L11) menetapkan `r1.2.0`/`27`; workflow build-apk.yml bahkan
+    mendokumentasikan fallback ini sebagai jalur kompatibilitas → build diam-diam
+    bisa memakai versi usang jika property hilang. Fallback disinkronkan ke
+    `r1.2.0`/`27` + komentar "wajib sinkron dengan gradle.properties";
+  - **Bug laten `BuildConfig.TEMPLATE = ;`** — Secrets plugin mem-parse baris
+    `[TEMPLATE]` di `.env.example` sebagai key bernilai kosong → error kompilasi
+    `illegal start of expression` saat BuildConfig di-regenerate. Baris section
+    header dihapus (muncul setelah edit build.gradle.kts memicu regenerasi);
+  - **`.env.example` menyesatkan** — klaim AI Studio "key will be packaged in the
+    APK" kontradiktif dengan desain BYOK (app/build.gradle.kts: "TIDAK ada API
+    key AI yang dikompilasi ke APK"). Komentar ditulis ulang jujur: placeholder
+    `MY_GEMINI_API_KEY` sengaja dipertahankan (di-skip GeminiService);
+  - **`securityCrypto` dead di version catalog** — entry version masih ada
+    padahal library `androidx-security-crypto` sudah di-comment (migrasi ke
+    SecureStorage/Keystore). Dihapus;
+  - Komentar workflow `build-apk.yml` "tag v*" dikoreksi jadi "tag r*" (aktual).
+  - Diaudit & dinyatakan sehat: `firestore.rules` (188 baris, aturan lengkap —
+    anti-squatting PIN, rate-limit join request sisi server, schema validation
+    messages/transactions, guard self-demote owner), lint rules lulus tanpa
+    warning, `functions/index.js` (relay AI + FCM multicast + cleanup token
+    invalid, nol TODO), `deploy-functions.yml` (WIF tanpa kunci JSON),
+    `settings.gradle.kts`/`gradle.properties`/`roborazzi.properties`/
+    `.gitignore`/`debug.keystore` (di-commit sengaja, SHA-1 stabil).
+- **Audit root proyek pass 2 — dokumen & konsistensi (2026-08-14)**:
+  - **`docs/STRUCTURE.md` usang**: ±25.065 → **±25.094** (19.170 produksi +
+    5.924 test — selisih 29 baris dari test baru sesi ini);
+  - **Contoh override menyesatkan di `docs/DEVELOPER.md`**:
+    `-PappVersionCode=26` menurunkan versionCode (26 < 27 aktual) — Play Store
+    menolak versionCode menurun. Contoh diubah jadi `28` + catatan "harus selalu
+    naik";
+  - Diaudit & dinyatakan sehat: `README.md` (badge versi r1.2.0 sinkron dgn
+    gradle.properties), `PRIVACY_POLICY.md` (113 baris), `PLAY_STORE_CHECKLIST.md`
+    (r1.2.0/27, secrets keystore, smoke test M7/M9), `backup-encryption.md`
+    (600k iterasi PBKDF2 / cap 10.000.000 — persis `BackupCrypto.kt`),
+    `package-lock.json` sinkron dgn `package.json`, eslint v10.8.0 jalan,
+    `functions/package-lock.json` ada (dipakai `cache-dependency-path` workflow),
+    `.firebaserc` (`nyachat-in`) konsisten dgn `deploy-functions.yml`.
+- **Audit alur data lintas-lapisan (2026-08-14)**:
+  - **Diagram "Alur Data Singkat" di `docs/STRUCTURE.md` tidak akurat**: backup
+    digambar di bawah `FinanceRepository`, padahal aktualnya backup adalah jalur
+    TERPISAH — `MainActivity` → `DriveBackupController` → `DataExporter`/
+    `BackupCrypto` → `DriveBackupManager`, dengan JSON dari
+    `MainViewModel.buildBackupJson` (hanya membaca state ViewModel) dan restore
+    menulis lewat `repository.restoreBackup()`. Diagram dikoreksi;
+  - Alur diverifikasi & dinyatakan sehat: `FinanceRepository` benar satu gerbang
+    (DAO hanya diakses di `createRepository` wiring; Firestore/Drive terkapsulasi
+    di `data/`), AI via `FinanceAiService` → `GeminiService` BYOK (kaskade
+    OpenRouter/relay — audit remote/), sync `SyncLifecycle:90` → `startCloudSync`
+    → `FirestoreSyncManager.start`, restore `restoreParsedBackup` →
+    `repository.restoreBackup` (ganti data + `deleteAbsentFromBackup`), dan
+    konsistensi 2 arah pesan⇄transaksi (badge multi-tx, undo dengan cloudId sama).
+- **Audit lapisan `analytics/` — Rekap & insight (2026-08-13)**:
+  - **Dead code dihapus**: `WeeklyInsights.groupByWeek` + `WeeklySummary`
+    (data class + `savingsRate`) — API publik tanpa SATU pun pemanggil
+    produksi (hanya test; konsumen nyata hanya `generateInsights` via
+    `MainViewModel.weeklyInsights`). 2 test terkait ikut dihapus; guard
+    pembagian-nol `savingsRate` (tanpa pemasukan → 0) dipindah ke
+    `FinancialInsightsTest` agar formula tetap ter-cover;
+  - `WeeklyInsights.weekStartOf` dijadikan `internal` (hanya dipakai internal
+    `generateInsights` + test) — konsisten dengan `formatRupiah`;
+  - Diaudit & dinyatakan sehat: `FinancialInsightsEngine` (compute/
+    describeForPrompt/trendText — dipakai GeminiService sebagai konteks
+    prompt AI + laporan offline), `MonthlyAnalytics` (groupByMonth →
+    GeminiService:484, topExpenseCategory → GeminiService chained, isSameMonth
+    → RekapScreen ×2), `WeeklyInsights.generateInsights` (MainViewModel).
+    Semua fungsi murni, waktu di-inject, nol TODO/`!!`.
+- **Audit lapisan `repository/` — FinanceRepository (2026-08-14)**:
+  - **Return menyesatkan dihapus**: `deleteTransaction` mengembalikan
+    `FinancialTransaction?` yang TAK PERNAH null dan tidak dipakai satu pun
+    pemanggil (UNDO dibangun dari argumen di MainViewModel, bukan dari return)
+    → dijadikan `Unit` + KDoc diperbaiki;
+  - **Kontradiksi KDoc dibereskan**: FQN `GeminiService.isFinancialQuestion` /
+    `isAiAvailable` di FinanceRepository bertentangan dengan KDoc file "semua
+    panggilan lewat FinanceAiService" → kedua gate dipindah sebagai delegasi
+    `open fun` di `FinanceAiService` (konsisten dengan arsitektur P3-1, bisa
+    di-mock di test);
+  - **Literal duplikat dihapus**: `"mode AI sedang offline"` diduplikasi
+    (GeminiService balasan offline vs FinanceRepository deteksi fallback) →
+    `GeminiService.OFFLINE_REPLY_MARKER` SATU sumber kebenaran + helper
+    `isOfflineFallbackReply` (diakses repository lewat FinanceAiService).
+    `offlineChatReply` dijadikan `internal` agar marker ter-uji. **+2 test**
+    di `AiTuningAuditTest` (deteksi marker + marker terkandung dalam balasan
+    offline asli);
+  - **Efisiensi `restoreDeleted`**: badge pesan multi-transaksi dihitung ulang
+    + disinkronkan N× (per transaksi) → SEKALI per pesan setelah semua insert
+    (`linkedSetOf` id pesan terdampak) — hasil identik, N× write cloud dihemat.
+- **Audit lapisan `ui/` — state & wiring (2026-08-14)**:
+  - **Inkonsistensi indikator AI diperbaiki**: `MainViewModel.editMessage`
+    menjalankan parse AI ulang di repository (termasuk foto nota) TAPI tanpa
+    `setAiThinking` — berbeda dari `sendMessage`/`askAiInChat`. Indikator
+    "AI berpikir" kini menyala selama edit dan mati di `finally` (counter
+    tetap aman untuk kirim beruntun). **+1 test regresi** di
+    `MainViewModelTest` (AI service dengan delay 800ms: indikator menyala
+    saat edit berjalan → mati setelah selesai, tidak stuck);
+  - Diaudit & dinyatakan sehat: `SyncLifecycle` (start/stop sync, BYOK,
+    update throttle 1 jam, auto-backup 24 jam, pause/resume listener
+    P2-12, re-check keanggotaan A3), `MainDialogController` (17 state —
+    SEMUA terpakai), `MainCallbacks` (wiring Chat/Rekap, lookup transaksi
+    O(1) via Map M8), `MainAppDialogs` & `MainOverlays` (state dialog
+    global), `AiThinkingCounter` (AtomicInteger, di-test), `Motion`
+    (semua durasi dipakai; `SOFT_ELASTIC_DAMPING` internal `elastic`),
+    `AvatarImage` (warna deterministik, WCAG AA), `Theme` (dark/light +
+    SemanticColors). Nol dead code, nol TODO/`!!`.
+- **Audit ulang lapisan `ui/` — pass 2 (2026-08-14)**:
+  - **Dead code dihapus**: 5 konstanta di `theme/Color.kt` tanpa satu pun
+    pemakai — `CardBackground`, `TextDark`, `TextMuted` (peninggalan era
+    sebelum SemanticColors P2.5) + `WifePinkLight`, `HusbandBlueLight`
+    (tint tak pernah dipakai — SemanticColors hanya memakai varian
+    utama/dark);
+  - **Parameter mati dihapus**: `SyncLifecycleGlue.onLogoutCleanup` dikirim
+    dari MainActivity (650) tapi TIDAK PERNAH dipanggil di body glue —
+    cleanup logout sesungguhnya lewat `MainAppDialogs.onPerformLogoutCleanup`
+    (970). Parameter + argumen dihapus di kedua sisi;
+  - Diaudit & dinyatakan sehat: `theme/Type.kt` (Plus Jakarta Sans via
+    Downloadable Fonts, fallback font sistem tanpa crash), `theme/Color.kt`
+    (23 konstanta tersisa semua terpakai), `theme/SemanticColors.kt`
+    (token semantik mode-aware — akses terpusat, bukan luminance manual),
+    `SyncLifecycle` (5 parameter tersisa semua terpakai).
+- **Audit ulang `data/` — pass lintas-lapisan (2026-08-14)**:
+  - **Dead column didokumentasikan**: `ChatMessage.sourceMessageCloudId`
+    tidak pernah di-set di runtime (mapping cloud FirestoreSyncManager:454/478
+    tidak menyertakannya; hanya versi TRANSaksi yang dipakai cross-device
+    lookup). Kolom dipertahankan demi kompatibilitas schema v8→v9 + backup
+    JSON lama — KDoc di entity diperjelas ("senjaja tidak diisi", jangan
+    dihapus tanpa migrasi v12);
+  - Diaudit & dinyatakan sehat: `AppDatabase` (10 migrasi berantai,
+    semuanya cocok dengan entity — diverifikasi kolom per kolom;
+    MIGRATION_7_8 backup staging duplikat sebelum delete destruktif L1),
+    `MigrationTest` (jalur v8→10, 9→10, 10→11 dengan skema historis
+    app/schemas — v1–7 tidak punya skema historis, keputusan desain),
+    DTO cloud (CloudMessage @get:PropertyName anti-BUG-1, serverUpdatedAt
+    Timestamp anti-crash, lampiran sengaja tidak sync), `PendingOp`
+    (antrian offline + pembersihan saat ganti workspace),
+    `ConstantsTest` (Fields/Collections/Links terkunci),
+    `SecureStorage`/`AvatarStore`/`ImageFileUtil` (sehat dari audit local/).
+    Nol TODO/`!!`, nol dead code baru.
+- **Audit `AndroidManifest.xml` (2026-08-14)**:
+  - **Namespace `tools` tak terpakai dihapus** — dideklarasikan tapi tidak
+    ada satu pun atribut `tools:` di manifest (hiasan);
+  - Diaudit & dinyatakan sehat: 3 permission tepat sasaran (INTERNET,
+    POST_NOTIFICATIONS runtime — dipakai MainActivity:227, ACCESS_NETWORK_STATE
+    normal BUG-06), `REQUEST_INSTALL_PACKAGES` hanya di debug manifest
+    (menghindari review Play sideload), 3 komponen semua `exported` eksplisit
+    (launcher true, FCM service & FileProvider false + grantUriPermissions),
+    `allowBackup=false` (Keystore PIN/API key tidak boleh ke backup Android),
+    nol cleartext HTTP (semua HTTPS — tanpa networkSecurityConfig),
+    FileProvider authority cocok dengan 4 pemakaian, FCM service ter-deklarasi
+    dengan intent-filter MESSAGING_EVENT, debug manifest terpisah.
+- **Audit lapisan `screens/` — 24 layar & komponen (2026-08-14)**:
+  - **Duplikasi formatter Rupiah dihapus**: pola identik
+    `NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID"))` +
+    `maximumFractionDigits = 0` diduplikasi di **7 tempat** (RekapCharts ×3,
+    RekapList, RekapScreen, ChatBubbles, MainActivity) — kelas masalah sama
+    dengan temuan Fields/REPO: mengubah format berarti mengedit 7 file dan
+    mudah melenceng antar layar → `ui/util/CurrencyFormat.kt`
+    `idrCurrencyFormat()` SATU sumber kebenaran (instance baru tiap panggilan
+    — NumberFormat tidak thread-safe, pola `remember{}` tetap benar).
+    **+2 test** di `AmountFormatterTest` (format id-ID tanpa desimal +
+    instance baru per panggilan);
+  - Diaudit & dinyatakan sehat: `RekapCharts` (donut anti-sweep negatif,
+    WCAG dot sinkron, P2-18 ringkasan aksesibel), `RekapList` (swipe
+    Edit/Hapus + menu ⋮ untuk keyboard/TalkBack, filter sticky P1.3),
+    `RekapScreen` (state di-hoist, tren MoM, stepMonth anti-masa-depan),
+    `MembershipGateScreen` (scrim F2, terminal REJECTED/PIN_OWNED tanpa
+    retry), `MembershipGateLogic` & `PinAttemptLimiter` (murni, di-test),
+    `BackupDialogs` (badge 🔒 enkripsi, passphrase ≥8), `MainDialogs`
+    (F3 fokus API key, L7 ClipData berlabel), `AiReportCard` (tombol
+    AiBlue fixed AA 4.65:1), `MainTopBar` (avatar bertumpuk foto/inisial,
+    inisial adaptif WCAG), `MainNavigationBar` (keyboard hide BUG-02),
+    `GlowingBackground`, `StartupScreens`, `ImageViewerDialog` (pinch-zoom/
+    pan/double-tap — di-test), `ChatBubbles`/`ChatScreen`/`ChatInput`
+    (gestur tap/tahan/swipe — di-test). Nol dead code (8 fungsi publik
+    semua terpakai), nol TODO/`!!`.
+- **Audit lapisan `res/` — sumber daya (2026-08-14)**:
+  - **Bug splash dark diperbaiki**: `values-night/colors.xml`
+    `splash_background` = `#191C1B` — padahal itu warna `onBackground`/
+    TEKS di dark theme, BUKAN background gelap asli (`#101414` di
+    Theme.kt). Akibat: cold start mode gelap tampil #191C1B lalu
+    "melompat" ke #101414 saat UI muncul. Dikoreksi ke `#101414`
+    (konsisten dengan light: `#FBFDF9` = background light persis);
+  - **Hardcoded contentDescription dibersihkan**: DonutChart (P2-18)
+    memakai prefix "Ringkasan pengeluaran per kategori:" & satuan "persen"
+    hardcoded di Kotlin → `donut_chart_summary` & `donut_chart_category_part`
+    di strings.xml (kini 289 string). `stringResource` di-resolve di context
+    composable (blok `semantics{}` bukan composable context);
+  - Diaudit & dinyatakan sehat: `strings.xml` (289 string — **nol dead**,
+    semua referensi R.string ter-resolve; 6 "missing" adalah Firebase
+    generated yang sudah di-keep via `keep.xml`), `themes.xml` +
+    `values-v31` (splash API 12+ benar), `colors.xml` (splash light
+    cocok dgn Theme.kt), `font_certs.xml` (dipakai Type.kt P2.7),
+    `keep.xml` (tools:keep Firebase resource), drawable (semua 7
+    terpakai: ic_logo, ic_stat_logo monokrom, launcher foreground/
+    background/monochrome, ic_google_logo, splash_screen). Nol duplikat
+    nama string; duplikasi nilai yang tersisa (mis. app_name/pin_title,
+    action_delete/manage_members_remove) sengaja — konteks berbeda.
+  - **Verifikasi konsistensi format args (pass 8)**: ke-19 string ber-`%`
+    (topbar_member_count, pin_rate_limited, settings_last_backup_time,
+    donut_chart_*, dll.) diverifikasi satu per satu — semua pemanggil
+    mengirim jumlah argumen yang cocok (via `stringResource(..., args)`
+    atau `.format()`); 5 "mismatch" awal dari scan otomatis terbukti
+    false positive (pola `.format()` di luar `stringResource`).
+    Qualifier values-night + values-v31 juga diverifikasi benar untuk
+    keempat kombinasi API × mode, dan `keep.xml` terbukti perlu (6 resource
+    Firebase dibaca dinamis oleh SDK — bukan dead).
 
 ---
 

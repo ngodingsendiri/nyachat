@@ -5,7 +5,6 @@ import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import androidx.annotation.MainThread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.KeyStore
@@ -31,7 +30,6 @@ object SecureStorage {
     private const val KEY_PREFIX = "enc_"
 
     /** Initialize master key di Keystore (idempotent). */
-    @MainThread
     private fun ensureMasterKey(context: Context): SecretKey {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         if (!keyStore.containsAlias(KEYSTORE_ALIAS)) {
@@ -58,8 +56,11 @@ object SecureStorage {
     /**
      * Simpan rahasia (dienkripsi dulu).
      * Return true kalau sukses.
+     *
+     * (audit local/ 2026-08-13) Dipanggil dari IO via [putSecretAsync] —
+     * Keystore crypto TIDAK boleh di main thread (jank dengan hardware-backed
+     * key). Pemanggil UI WAJIB memakai varian *Async.
      */
-    @MainThread
     fun putSecret(context: Context, key: String, value: String?): Boolean {
         if (value == null || value.isEmpty()) {
             // Null/empty → hapus
@@ -85,8 +86,8 @@ object SecureStorage {
     /**
      * Baca rahasia (dekripsi).
      * Return null kalau tidak ada / gagal dekripsi.
+     * Dipanggil dari IO via [getSecretAsync].
      */
-    @MainThread
     fun getSecret(context: Context, key: String): String? {
         val encoded = getPrefs(context).getString(KEY_PREFIX + key, null)
             ?: return null
@@ -106,7 +107,6 @@ object SecureStorage {
         }
     }
 
-    @MainThread
     fun deleteSecret(context: Context, key: String): Boolean {
         return try {
             getPrefs(context).edit().remove(KEY_PREFIX + key).apply()
@@ -119,7 +119,6 @@ object SecureStorage {
     /**
      * Hapus SEMUA secret (logout/hapus data).
      */
-    @MainThread
     fun clearAll(context: Context) {
         getPrefs(context).edit().clear().apply()
     }

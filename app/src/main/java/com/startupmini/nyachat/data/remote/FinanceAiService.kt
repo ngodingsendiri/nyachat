@@ -12,10 +12,10 @@ import com.startupmini.nyachat.data.local.FinancialTransaction
  * di-mock di unit test (produksi tetap memakai Gemini/OpenRouter BYOK lewat
  * [GeminiService]).
  */
-class FinanceAiService {
+open class FinanceAiService {
 
     /** Parse pesan chat → transaksi (teks biasa / foto nota). */
-    suspend fun parseMessage(
+    open suspend fun parseMessage(
         messageText: String,
         sender: String,
         recentContext: List<ChatMessage>,
@@ -24,15 +24,15 @@ class FinanceAiService {
         GeminiService.parseChatMessage(messageText, sender, recentContext, imagePath)
 
     /** Jawaban AI bebas untuk tombol ✨ Tanya AI (bukan parser transaksi). */
-    suspend fun askInChat(prompt: String): String =
+    open suspend fun askInChat(prompt: String): String =
         GeminiService.askAiChat(prompt)
 
     /** Saran prompt cepat berdasarkan riwayat transaksi. */
-    suspend fun frequentSuggestions(transactions: List<FinancialTransaction>): List<String> =
+    open suspend fun frequentSuggestions(transactions: List<FinancialTransaction>): List<String> =
         GeminiService.generateFrequentTransactionSuggestions(transactions)
 
     /** Laporan audit keuangan. */
-    suspend fun auditReport(
+    open suspend fun auditReport(
         transactions: List<FinancialTransaction>,
         income: Double,
         expense: Double
@@ -40,6 +40,15 @@ class FinanceAiService {
         GeminiService.generateFinancialAuditReport(transactions, income, expense)
 
     /** Analisis bulanan (rekap per bulan + tren + rekomendasi). */
-    suspend fun monthlyAnalysis(transactions: List<FinancialTransaction>): String =
+    open suspend fun monthlyAnalysis(transactions: List<FinancialTransaction>): String =
         GeminiService.generateMonthlyAnalysisReport(transactions)
+
+    /** True kalau setidaknya satu jalur AI tersedia (gate L6 — bukan panggilan AI). */
+    open fun isAiAvailable(): Boolean = GeminiService.isAiAvailable()
+
+    /** Deteksi pertanyaan keuangan di chat (gate murni — bukan panggilan AI). */
+    open fun isFinancialQuestion(text: String): Boolean = GeminiService.isFinancialQuestion(text)
+
+    /** Deteksi balasan fallback offline (marker tunggal — satu sumber kebenaran). */
+    open fun isOfflineFallbackReply(text: String): Boolean = GeminiService.isOfflineFallbackReply(text)
 }

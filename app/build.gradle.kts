@@ -11,8 +11,12 @@ plugins {
 // L11: versi & versionCode dari gradle.properties (satu sumber kebenaran).
 // CI & lokal bisa override via -PappVersion=... -PappVersionCode=... tanpa edit file.
 // Skema rilis: tag r* (r1.0.0, r1.0.1, ...) — lihat GitHubUpdateChecker.
-private val appVersion: String = project.findProperty("appVersion") as String? ?: "r1.1.3"
-private val appVersionCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 26
+// PENTING (audit root 2026-08-14): fallback di bawah HANYA untuk kasus property
+// tidak tersedia (gradle.properties dihapus/rusak) dan harus SELALU sinkron dengan
+// nilai aktual di gradle.properties — kalau tidak, build diam-diam memakai versi
+// usang. Workflow .github/workflows/build-apk.yml membaca fallback ini via regex.
+private val appVersion: String = project.findProperty("appVersion") as String? ?: "r1.2.0"
+private val appVersionCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 27
 
 android {
   namespace = "com.startupmini.nyachat"

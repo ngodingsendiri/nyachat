@@ -463,10 +463,9 @@ class DriveBackupController(
 
     // ===== Pesan info transien =====
 
-    /** Tampilkan pesan info transien (dialog "Informasi"). */
-    fun showMessage(text: String?) {
-        _message.value = text
-    }
+    // (audit backup/ 2026-08-13) Setter publik showMessage() dihapus — tidak
+    // ada pemanggil (produksi menulis _message.value langsung; UI hanya
+    // membaca flow message).
 
     // ===== Dismiss dari dialog =====
 

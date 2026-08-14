@@ -121,6 +121,34 @@ fun SettingsSheet(
         }
     }
 
+    // Navigasi keluar (audit 2026-08-13, permintaan user): aksi yang menutup
+    // sheet untuk membuka jendela lain (Profil, PIN, API key, backup, dll.)
+    // TIDAK lagi mematikan sheet instan — sheet SETTINGS turun dengan animasi
+    // dulu (sheetState.hide()), BARU aksi dijalankan. Sebelumnya pemanggil
+    // (MainAppDialogs) langsung set showSettingsSheet=false sehingga sheet
+    // hilang paksa tanpa motion, terasa "di-close paksa" (mis. klik kartu
+    // profil → Profil & Akun naik dari bawah tapi Settings hilang instan).
+    // Toggle (mode, notifikasi, enkripsi) TIDAK ikut dibungkus — sheet tetap
+    // terbuka saat toggle ditekan.
+    fun dismissThen(action: () -> Unit) {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) action()
+        }
+    }
+
+    val checkUpdateAction = { dismissThen { onCheckUpdate() } }
+    val geminiKeyAction = { dismissThen { onGeminiKey() } }
+    val openRouterKeyAction = { dismissThen { onOpenRouterKey() } }
+    val pinAction = { dismissThen { onPin() } }
+    val exportCsvAction = { dismissThen { onExportCsv() } }
+    val backupAction = { dismissThen { onBackup() } }
+    val restoreAction = { dismissThen { onRestore() } }
+    val clearDataAction = { dismissThen { onClearData() } }
+    val logoutAction = { dismissThen { onLogout() } }
+    val privacyPolicyAction = { dismissThen { onPrivacyPolicy() } }
+    // onOpenProfile nullable (kartu profil hanya bisa di-tap bila tidak null).
+    val openProfileAction = onOpenProfile?.let { profile -> { dismissThen { profile() } } }
+
     ModalBottomSheet(
         onDismissRequest = ::dismiss,
         sheetState = sheetState,
@@ -167,7 +195,7 @@ fun SettingsSheet(
                 workspaceRole = workspaceRole,
                 workspacePin = workspacePin,
                 avatarPath = avatarPath,
-                onOpenProfile = onOpenProfile
+                onOpenProfile = openProfileAction
             )
 
             // ── TAMPILAN ──
@@ -197,7 +225,7 @@ fun SettingsSheet(
                 icon = Icons.Rounded.Pin,
                 title = stringResource(R.string.menu_pin),
                 subtitle = workspacePin?.let { maskPin(it) },
-                onClick = onPin,
+                onClick = pinAction,
                 chevron = true
             )
 
@@ -208,13 +236,13 @@ fun SettingsSheet(
             SettingRow(
                 icon = Icons.Rounded.Key,
                 title = stringResource(R.string.menu_gemini_key),
-                onClick = onGeminiKey,
+                onClick = geminiKeyAction,
                 chevron = true
             )
             SettingRow(
                 icon = Icons.Rounded.Route,
                 title = stringResource(R.string.menu_openrouter_key),
-                onClick = onOpenRouterKey,
+                onClick = openRouterKeyAction,
                 chevron = true
             )
 
@@ -232,13 +260,13 @@ fun SettingsSheet(
                     lastBackupSubtitle(lastBackupMillis, lastBackupEncrypted)
                 ),
                 enabled = !backupBusy,
-                onClick = onBackup
+                onClick = backupAction
             )
             SettingRow(
                 icon = Icons.Rounded.CloudDownload,
                 title = stringResource(R.string.menu_restore_drive),
                 enabled = !backupBusy,
-                onClick = onRestore
+                onClick = restoreAction
             )
             // Enkripsi backup (Sprint-2): passphrase diminta saat backup/restore
             // MANUAL, tidak pernah disimpan. M5: auto-backup harian TETAP
@@ -256,7 +284,7 @@ fun SettingsSheet(
             SettingRow(
                 icon = Icons.Rounded.TableChart,
                 title = stringResource(R.string.menu_export_csv),
-                onClick = onExportCsv
+                onClick = exportCsvAction
             )
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
@@ -266,13 +294,13 @@ fun SettingsSheet(
             SettingRow(
                 icon = Icons.Rounded.SystemUpdate,
                 title = stringResource(R.string.menu_check_update),
-                onClick = onCheckUpdate,
+                onClick = checkUpdateAction,
                 chevron = true
             )
             SettingRow(
                 icon = Icons.Rounded.PrivacyTip,
                 title = stringResource(R.string.menu_privacy_policy),
-                onClick = onPrivacyPolicy,
+                onClick = privacyPolicyAction,
                 chevron = true
             )
             // Versi — informatif, bukan aksi (di sini, bukan header, supaya semua
@@ -291,13 +319,13 @@ fun SettingsSheet(
                 icon = Icons.Rounded.Delete,
                 title = stringResource(R.string.menu_clear_data),
                 tint = MaterialTheme.colorScheme.error,
-                onClick = onClearData
+                onClick = clearDataAction
             )
             SettingRow(
                 icon = Icons.AutoMirrored.Rounded.ExitToApp,
                 title = stringResource(R.string.menu_logout, userName ?: "User"),
                 tint = MaterialTheme.colorScheme.error,
-                onClick = onLogout
+                onClick = logoutAction
             )
             Spacer(modifier = Modifier.height(20.dp))
         }

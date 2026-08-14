@@ -236,7 +236,9 @@ fun MainAppDialogs(
             initialKey = geminiKey ?: "",
             onDismiss = { dialogs.showGeminiKeyDialog = false },
             onSave = { newKey ->
-                secureStorage.putSecret(context, Constants.Prefs.GEMINI_API_KEY, newKey)
+                // Keystore crypto di IO (audit local/ 2026-08-13) — sebelumnya
+                // sinkron di main thread (jank saat hardware-backed key).
+                scope.launch { secureStorage.putSecretAsync(context, Constants.Prefs.GEMINI_API_KEY, newKey) }
                 onGeminiKeySaved(newKey)
                 dialogs.showGeminiKeyDialog = false
                 // Audit response (2026-08-12): konfirmasi eksplisit kunci tersimpan.
@@ -252,7 +254,8 @@ fun MainAppDialogs(
             initialKey = openRouterKey ?: "",
             onDismiss = { dialogs.showOpenRouterKeyDialog = false },
             onSave = { newKey ->
-                secureStorage.putSecret(context, Constants.Prefs.OPENROUTER_API_KEY, newKey)
+                // Keystore crypto di IO (audit local/ 2026-08-13).
+                scope.launch { secureStorage.putSecretAsync(context, Constants.Prefs.OPENROUTER_API_KEY, newKey) }
                 onOpenRouterKeySaved(newKey)
                 dialogs.showOpenRouterKeyDialog = false
                 // Audit response (2026-08-12): konfirmasi eksplisit kunci tersimpan.

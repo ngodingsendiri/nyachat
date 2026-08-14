@@ -5,29 +5,22 @@ import com.startupmini.nyachat.data.local.FinancialTransaction
 import java.util.Calendar
 import kotlin.math.roundToInt
 
-/** Rekap satu minggu (Senin–Minggu) untuk analisis mingguan. */
-data class WeeklySummary(
-    val weekStart: Long, // epoch millis Senin 00:00 waktu lokal
-    val income: Double,
-    val expense: Double
-) {
-    val balance: Double get() = income - expense
-    /** Rasio tabungan: sisa pemasukan setelah pengeluaran (0 bila tanpa pemasukan). */
-    val savingsRate: Double get() = if (income > 0) balance / income else 0.0
-}
-
 /**
  * Insight otomatis mingguan/bulanan (Sprint-4) — fitur diferensiasi: user tidak
  * perlu minta AI untuk mendapat gambaran keuangannya. Semua perhitungan murni
  * (tanpa Android/network/AI) sehingga deterministik dan mudah di-unit-test;
  * waktu "sekarang" di-inject supaya hasil test stabil.
+ *
+ * Audit analytics/ 2026-08-13: `WeeklySummary` + `groupByWeek` dihapus — API
+ * publik tanpa satu pun pemanggil produksi (hanya test); konsumen nyata hanya
+ * [generateInsights] via `MainViewModel.weeklyInsights`.
  */
 object WeeklyInsights {
 
     private const val MS_PER_DAY = 24L * 60 * 60 * 1000
 
     /** Awal hari Senin (00:00 lokal) dari minggu yang memuat [timestamp]. */
-    fun weekStartOf(timestamp: Long): Long {
+    internal fun weekStartOf(timestamp: Long): Long {
         val cal = Calendar.getInstance().apply {
             timeInMillis = timestamp
             set(Calendar.HOUR_OF_DAY, 0)
@@ -40,20 +33,6 @@ object WeeklyInsights {
             cal.add(Calendar.DAY_OF_YEAR, -1)
         }
         return cal.timeInMillis
-    }
-
-    /** Kelompokkan transaksi per minggu, urut minggu terbaru dulu. */
-    fun groupByWeek(transactions: List<FinancialTransaction>): List<WeeklySummary> {
-        return transactions
-            .groupBy { weekStartOf(it.timestamp) }
-            .map { (weekStart, list) ->
-                WeeklySummary(
-                    weekStart = weekStart,
-                    income = list.filter { it.type == Constants.TransactionTypes.INCOME }.sumOf { it.amount },
-                    expense = list.filter { it.type == Constants.TransactionTypes.EXPENSE }.sumOf { it.amount }
-                )
-            }
-            .sortedByDescending { it.weekStart }
     }
 
     /**

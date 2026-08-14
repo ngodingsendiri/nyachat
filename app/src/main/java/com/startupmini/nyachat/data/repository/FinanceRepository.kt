@@ -142,7 +142,7 @@ class FinanceRepository(
                     // Sync transaksi ke cloud supaya pasangan/keluarga di perangkat lain ikut melihat
                     insertedList.forEach { FirestoreSyncManager.syncTransaction(it) }
                 }
-            } else if (com.startupmini.nyachat.data.remote.GeminiService.isFinancialQuestion(messageText)) {
+            } else if (aiService.isFinancialQuestion(messageText)) {
                 // r1.2.4 (tuning AI): pertanyaan keuangan di chat dijawab BERBASIS
                 // data DB yang sebenarnya (bukan mengarang) — "hari ini sudah keluar
                 // berapa?" mendapat jawaban nyata, bukan "tercatat dalam obrolan".
@@ -229,13 +229,13 @@ class FinanceRepository(
         // MAUPUN timeout (askInChat menelan timeout menjadi balasan generik tanpa
         // data; deteksi lewat ketiadaan "Rp" / frasa khas template offline) — jatuh
         // ke jawaban offline BERBASIS DATA, jangan balas generik tanpa angka.
-        val reply = if (com.startupmini.nyachat.data.remote.GeminiService.isAiAvailable()) {
+        val reply = if (aiService.isAiAvailable()) {
             val ai = runCatching {
                 aiService.askInChat(
                     "Ini data riil keuangan pengguna saat ini (jangan berikan angka lain):\n$summary\n\nPertanyaan: $question"
                 )
             }.getOrNull()
-            if (ai.isNullOrBlank() || !ai.contains("Rp") || ai.contains("mode AI sedang offline")) {
+            if (ai.isNullOrBlank() || !ai.contains("Rp") || aiService.isOfflineFallbackReply(ai)) {
                 buildOfflineFinancialAnswer(question, all)
             } else {
                 ai
@@ -418,9 +418,10 @@ class FinanceRepository(
 
     /**
      * Hapus transaksi + perbarui badge pesan terkait (konsistensi 2 arah).
-     * Mengembalikan objek yang dihapus untuk UNDO (audit response 2026-08-12).
+     * (Audit repository 2026-08-14: return objek yang dihapus dihapus — tidak ada
+     * pemanggil yang memakainya; UNDO dibangun dari argumen di MainViewModel.)
      */
-    suspend fun deleteTransaction(transaction: FinancialTransaction): FinancialTransaction? {
+    suspend fun deleteTransaction(transaction: FinancialTransaction) {
         withContext(Dispatchers.IO) {
             // Hapus DULU, lalu query sisa — tanpa filter id (review r1.2.4): filter
             // `id != transaction.id` rapuh saat id lokal 0 (baris dari cloud yang
@@ -452,7 +453,6 @@ class FinanceRepository(
                 }
             }
         }
-        return transaction
     }
 
     /**
@@ -469,31 +469,36 @@ class FinanceRepository(
                     FirestoreSyncManager.syncMessage(message.copy(id = newMid))
                 }
             }
+            // Saat pesan ikut di-restore, relasi transaksi harus menunjuk ke id
+            // pesan yang BARU (id lama sudah diganti).
+            val affectedMessageIds = linkedSetOf<Long>()
             transactions.forEach { tx ->
-                // Saat pesan ikut di-restore, relasi transaksi harus menunjuk ke id
-                // pesan yang BARU (id lama sudah diganti).
                 val remapped = if (newMid != null) tx.copy(chatMessageId = newMid) else tx
                 val newTxId = transactionDao.insertTransaction(remapped.copy(id = 0))
                 remapped.cloudId?.let { cid ->
                     FirestoreSyncManager.syncTransaction(remapped.copy(id = newTxId))
                 }
-                // Badge pesan terkait dihitung ulang dari semua transaksinya.
-                (newMid ?: remapped.chatMessageId)?.let { mid ->
-                    chatMessageDao.getById(mid)?.let { m ->
-                        val all = transactionDao.getAllByChatMessageId(mid)
-                        val updated = if (all.isEmpty()) {
-                            m.clearFinancialBadge()
-                        } else {
-                            m.copy(
-                                isFinancial = true,
-                                detectedAmount = all.sumOf { it.amount },
-                                detectedCategory = all.first().category,
-                                detectedType = all.first().type
-                            )
-                        }
-                        chatMessageDao.updateMessage(updated)
-                        FirestoreSyncManager.syncMessage(updated)
+                (newMid ?: remapped.chatMessageId)?.let { affectedMessageIds.add(it) }
+            }
+            // Badge pesan terkait dihitung ulang SEKALI per pesan (audit repository
+            // 2026-08-14): sebelumnya di-loop per transaksi → N× query + N× sync
+            // cloud untuk pesan multi-transaksi. Hasil akhir identik (dihitung dari
+            // semua transaksinya setelah semua insert selesai).
+            affectedMessageIds.forEach { mid ->
+                chatMessageDao.getById(mid)?.let { m ->
+                    val all = transactionDao.getAllByChatMessageId(mid)
+                    val updated = if (all.isEmpty()) {
+                        m.clearFinancialBadge()
+                    } else {
+                        m.copy(
+                            isFinancial = true,
+                            detectedAmount = all.sumOf { it.amount },
+                            detectedCategory = all.first().category,
+                            detectedType = all.first().type
+                        )
                     }
+                    chatMessageDao.updateMessage(updated)
+                    FirestoreSyncManager.syncMessage(updated)
                 }
             }
         }

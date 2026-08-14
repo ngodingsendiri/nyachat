@@ -1,7 +1,9 @@
 package com.startupmini.nyachat.ui.screens
 
+import com.startupmini.nyachat.ui.util.idrCurrencyFormat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -39,5 +41,25 @@ class AmountFormatterTest {
     fun `parseAmount null untuk input kosong atau tidak valid`() {
         assertNull(parseAmount(""))
         assertNull(parseAmount("abc"))
+    }
+
+    // ---- Formatter Rupiah satu sumber kebenaran (audit screens/ 2026-08-14) ----
+
+    @Test
+    fun `idrCurrencyFormat memakai locale id-ID tanpa desimal`() {
+        val fmt = idrCurrencyFormat()
+        // Format aktual getCurrencyInstance(id-ID) di JVM: simbol tanpa spasi.
+        assertEquals("Rp1.234", fmt.format(1234))
+        assertEquals("Rp50.000", fmt.format(50_000))
+        assertEquals("Rp1.500.000", fmt.format(1_500_000))
+        // Tanpa desimal — nilai pecahan dibulatkan.
+        assertEquals("Rp1.235", fmt.format(1234.6))
+    }
+
+    @Test
+    fun `idrCurrencyFormat mengembalikan instance baru tiap panggilan`() {
+        // NumberFormat tidak thread-safe — setiap pemanggil harus pegang
+        // instance sendiri (pola remember{} di Composable tetap benar).
+        assertTrue(idrCurrencyFormat() !== idrCurrencyFormat())
     }
 }

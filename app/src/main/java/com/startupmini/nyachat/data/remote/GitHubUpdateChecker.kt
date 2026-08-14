@@ -1,6 +1,7 @@
 package com.startupmini.nyachat.data.remote
 
 import android.util.Log
+import com.startupmini.nyachat.Constants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -28,8 +29,10 @@ data class GitHubRelease(
 object GitHubUpdateChecker {
 
     private const val TAG = "UpdateChecker"
-    private const val REPO = "ngodingsendiri/nyachat"
-    private const val API_URL = "https://api.github.com/repos/$REPO/releases/latest"
+    // Path repo dari Constants.Links (SATU sumber kebenaran — audit remote/ 2026-08-13):
+    // sebelumnya literal diduplikasi di sini, rename repo tidak merambat ke API update.
+    private const val API_URL =
+        "https://api.github.com/repos/${Constants.Links.GITHUB_OWNER_REPO}/releases/latest"
 
     private val client by lazy {
         OkHttpClient.Builder()

@@ -620,7 +620,17 @@ object GeminiService {
         return@withContext aiReply ?: offlineChatReply(prompt)
     }
 
-    private fun offlineChatReply(prompt: String): String {
+    /**
+     * Penanda balasan offline — SATU sumber kebenaran (audit repository 2026-08-14):
+     * dipakai deteksi fallback di FinanceRepository lewat FinanceAiService. Jangan
+     * duplikasi literal ini di tempat lain.
+     */
+    internal const val OFFLINE_REPLY_MARKER = "mode AI sedang offline"
+
+    /** True kalau teks memuat penanda balasan offline (marker tunggal). */
+    internal fun isOfflineFallbackReply(text: String): Boolean = text.contains(OFFLINE_REPLY_MARKER)
+
+    internal fun offlineChatReply(prompt: String): String {
         val lower = prompt.lowercase()
         return when {
             lower.contains("hemat") || lower.contains("nabung") || lower.contains("tabung") ->
@@ -630,7 +640,7 @@ object GeminiService {
             lower.contains("hutang") || lower.contains("utang") ->
                 "Untuk melunasi utang: pilih metode snowball (lunasi yang terkecil dulu biar semangat) atau avalanche (lunasi yang bunganya terbesar dulu biar lebih hemat). Sisihkan minimal 20% pemasukan untuk cicilan. 💪"
             else ->
-                "Aku adalah asisten keuangan Nyachat. Aku bisa mencatat transaksi dari obrolan, memberi rekap & analisis pengeluaran, serta tips keuangan. Saat ini mode AI sedang offline — sambungkan kunci OpenRouter/Gemini di menu Pengaturan agar aku bisa menjawab lebih pintar! 😊"
+                "Aku adalah asisten keuangan Nyachat. Aku bisa mencatat transaksi dari obrolan, memberi rekap & analisis pengeluaran, serta tips keuangan. Saat ini $OFFLINE_REPLY_MARKER — sambungkan kunci OpenRouter/Gemini di menu Pengaturan agar aku bisa menjawab lebih pintar! 😊"
         }
     }
 

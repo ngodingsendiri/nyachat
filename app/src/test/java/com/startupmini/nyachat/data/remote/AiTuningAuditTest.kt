@@ -316,6 +316,29 @@ class AiTuningAuditTest {
         assertFalse(GeminiService.isFinancialQuestion("kapan pulang?"))
     }
 
+    // ---- 10. MARKER OFFLINE (audit repository 2026-08-14) ----
+
+    @Test
+    fun deteksiBalasanOfflineLewatMarkerTunggal() {
+        // Marker SATU sumber kebenaran — FinanceRepository mendeteksi fallback
+        // offline lewat ini, bukan lewat literal duplikat.
+        assertTrue(GeminiService.isOfflineFallbackReply("Saat ini mode AI sedang offline — sambungkan kunci."))
+        assertFalse(GeminiService.isOfflineFallbackReply("Ini jawaban dari data nyata."))
+        assertFalse(GeminiService.isOfflineFallbackReply(""))
+    }
+
+    @Test
+    fun markerOfflineTerkandungDalamBalasanOfflineAsli() {
+        // Kalau frasa balasan offline berubah, konstanta harus ikut — test ini
+        // mengunci bahwa penanda yang dideteksi repository memang ada di teks
+        // yang benar-benar dikirim GeminiService saat offline.
+        val reply = GeminiService.offlineChatReply("halo")
+        assertTrue(
+            "balasan offline harus memuat marker: $reply",
+            GeminiService.isOfflineFallbackReply(reply)
+        )
+    }
+
     // ---- BACKWARD COMPAT: format tunggal tetap berfungsi ----
 
     @Test

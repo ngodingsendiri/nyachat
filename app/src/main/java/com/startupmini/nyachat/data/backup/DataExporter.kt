@@ -201,58 +201,62 @@ object DataExporter {
     }.getOrNull()
 
     /** Serialisasi transaksi → JSON (dipakai untuk backup & antrian sync). */
+    // Nama field JSON memakai Constants.Fields.* (kontrak backup/payload — nilai
+    // TIDAK boleh berubah: file backup lama & pending op tersimpan bergantung
+    // padanya; dijaga ConstantsTest). Kunci lampiran lokal (imagePath/filePath/
+    // fileName) sengaja literal — itu bukan field Firestore.
     internal fun transactionToJson(t: FinancialTransaction): JSONObject =
         JSONObject()
-            .put("type", t.type)
-            .put("category", t.category)
-            .put("amount", t.amount)
-            .put("description", t.description)
-            .put("loggedBy", t.loggedBy)
-            .put("timestamp", t.timestamp)
-            .putOpt("editedAt", t.editedAt)
-            .putOpt("chatMessageId", t.chatMessageId)
-            .putOpt("cloudId", t.cloudId)
-            .putOpt("sourceMessageCloudId", t.sourceMessageCloudId)
+            .put(Constants.Fields.TYPE, t.type)
+            .put(Constants.Fields.CATEGORY, t.category)
+            .put(Constants.Fields.AMOUNT, t.amount)
+            .put(Constants.Fields.DESCRIPTION, t.description)
+            .put(Constants.Fields.LOGGED_BY, t.loggedBy)
+            .put(Constants.Fields.TIMESTAMP, t.timestamp)
+            .putOpt(Constants.Fields.EDITED_AT, t.editedAt)
+            .putOpt(Constants.Fields.CHAT_MESSAGE_ID, t.chatMessageId)
+            .putOpt(Constants.Fields.CLOUD_ID, t.cloudId)
+            .putOpt(Constants.Fields.SOURCE_MESSAGE_CLOUD_ID, t.sourceMessageCloudId)
             // M4: server timestamp ikut dibackup agar tie-break mrgl tidak hilang.
-            .putOpt("serverUpdatedAt", t.serverUpdatedAt)
+            .putOpt(Constants.Fields.SERVER_UPDATED_AT, t.serverUpdatedAt)
 
     /** Serialisasi pesan → JSON (dipakai untuk backup & antrian sync). */
     internal fun messageToJson(m: ChatMessage): JSONObject =
         JSONObject()
-            .put("sender", m.sender)
-            .put("messageText", m.messageText)
-            .put("timestamp", m.timestamp)
-            .put("isFinancial", m.isFinancial)
-            .putOpt("detectedAmount", m.detectedAmount)
-            .putOpt("detectedCategory", m.detectedCategory)
-            .putOpt("detectedType", m.detectedType)
+            .put(Constants.Fields.SENDER, m.sender)
+            .put(Constants.Fields.MESSAGE_TEXT, m.messageText)
+            .put(Constants.Fields.TIMESTAMP, m.timestamp)
+            .put(Constants.Fields.IS_FINANCIAL, m.isFinancial)
+            .putOpt(Constants.Fields.DETECTED_AMOUNT, m.detectedAmount)
+            .putOpt(Constants.Fields.DETECTED_CATEGORY, m.detectedCategory)
+            .putOpt(Constants.Fields.DETECTED_TYPE, m.detectedType)
             .putOpt("imagePath", m.imagePath)
             .putOpt("filePath", m.filePath)
             .putOpt("fileName", m.fileName)
-            .putOpt("replyToSender", m.replyToSender)
-            .putOpt("replyToText", m.replyToText)
-            .putOpt("editedAt", m.editedAt)
-            .putOpt("cloudId", m.cloudId)
-            .putOpt("sourceMessageCloudId", m.sourceMessageCloudId)
+            .putOpt(Constants.Fields.REPLY_TO_SENDER, m.replyToSender)
+            .putOpt(Constants.Fields.REPLY_TO_TEXT, m.replyToText)
+            .putOpt(Constants.Fields.EDITED_AT, m.editedAt)
+            .putOpt(Constants.Fields.CLOUD_ID, m.cloudId)
+            .putOpt(Constants.Fields.SOURCE_MESSAGE_CLOUD_ID, m.sourceMessageCloudId)
             // M4/M7: kolom baru ikut dibackup agar restore tidak kehilangan
             // penanda asal deteksi & tie-break server.
-            .putOpt("detectedBy", m.detectedBy)
-            .putOpt("serverUpdatedAt", m.serverUpdatedAt)
+            .putOpt(Constants.Fields.DETECTED_BY, m.detectedBy)
+            .putOpt(Constants.Fields.SERVER_UPDATED_AT, m.serverUpdatedAt)
 
     /** Parse transaksi dari JSON. */
     internal fun transactionFromJson(o: JSONObject): FinancialTransaction =
         FinancialTransaction(
-            type = o.optString("type", Constants.TransactionTypes.EXPENSE),
-            category = o.optString("category", Constants.Categories.MISC),
-            amount = o.optDouble("amount", 0.0),
-            description = o.optString("description", ""),
-            loggedBy = o.optString("loggedBy", ""),
-            timestamp = o.optLong("timestamp", 0L),
-            editedAt = o.optNullableLong("editedAt"),
-            chatMessageId = o.optNullableLong("chatMessageId"),
-            cloudId = o.optNullableString("cloudId"),
-            sourceMessageCloudId = o.optNullableString("sourceMessageCloudId"),
-            serverUpdatedAt = o.optNullableLong("serverUpdatedAt")
+            type = o.optString(Constants.Fields.TYPE, Constants.TransactionTypes.EXPENSE),
+            category = o.optString(Constants.Fields.CATEGORY, Constants.Categories.MISC),
+            amount = o.optDouble(Constants.Fields.AMOUNT, 0.0),
+            description = o.optString(Constants.Fields.DESCRIPTION, ""),
+            loggedBy = o.optString(Constants.Fields.LOGGED_BY, ""),
+            timestamp = o.optLong(Constants.Fields.TIMESTAMP, 0L),
+            editedAt = o.optNullableLong(Constants.Fields.EDITED_AT),
+            chatMessageId = o.optNullableLong(Constants.Fields.CHAT_MESSAGE_ID),
+            cloudId = o.optNullableString(Constants.Fields.CLOUD_ID),
+            sourceMessageCloudId = o.optNullableString(Constants.Fields.SOURCE_MESSAGE_CLOUD_ID),
+            serverUpdatedAt = o.optNullableLong(Constants.Fields.SERVER_UPDATED_AT)
         )
 
     /** Parse pesan dari JSON (lampiran lokal yang filenya sudah hilang dibuang). */
@@ -260,25 +264,25 @@ object DataExporter {
         val imagePath = o.optNullableString("imagePath")
         val filePath = o.optNullableString("filePath")
         return ChatMessage(
-            sender = o.optString("sender", ""),
-            messageText = o.optString("messageText", ""),
-            timestamp = o.optLong("timestamp", 0L),
-            isFinancial = o.optBoolean("isFinancial", false),
-            detectedAmount = o.optNullableDouble("detectedAmount"),
-            detectedCategory = o.optNullableString("detectedCategory"),
-            detectedType = o.optNullableString("detectedType"),
+            sender = o.optString(Constants.Fields.SENDER, ""),
+            messageText = o.optString(Constants.Fields.MESSAGE_TEXT, ""),
+            timestamp = o.optLong(Constants.Fields.TIMESTAMP, 0L),
+            isFinancial = o.optBoolean(Constants.Fields.IS_FINANCIAL, false),
+            detectedAmount = o.optNullableDouble(Constants.Fields.DETECTED_AMOUNT),
+            detectedCategory = o.optNullableString(Constants.Fields.DETECTED_CATEGORY),
+            detectedType = o.optNullableString(Constants.Fields.DETECTED_TYPE),
             // Lampiran lokal tidak ikut di-backup; referensi yang file-nya
             // sudah tidak ada dibuang biar tidak muncul bubble rusak.
             imagePath = imagePath?.takeIf { File(it).exists() },
             filePath = filePath?.takeIf { File(it).exists() },
             fileName = o.optNullableString("fileName"),
-            replyToSender = o.optNullableString("replyToSender"),
-            replyToText = o.optNullableString("replyToText"),
-            editedAt = o.optNullableLong("editedAt"),
-            cloudId = o.optNullableString("cloudId"),
-            sourceMessageCloudId = o.optNullableString("sourceMessageCloudId"),
-            detectedBy = o.optNullableString("detectedBy"),
-            serverUpdatedAt = o.optNullableLong("serverUpdatedAt")
+            replyToSender = o.optNullableString(Constants.Fields.REPLY_TO_SENDER),
+            replyToText = o.optNullableString(Constants.Fields.REPLY_TO_TEXT),
+            editedAt = o.optNullableLong(Constants.Fields.EDITED_AT),
+            cloudId = o.optNullableString(Constants.Fields.CLOUD_ID),
+            sourceMessageCloudId = o.optNullableString(Constants.Fields.SOURCE_MESSAGE_CLOUD_ID),
+            detectedBy = o.optNullableString(Constants.Fields.DETECTED_BY),
+            serverUpdatedAt = o.optNullableLong(Constants.Fields.SERVER_UPDATED_AT)
         )
     }
 

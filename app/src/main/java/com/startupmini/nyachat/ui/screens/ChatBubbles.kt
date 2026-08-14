@@ -60,6 +60,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
@@ -77,8 +79,8 @@ import com.startupmini.nyachat.ui.theme.Motion
 import com.startupmini.nyachat.ui.util.AvatarImage
 import com.startupmini.nyachat.ui.util.avatarColorFor
 import com.startupmini.nyachat.ui.util.avatarNameColor
+import com.startupmini.nyachat.ui.util.idrCurrencyFormat
 import java.io.File
-import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -137,6 +139,10 @@ fun ChatMessageBubble(
     currentActiveSender: String,
     showHeader: Boolean = true,
     onLongPress: (() -> Unit)? = null,
+    // Audit gestur (2026-08-13, permintaan user): sentuh SEKALI pada bubble
+    // GAMBAR membuka viewer foto full-screen (bukan menu). null → bubble teks
+    // tanpa aksi saat tap (menu hanya via tahan lama).
+    onOpenImage: (() -> Unit)? = null,
     onReply: (() -> Unit)? = null,
     onOpenFile: (() -> Unit)? = null,
     onOpenTransaction: (() -> Unit)? = null,
@@ -205,6 +211,9 @@ fun ChatMessageBubble(
     val timeDisplay = if (message.editedAt != null) {
         "$formattedTime • ${stringResource(R.string.chat_edited)}"
     } else formattedTime
+    // Label custom accessibility action "Buka menu" — TalkBack tetap bisa membuka
+    // menu pesan walau onClick bubble tidak lagi memicunya (audit gestur 2026-08-13).
+    val openMenuActionLabel = stringResource(R.string.chat_open_menu_desc)
 
     // Dekode foto lampiran untuk ditampilkan di bubble (disampling, aman memori).
     // P1 (audit performa 2026-08-12): pakai cache thumbnail media per sesi —
@@ -316,13 +325,26 @@ fun ChatMessageBubble(
             // baca; teks tetap 300dp agar nyaman dibaca.
             .widthIn(min = 60.dp, max = if (mediaBitmap != null) 340.dp else 300.dp)
                 .offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { swipeOffsetX.value.toDp() })
-                // P1-2 (audit keyboard): onClick = menu aksi (bukan kosong) supaya
-                // keyboard (Enter) & TalkBack bisa membuka menu balas/edit/salin/hapus —
-                // sebelumnya hanya long-press/swipe (tak terjangkau keyboard).
+                // GESTUR (audit 2026-08-13, permintaan user): sentuh SEKALI TIDAK
+                // lagi membuka menu — menu hanya muncul lewat TAHAN LAMA (long-press).
+                // Pada bubble GAMBAR, sentuh sekali membuka viewer foto full-screen
+                // (onOpenImage). TalkBack/keyboard tetap punya jalur ke menu lewat
+                // custom accessibility action "Buka menu" (semantics di bawah).
                 .combinedClickable(
-                    onClick = { onLongPress?.invoke() },
+                    onClick = { onOpenImage?.invoke() },
                     onLongClick = { onLongPress?.invoke() }
                 )
+                // Aksesibilitas (lanjutan P1-2 audit keyboard): setelah onClick
+                // dipakai viewer gambar, menu pesan di-expose sebagai custom
+                // accessibility action supaya TalkBack tidak kehilangan akses.
+                .semantics {
+                    customActions = listOf(
+                        CustomAccessibilityAction(openMenuActionLabel) {
+                            onLongPress?.invoke()
+                            true
+                        }
+                    )
+                }
                 .then(
                     if (onReply != null) {
                         Modifier.pointerInput(Unit) {
@@ -528,11 +550,9 @@ private fun FinancialBadge(
     val tagColor = if (isIncome) semantic.income else semantic.expense
 
     // Formatter dibuat SEKALI per nominal (bukan tiap komposisi) — murah &
-    // deterministik; locale id-ID konsisten dengan Rekap.
+    // deterministik; satu sumber kebenaran idrCurrencyFormat (audit screens/ 2026-08-14).
     val formatRp = remember(message.detectedAmount) {
-        NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
-            maximumFractionDigits = 0
-        }.format(message.detectedAmount)
+        idrCurrencyFormat().format(message.detectedAmount)
     }
 
     // Badge bisa di-tap untuk membuka transaksi di Rekap — inner clickable

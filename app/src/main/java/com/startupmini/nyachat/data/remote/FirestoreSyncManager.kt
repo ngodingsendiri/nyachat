@@ -18,7 +18,6 @@ import com.startupmini.nyachat.data.local.PendingOpDao
 import com.startupmini.nyachat.data.local.TransactionDao
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
@@ -576,24 +575,27 @@ val local = if (existing != null) {
         val cid = message.cloudId?.takeIf { it.isNotBlank() } ?: return false
         return try {
             // Firestore menolak nilai null di dalam map set() — filter dulu.
+            // Nama field memakai Constants.Fields.* (kontrak cloud — nilai TIDAK
+            // boleh berubah: data lintas perangkat & backup lama bergantung padanya;
+            // dijaga ConstantsTest).
             messagesRef().document(cid).set(
                 nonNullMap(
-                    "cloudId" to cid,
-                    "sender" to message.sender,
-                    "messageText" to message.messageText,
-                    "timestamp" to message.timestamp,
-                    "isFinancial" to message.isFinancial,
-                    "detectedAmount" to message.detectedAmount,
-                    "detectedCategory" to message.detectedCategory,
-                    "detectedType" to message.detectedType,
-                    "replyToSender" to message.replyToSender,
-                    "replyToText" to message.replyToText,
-                    "editedAt" to message.editedAt,
-                    "detectedBy" to message.detectedBy,
+                    Constants.Fields.CLOUD_ID to cid,
+                    Constants.Fields.SENDER to message.sender,
+                    Constants.Fields.MESSAGE_TEXT to message.messageText,
+                    Constants.Fields.TIMESTAMP to message.timestamp,
+                    Constants.Fields.IS_FINANCIAL to message.isFinancial,
+                    Constants.Fields.DETECTED_AMOUNT to message.detectedAmount,
+                    Constants.Fields.DETECTED_CATEGORY to message.detectedCategory,
+                    Constants.Fields.DETECTED_TYPE to message.detectedType,
+                    Constants.Fields.REPLY_TO_SENDER to message.replyToSender,
+                    Constants.Fields.REPLY_TO_TEXT to message.replyToText,
+                    Constants.Fields.EDITED_AT to message.editedAt,
+                    Constants.Fields.DETECTED_BY to message.detectedBy,
                     // M4: penanda waktu SERVER — sampai di sini setiap perubahan
                     // di-push, sehingga konflik di-resolve pakai jam Firestore
                     // (deterministik) bukan jam perangkat.
-                    "serverUpdatedAt" to FieldValue.serverTimestamp()
+                    Constants.Fields.SERVER_UPDATED_AT to FieldValue.serverTimestamp()
                 )
             ).await()
             true
@@ -623,7 +625,7 @@ val local = if (existing != null) {
             }
             if (done) return
         }
-        enqueueOp(OP_DELETE_MESSAGE, JSONObject().put("cloudId", cloudId).toString())
+        enqueueOp(OP_DELETE_MESSAGE, JSONObject().put(Constants.Fields.CLOUD_ID, cloudId).toString())
     }
 
     private suspend fun deleteMessageNow(cloudId: String): Boolean = try {
@@ -660,19 +662,19 @@ val local = if (existing != null) {
         return try {
             transactionsRef().document(cid).set(
                 nonNullMap(
-                    "cloudId" to cid,
-                    "type" to transaction.type,
-                    "category" to transaction.category,
-                    "amount" to transaction.amount,
-                    "description" to transaction.description,
-                    "loggedBy" to transaction.loggedBy,
-                    "timestamp" to transaction.timestamp,
-                    "editedAt" to transaction.editedAt,
-                    "chatMessageId" to transaction.chatMessageId,
-                    "sourceMessageCloudId" to transaction.sourceMessageCloudId,
+                    Constants.Fields.CLOUD_ID to cid,
+                    Constants.Fields.TYPE to transaction.type,
+                    Constants.Fields.CATEGORY to transaction.category,
+                    Constants.Fields.AMOUNT to transaction.amount,
+                    Constants.Fields.DESCRIPTION to transaction.description,
+                    Constants.Fields.LOGGED_BY to transaction.loggedBy,
+                    Constants.Fields.TIMESTAMP to transaction.timestamp,
+                    Constants.Fields.EDITED_AT to transaction.editedAt,
+                    Constants.Fields.CHAT_MESSAGE_ID to transaction.chatMessageId,
+                    Constants.Fields.SOURCE_MESSAGE_CLOUD_ID to transaction.sourceMessageCloudId,
                     // M4: penanda waktu SERVER — resolusi konflik deterministik lintas
                     // perangkat tanpa bergantung kalibrasi jam lokal.
-                    "serverUpdatedAt" to FieldValue.serverTimestamp()
+                    Constants.Fields.SERVER_UPDATED_AT to FieldValue.serverTimestamp()
                 )
             ).await()
             true
@@ -707,7 +709,7 @@ val local = if (existing != null) {
             }
             if (done) return
         }
-        enqueueOp(OP_DELETE_TRANSACTION, JSONObject().put("cloudId", cloudId).toString())
+        enqueueOp(OP_DELETE_TRANSACTION, JSONObject().put(Constants.Fields.CLOUD_ID, cloudId).toString())
     }
 
     private suspend fun deleteTransactionNow(cloudId: String): Boolean = try {
@@ -967,9 +969,9 @@ val local = if (existing != null) {
             val payload = JSONObject(op.payload)
             when (op.opType) {
                 OP_SYNC_MESSAGE -> syncMessageNow(DataExporter.messageFromJson(payload))
-                OP_DELETE_MESSAGE -> deleteMessageNow(payload.optString("cloudId"))
+                OP_DELETE_MESSAGE -> deleteMessageNow(payload.optString(Constants.Fields.CLOUD_ID))
                 OP_SYNC_TRANSACTION -> syncTransactionNow(DataExporter.transactionFromJson(payload))
-                OP_DELETE_TRANSACTION -> deleteTransactionNow(payload.optString("cloudId"))
+                OP_DELETE_TRANSACTION -> deleteTransactionNow(payload.optString(Constants.Fields.CLOUD_ID))
                 OP_CLEAR_FAMILY -> clearFamilyDataNow()
                 else -> true // tipe tak dikenal → buang agar tidak macet
             }

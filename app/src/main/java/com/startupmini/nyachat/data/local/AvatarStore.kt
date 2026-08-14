@@ -35,42 +35,13 @@ object AvatarStore {
     private fun avatarsDir(context: Context): File =
         File(context.filesDir, "avatars").apply { mkdirs() }
 
-    private fun keyHash(name: String): String {
-        val h = name.hashCode() and 0x7FFFFFFF
-        return Integer.toHexString(h)
-    }
-
-    private fun fileFor(context: Context, name: String): File =
-        File(avatarsDir(context), "${keyHash(name)}.jpg")
-
-    /** Simpan foto avatar untuk [name]. Return path absolut, null bila gagal. */
-    suspend fun saveAvatar(context: Context, name: String, uri: Uri): String? =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val dest = fileFor(context, name)
-                if (!writeSampledImage(context, uri, dest, LOCAL_MAX_DIM, 85)) return@runCatching null
-                dest.absolutePath
-            }.getOrNull()
-        }
-
-    /** Path avatar untuk [name], null bila belum ada. */
-    fun getAvatarPath(context: Context, name: String): String? {
-        val f = fileFor(context, name)
-        return if (f.exists()) f.absolutePath else null
-    }
-
-    /** Hapus foto profil [name] (jika ada). */
-    fun deleteAvatar(context: Context, name: String) {
-        fileFor(context, name).delete()
-    }
-
     // ===== Profil & Akun (r1.2.1) =====
 
     /**
      * Simpan foto profil CUSTOM user — nama file FIXED (`custom.jpg`) supaya
-     * ganti nama user tidak menghilangkan foto (tidak seperti [saveAvatar] yang
-     * berkunci nama). Sampling [LOCAL_MAX_DIM] + JPEG 85 agar ringan.
-     * Return path absolut.
+     * ganti nama user tidak menghilangkan foto (tidak seperti penyimpanan yang
+     * berkunci nama — dihapus di audit local/ 2026-08-13 karena tidak dipakai).
+     * Sampling [LOCAL_MAX_DIM] + JPEG 85 agar ringan. Return path absolut.
      */
     suspend fun saveCustomAvatar(context: Context, uri: Uri): String? =
         withContext(Dispatchers.IO) {
@@ -106,13 +77,21 @@ object AvatarStore {
         runCatching {
             val dest = File(avatarsDir(context), "google_${uid.take(16)}.jpg")
             if (dest.exists() && dest.length() > 0) return@runCatching dest.absolutePath
-            val input = java.net.URL(url).openStream()
-            input.use {
-                val bmp = BitmapFactory.decodeStream(it) ?: return@runCatching null
-                val scaled = scaleTo(bmp, LOCAL_MAX_DIM)
-                dest.outputStream().use { out ->
-                    scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
-                }
+            // Baca bytes SEKALI lalu decode sampling (audit local/ 2026-08-13) —
+            // sebelumnya decode penuh foto Google 12MP+ baru di-scale, boros
+            // memori (~48MB alokasi transien). Stream tidak bisa di-rewind,
+            // jadi bounds decode dari bytes yang sudah dibaca.
+            val bytes = java.net.URL(url).openStream().use { it.readBytes() }
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            if (opts.outWidth <= 0 || opts.outHeight <= 0) return@runCatching null
+            val sample = ImageFileUtil.computeSampleSize(opts.outWidth, opts.outHeight, LOCAL_MAX_DIM)
+            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpts)
+                ?: return@runCatching null
+            val scaled = scaleTo(bmp, LOCAL_MAX_DIM)
+            dest.outputStream().use { out ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
             }
             dest.absolutePath
         }.getOrNull()
@@ -147,6 +126,11 @@ object AvatarStore {
             val dest = memberAvatarFile(context, uid, version)
             if (dest.exists() && dest.length() > 0) return dest.absolutePath
             dest.outputStream().use { it.write(bytes) }
+            // Bersihkan file versi LAMA uid ini (audit local/ 2026-08-13): versi
+            // naik tiap avatar diperbarui; tanpa ini file lama menumpuk selamanya.
+            avatarsDir(context).listFiles()?.forEach { f ->
+                if (f != dest && f.name.startsWith("member_${uid.take(16)}_")) f.delete()
+            }
             dest.absolutePath
         }.getOrNull()
 

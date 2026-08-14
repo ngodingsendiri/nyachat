@@ -56,27 +56,6 @@ class WeeklyInsightsTest {
     }
 
     @Test
-    fun groupByWeekMemisahkanMingguDanUrutTerbaruDulu() {
-        val txs = listOf(
-            expense(10_000.0, at(2026, 7, 6)),   // Senin minggu sebelumnya
-            expense(20_000.0, at(2026, 7, 14)),  // Selasa minggu ini
-            expense(30_000.0, at(2026, 7, 15))   // Rabu minggu ini
-        )
-        val weeks = WeeklyInsights.groupByWeek(txs)
-        assertEquals(2, weeks.size)
-        assertEquals(50_000.0, weeks[0].expense, 0.001) // terbaru dulu
-        assertEquals(10_000.0, weeks[1].expense, 0.001)
-    }
-
-    @Test
-    fun savingsRateDihitungDariPemasukan() {
-        val w = WeeklySummary(weekStart = 0L, income = 1_000_000.0, expense = 250_000.0)
-        assertEquals(0.75, w.savingsRate, 0.001)
-        // Tanpa pemasukan → 0 (bukan pembagian nol).
-        assertEquals(0.0, WeeklySummary(0L, 0.0, 100_000.0).savingsRate, 0.001)
-    }
-
-    @Test
     fun tanpaTransaksiTidakAdaInsight() {
         assertTrue(WeeklyInsights.generateInsights(emptyList(), now).isEmpty())
     }

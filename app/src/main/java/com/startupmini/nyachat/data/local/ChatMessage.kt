@@ -33,5 +33,10 @@ data class ChatMessage(
     // selisih jam antar-perangkat (jenis LWW deterministik).
     val serverUpdatedAt: Long? = null,
     val cloudId: String? = null, // ID dokumen Firestore (unik lintas perangkat)
-    val sourceMessageCloudId: String? = null // Cloud Messaging pesan chat asal (untuk cross-device lookup)
+    // Audit data/ (2026-08-14): kolom ini SENGAJA tidak diisi di runtime untuk
+    // pesan — cross-device lookup memakai field di TRANSaksi (lihat
+    // FinancialTransaction.sourceMessageCloudId). Dipertahankan di schema
+    // (migrasi v8→v9 + backup JSON DataExporter) demi kompatibilitas format
+    // backup lama; nilainya selalu null. Jangan dihapus tanpa migrasi v12.
+    val sourceMessageCloudId: String? = null
 )

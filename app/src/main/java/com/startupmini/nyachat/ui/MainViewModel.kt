@@ -34,7 +34,18 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @kotlinx.coroutines.FlowPreview
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+open class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    /**
+     * Factory repository — overridable untuk unit test (P3-1: injeksi repository
+     * dengan AI service tiruan, mis. menguji jalur error laporan).
+     */
+    protected open fun createRepository(application: Application): FinanceRepository {
+        val db = AppDatabase.getDatabase(application)
+        return FinanceRepository(
+            db.chatMessageDao(), db.transactionDao(), db.pendingOpDao(), FinanceAiService()
+        )
+    }
 
     /**
      * Event one-shot: transaksi baru berhasil dicatat (manual atau hasil parse chat).
@@ -126,11 +137,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val deleteUndoEvents: SharedFlow<DeleteUndo> = _deleteUndoEvents
 
     init {
-        val db = AppDatabase.getDatabase(application)
         // P3-1: AI dipisah ke FinanceAiService — dependency injectable (bisa di-mock).
-        repository = FinanceRepository(
-            db.chatMessageDao(), db.transactionDao(), db.pendingOpDao(), FinanceAiService()
-        )
+        repository = createRepository(application)
 
         messages = repository.allMessages.stateIn(
             scope = viewModelScope,
@@ -238,10 +246,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun editMessage(messageId: Long, newText: String) {
         if (newText.isBlank()) return
         viewModelScope.launch {
+            // Audit ui/ (2026-08-14): edit pesan juga menjalankan parse AI ulang
+            // (repository.editMessage → aiService.parseMessage) — indikator harus
+            // menyala sama seperti sendMessage/askAiInChat, supaya user tahu
+            // re-parse masih berjalan saat edit foto nota/teks panjang.
+            setAiThinking(true)
             try {
                 repository.editMessage(messageId, newText.trim())
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Edit pesan gagal", e)
+            } finally {
+                setAiThinking(false)
             }
         }
     }

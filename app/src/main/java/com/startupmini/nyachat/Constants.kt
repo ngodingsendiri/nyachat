@@ -52,8 +52,13 @@ object Constants {
 
     // ===== Link eksternal =====
     object Links {
+        /** Path repo GitHub (owner/repo) — SATU sumber kebenaran; dipakai
+         *  update checker (API GitHub) & kebijakan privasi. Sebelumnya
+         *  GitHubUpdateChecker menduplikasi literal ini (audit remote/ 2026-08-13)
+         *  — rename repo tidak merambat ke API update → 404 diam-diam. */
+        const val GITHUB_OWNER_REPO = "ngodingsendiri/nyachat"
         /** Repo publik aplikasi (update & kebijakan). */
-        const val REPO = "https://github.com/ngodingsendiri/nyachat"
+        const val REPO = "https://github.com/$GITHUB_OWNER_REPO"
         /** Kebijakan privasi — dibuka dari Pengaturan → Tentang. */
         const val PRIVACY_POLICY = "$REPO/blob/main/PRIVACY_POLICY.md"
     }
@@ -74,6 +79,11 @@ object Constants {
     }
 
     // ===== Firestore document field names =====
+    // Nama field pesan/transaksi adalah KONTRAK CLOUD — dipakai write map
+    // FirestoreSyncManager, JSON backup/pending op (DataExporter), dan anotasi
+    // @PropertyName DTO (CloudMessage/CloudTransaction). Nilai TIDAK boleh
+    // berubah (data lintas perangkat & backup lama bergantung padanya) —
+    // dijaga ConstantsTest.
     object Fields {
         const val OWNER_ID = "ownerId"
         const val CREATED_AT = "createdAt"
@@ -106,6 +116,12 @@ object Constants {
         // version untuk cache invalidation antar perangkat.
         const val AVATAR_BYTES = "avatarBytes"
         const val AVATAR_VERSION = "avatarVersion"
+        // M7: asal deteksi transaksi ("AI" | "HEURISTIK") di pesan chat.
+        const val DETECTED_BY = "detectedBy"
+        // M4: penanda waktu server Firestore — resolusi konflik deterministik.
+        const val SERVER_UPDATED_AT = "serverUpdatedAt"
+        // r1.2.4: relasi lintas perangkat transaksi → pesan (lookup via cloudId pesan).
+        const val SOURCE_MESSAGE_CLOUD_ID = "sourceMessageCloudId"
     }
 
     // ===== Peran workspace (wajib sama dengan rules) =====

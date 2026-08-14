@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,7 +53,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.backup.DriveBackupController
@@ -81,8 +79,7 @@ import com.startupmini.nyachat.ui.theme.CoupleFinanceTheme
 import com.startupmini.nyachat.ui.theme.ExpenseRed
 import com.startupmini.nyachat.ui.theme.IncomeGreen
 import com.startupmini.nyachat.ui.theme.Motion
-import java.text.NumberFormat
-import java.util.Locale
+import com.startupmini.nyachat.ui.util.idrCurrencyFormat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -424,11 +421,8 @@ class MainActivity : ComponentActivity() {
                 // Feedback "Tercatat" + Urungkan (audit P1.2): setiap transaksi baru
                 // (dari chat maupun input manual) memunculkan Snackbar berisi ringkasan
                 // nominal + kategori; aksi Urungkan menghapus transaksi tersebut.
-                val recordedCurrency = remember {
-                    NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
-                        maximumFractionDigits = 0
-                    }
-                }
+                // Formatter Rupiah dari SATU sumber kebenaran (audit screens/ 2026-08-14).
+                val recordedCurrency = remember { idrCurrencyFormat() }
                 LaunchedEffect(Unit) {
                     viewModel.transactionRecorded.collect { recorded ->
                         val tx = recorded.transaction
@@ -574,7 +568,9 @@ driveController.getAutoPassphrase = {
                     com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
                     firebaseReady = false
                     appPrefs.edit().clear().apply()
-                    secureStorage.clearAll(context)
+                    // Keystore crypto di IO (audit local/ 2026-08-13) — jangan
+                    // blok main thread saat hardware-backed key.
+                    scope.launch { secureStorage.clearAllAsync(context) }
                     workspaceRole = Constants.Defaults.ROLE
                     userName = null
                     avatarSource = null
@@ -651,7 +647,6 @@ driveController.getAutoPassphrase = {
                     appPrefs = appPrefs,
                     driveController = driveController,
                     scope = scope,
-                    onLogoutCleanup = { performLogoutCleanup() },
                     onKickedCleanup = { performKickedCleanup() },
                     onUpdateAvailable = { dialogs.updateInfo = it }
                 )
@@ -707,7 +702,8 @@ driveController.getAutoPassphrase = {
                         rekapState.selectedFilterTab = 0
                     }
                     firebaseReady = true
-                    secureStorage.putSecret(context, Constants.Prefs.WORKSPACE_PIN, pin)
+                    // Keystore crypto di IO (audit local/ 2026-08-13).
+                    scope.launch { secureStorage.putSecretAsync(context, Constants.Prefs.WORKSPACE_PIN, pin) }
                     appPrefs.edit()
                         .putString(Constants.Prefs.WORKSPACE_ROLE, role)
                         .putString(Constants.Prefs.USER_NAME, name)
