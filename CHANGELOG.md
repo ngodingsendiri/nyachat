@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-08-12 (polish UI chat, Profil & Akun, tuning AI, audit keanggotaan)
+## [r1.3.0] - 2026-08-14 (audit menyeluruh semua lapisan + test + docs)
 
-> Perubahan setelah r1.2.0 (belum dirilis — versi tetap r1.2.0/27).
+> Rilis audit: semua lapisan (data, ui, screens, res, root, test) diaudit &
+> disempurnakan — 364 test hijau, lint bersih, peta struktur/navigasi/alur
+> data di docs. Versi r1.3.0 / versionCode 28 (naik dari r1.2.0/27).
 
 ### Added
 - **Unit test `MainViewModel` — state machine UI (2026-08-13)**: 12 test
@@ -360,10 +362,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Audit root proyek (2026-08-14)**:
   - **Fallback versi usang di `app/build.gradle.kts`** — `appVersion`/`appVersionCode`
     fallback literal `r1.1.3`/`26` padahal `gradle.properties` (satu sumber
-    kebenaran L11) menetapkan `r1.2.0`/`27`; workflow build-apk.yml bahkan
+    kebenaran L11) menetapkan `r1.3.0`/`28`; workflow build-apk.yml bahkan
     mendokumentasikan fallback ini sebagai jalur kompatibilitas → build diam-diam
     bisa memakai versi usang jika property hilang. Fallback disinkronkan ke
-    `r1.2.0`/`27` + komentar "wajib sinkron dengan gradle.properties";
+    `r1.3.0`/`28` + komentar "wajib sinkron dengan gradle.properties";
   - **Bug laten `BuildConfig.TEMPLATE = ;`** — Secrets plugin mem-parse baris
     `[TEMPLATE]` di `.env.example` sebagai key bernilai kosong → error kompilasi
     `illegal start of expression` saat BuildConfig di-regenerate. Baris section
@@ -390,9 +392,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `-PappVersionCode=26` menurunkan versionCode (26 < 27 aktual) — Play Store
     menolak versionCode menurun. Contoh diubah jadi `28` + catatan "harus selalu
     naik";
-  - Diaudit & dinyatakan sehat: `README.md` (badge versi r1.2.0 sinkron dgn
+  - Diaudit & dinyatakan sehat: `README.md` (badge versi r1.3.0 sinkron dgn
     gradle.properties), `PRIVACY_POLICY.md` (113 baris), `PLAY_STORE_CHECKLIST.md`
-    (r1.2.0/27, secrets keystore, smoke test M7/M9), `backup-encryption.md`
+    (r1.3.0/28, secrets keystore, smoke test M7/M9), `backup-encryption.md`
     (600k iterasi PBKDF2 / cap 10.000.000 — persis `BackupCrypto.kt`),
     `package-lock.json` sinkron dgn `package.json`, eslint v10.8.0 jalan,
     `functions/package-lock.json` ada (dipakai `cache-dependency-path` workflow),
