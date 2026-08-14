@@ -421,8 +421,8 @@ internal fun TransactionDayHeader(label: String) {
 fun TransactionItemCard(
     transaction: FinancialTransaction,
     onDelete: () -> Unit,
-    onEdit: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onEdit: () -> Unit = {}
 ) {
     val isIncome = transaction.type == Constants.TransactionTypes.INCOME
     val semantic = LocalSemanticColors.current

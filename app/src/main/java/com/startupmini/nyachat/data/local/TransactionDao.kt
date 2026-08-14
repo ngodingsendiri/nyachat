@@ -34,9 +34,6 @@ interface TransactionDao {
     @Query("SELECT * FROM financial_transactions WHERE chatMessageId = :chatMessageId")
     suspend fun getAllByChatMessageId(chatMessageId: Long): List<FinancialTransaction>
 
-    @Query("SELECT * FROM financial_transactions WHERE sourceMessageCloudId = :sourceMessageCloudId LIMIT 1")
-    suspend fun getBySourceMessageCloudId(sourceMessageCloudId: String): FinancialTransaction?
-
     @Query("DELETE FROM financial_transactions WHERE cloudId = :cloudId")
     suspend fun deleteByCloudId(cloudId: String)
 

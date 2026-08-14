@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [r1.4.0] - 2026-08-14 (auto-connect workspace + keluar dari workspace)
 
+### Changed (clean-code & lint 2026-08-14)
+- **Konvensi Compose `modifier` diperbaiki** (7 fungsi): parameter `modifier`
+  kini di posisi pertama parameter opsional (lint ModifierParameter) di
+  `AvatarImage`, `ChatMessageBubble`, `QuickSuggestionRow`, `ChatInputBar`,
+  `StackedAvatars`, `TransactionItemCard` — semua pemanggil memakai named
+  argument sehingga aman.
+- **Offset bubble swipe pakai lambda overload** (lint UseOfNonLambdaOffset
+  Overload): `swipeOffsetX` (Animatable) kini dibaca via `Modifier.offset { }`
+  sehingga bubble mengikuti state swipe saat berubah (non-lambda hanya dibaca
+  sekali).
+- **Typografi placeholder**: "..." → "…" (ellipsis unicode) di
+  `chat_input_placeholder` & `chat_ai_thinking`; test a11y ikut disinkronkan.
+- **`dataExtractionRules` Android 12+**: backup cloud & transfer device
+  dikecualikan eksplisit (`res/xml/data_extraction_rules.xml`) — konsisten
+  dengan `allowBackup=false` untuk data keuangan sensitif.
+- **Dead code dihapus**: `SecureStorage.clearAll`/`clearAllAsync` tidak punya
+  pemanggil sama sekali (logout membersihkan secret per-key via
+  `deleteSecretAsync`).
+
 ### Changed (audit Finance AI 2026-08-14)
 - **Ekstraksi multi-transaksi konsisten** (laporan user: "Gaji lembur 200.000
   Beli rokok 30.000 Makan Malam 45.000" hanya jadi 1 transaksi): root cause di

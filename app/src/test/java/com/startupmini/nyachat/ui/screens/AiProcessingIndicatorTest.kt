@@ -52,7 +52,9 @@ class AiProcessingIndicatorTest {
         timestamp = 1_783_800_000_000L
     )
 
-    private val thinkingLabel = "AI sedang memproses..."
+    // Sinkron dengan strings.xml chat_ai_thinking (audit clean-code 2026-08-14:
+    // ellipsis unicode — jangan ubah salah satu tanpa mengubah yang lain).
+    private val thinkingLabel = "AI sedang memproses…"
 
     private fun showChat(messages: List<ChatMessage>, isAiThinking: Boolean) {
         composeRule.setContent {

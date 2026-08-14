@@ -118,7 +118,7 @@ nyachat/
 | Aspek | Nilai |
 |---|---|
 | File Kotlin produksi | 70 |
-| Baris kode (produksi + test) | ±25.094 |
+| Baris kode (produksi + test) | ±27.102 |
 | File test | 44 |
 | Jumlah test (unit, Robolectric/Compose) | 455 |
 | `minSdk` / `targetSdk` | 24 / 36 |

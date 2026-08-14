@@ -116,13 +116,6 @@ object SecureStorage {
         }
     }
 
-    /**
-     * Hapus SEMUA secret (logout/hapus data).
-     */
-    fun clearAll(context: Context) {
-        getPrefs(context).edit().clear().apply()
-    }
-
     /** Wrapper suspend untuk penggunaan di coroutine (IO dispatcher). */
     suspend fun putSecretAsync(context: Context, key: String, value: String?): Boolean =
         withContext(Dispatchers.IO) { putSecret(context, key, value) }
@@ -132,7 +125,4 @@ object SecureStorage {
 
     suspend fun deleteSecretAsync(context: Context, key: String): Boolean =
         withContext(Dispatchers.IO) { deleteSecret(context, key) }
-
-    suspend fun clearAllAsync(context: Context) =
-        withContext(Dispatchers.IO) { clearAll(context) }
 }

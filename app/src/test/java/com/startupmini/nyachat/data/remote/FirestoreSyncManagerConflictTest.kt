@@ -77,8 +77,6 @@ class FirestoreSyncManagerConflictTest {
         // r1.2.4 (tuning AI): multi-transaksi per pesan.
         override suspend fun getAllByChatMessageId(chatMessageId: Long): List<FinancialTransaction> =
             store.values.filter { it.chatMessageId == chatMessageId }
-        override suspend fun getBySourceMessageCloudId(sourceMessageCloudId: String): FinancialTransaction? =
-            store.values.firstOrNull { it.sourceMessageCloudId == sourceMessageCloudId }
         override suspend fun deleteByCloudId(cloudId: String) {
             store.values.removeAll { it.cloudId == cloudId }
         }
@@ -331,9 +329,11 @@ class FirestoreSyncManagerConflictTest {
         )
 
         // Di perangkat ini, pesan asal punya cloudId SAMA ("msg-x") meski id lokal
-        // Room-nya beda. Lookup cross-device harus menemukan transaksinya.
-        val tx = dao.getBySourceMessageCloudId("msg-x")
+        // Room-nya beda. Lookup cross-device harus menemukan transaksinya —
+        // sourceMessageCloudId dipertahankan saat merge dari cloud.
+        val tx = dao.getByCloudId("t-1")
         assertEquals("t-1", tx?.cloudId)
+        assertEquals("msg-x", tx?.sourceMessageCloudId)
         assertEquals(20000.0, tx!!.amount, 0.001)
     }
 

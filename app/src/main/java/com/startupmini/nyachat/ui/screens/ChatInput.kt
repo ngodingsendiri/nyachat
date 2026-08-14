@@ -132,16 +132,13 @@ internal val CHIP_ROW_HEIGHT = 56.dp
 fun QuickSuggestionRow(
     suggestions: List<String>,
     onSuggestionClicked: (String) -> Unit,
+    modifier: Modifier = Modifier,
     // Ruang cadangan di ujung KIRI baris chip saat FAB jump-to-bottom melayang
     // di ujung kiri baris saran (ChatScreen) — chip pertama tidak pernah
     // tersembunyi di balik FAB dan tetap bisa diketuk. 0.dp saat FAB tidak
     // tampil. Nilai berubah dengan ANIMASI (animateDpAsState di pemanggil)
     // sehingga chips bergeser halus ke kanan saat FAB muncul, bukan lompat.
-    startPadding: Dp = 0.dp,
-    // Overlay (2026-08-12): baris chips kini melayang DI ATAS daftar pesan (list
-    // scroll sampai ke kolom input) — pemanggil mengatur posisi, mis.
-    // Modifier.align(Alignment.BottomCenter) di dalam Box daftar.
-    modifier: Modifier = Modifier
+    startPadding: Dp = 0.dp
 ) {
     val semantic = LocalSemanticColors.current
     Column(
@@ -428,9 +425,9 @@ fun ChatInputBar(
     onSend: () -> Unit,
     onAskAi: () -> Unit,
     inputFocusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
     replyTarget: ChatMessage? = null,
-    onReplyDismiss: () -> Unit = {},
-    modifier: Modifier = Modifier
+    onReplyDismiss: () -> Unit = {}
 ) {
     val semantic = LocalSemanticColors.current
 

@@ -64,7 +64,7 @@
     <!-- Chat -->
     <string name="chat_empty_title">Belum ada diskusi</string>
     <string name="chat_empty_hint">Kirim pesan atau catat transaksi untuk memulai.</string>
-    <string name="chat_input_placeholder">Ketik pesan...</string>
+    <string name="chat_input_placeholder">Ketik pesan…</string>
     <string name="chat_send_desc">Kirim</string>
     <string name="chat_attach_desc">Lampirkan foto</string>
     <string name="chat_take_photo">Ambil Foto</string>
@@ -79,7 +79,7 @@
     <!-- Zoom viewer (2026-08-13): dibaca TalkBack & dipakai uji otomatis -->
     <string name="image_viewer_zoom_desc">Perbesaran %1$d persen</string>
     <string name="chat_ask_ai_desc">Tanya AI</string>
-    <string name="chat_ai_thinking">AI sedang memproses...</string>
+    <string name="chat_ai_thinking">AI sedang memproses…</string>
     <!-- M7: indikator asal deteksi transaksi di badge finansial pesan -->
     <string name="badge_detected_ai">AI</string>
     <string name="badge_detected_ai_desc">Transaksi dikenali oleh AI</string>

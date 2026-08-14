@@ -76,8 +76,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.core.content.FileProvider
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
@@ -146,6 +148,7 @@ fun DateSeparator(label: String) {
 fun ChatMessageBubble(
     message: ChatMessage,
     currentActiveSender: String,
+    modifier: Modifier = Modifier,
     showHeader: Boolean = true,
     onLongPress: (() -> Unit)? = null,
     // Audit gestur (2026-08-13, permintaan user): sentuh SEKALI pada bubble
@@ -155,7 +158,6 @@ fun ChatMessageBubble(
     onReply: (() -> Unit)? = null,
     onOpenFile: (() -> Unit)? = null,
     onOpenTransaction: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
     // r1.2.3 (P1): path foto avatar pengirim (dari map nama→foto di ChatScreen).
     // null → fallback lingkaran inisial berwarna unik.
     senderAvatarPath: String? = null,
@@ -318,7 +320,8 @@ fun ChatMessageBubble(
         val haptic = LocalHapticFeedback.current
         var hapticFired = remember { false }
         val swipeScope = rememberCoroutineScope()
-        val swipeThresholdPx = with(androidx.compose.ui.platform.LocalDensity.current) { 60.dp.toPx() }
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val swipeThresholdPx = with(density) { 60.dp.toPx() }
 
         Surface(
             shape = RoundedCornerShape(
@@ -337,7 +340,11 @@ fun ChatMessageBubble(
                 // Media (foto) lebih lebar dari teks — screenshot/nota perlu ruang
             // baca; teks tetap 300dp agar nyaman dibaca.
             .widthIn(min = 60.dp, max = if (mediaBitmap != null) 340.dp else 300.dp)
-                .offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { swipeOffsetX.value.toDp() })
+                // r1.4.0 (lint): lambda overload supaya offset mengikuti state
+                // swipeOffsetX saat berubah (non-lambda hanya dibaca sekali).
+                .offset {
+                    IntOffset(with(density) { swipeOffsetX.value.toDp().roundToPx() }, 0)
+                }
                 // GESTUR (audit 2026-08-13, permintaan user): sentuh SEKALI TIDAK
                 // lagi membuka menu — menu hanya muncul lewat TAHAN LAMA (long-press).
                 // Pada bubble GAMBAR, sentuh sekali membuka viewer foto full-screen

@@ -77,8 +77,8 @@ fun avatarNameColor(name: String, isDark: Boolean): Color {
 @Composable
 fun AvatarImage(
     name: String,
-    size: Int = 40,
     modifier: Modifier = Modifier,
+    size: Int = 40,
     photoPath: String? = null,
     backgroundColor: Color = MaterialTheme.colorScheme.primaryContainer,
     textColor: Color = MaterialTheme.colorScheme.onPrimaryContainer,

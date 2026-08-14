@@ -140,8 +140,8 @@ fun MainTopBar(
 @Composable
 private fun StackedAvatars(
     senders: List<String>,
-    avatarPaths: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier,
+    avatarPaths: Map<String, String> = emptyMap(),
     avatarSize: Int = 32,
     overlapDp: Int = 10
 ) {
