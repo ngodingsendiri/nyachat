@@ -132,12 +132,40 @@ object Constants {
         const val SERVER_UPDATED_AT = "serverUpdatedAt"
         // r1.2.4: relasi lintas perangkat transaksi → pesan (lookup via cloudId pesan).
         const val SOURCE_MESSAGE_CLOUD_ID = "sourceMessageCloudId"
+        // r1.6.0: nama custom workspace & plan langganan di doc keluarga.
+        const val PLAN = "plan"
+        // r1.6.0: penanda keputusan pada join request (rejected) sebelum doc
+        // dihapus — dibaca cloud function handleJoinRequest untuk notifikasi hasil.
+        // Approve TIDAK memakai penanda: transaksi Firestore tidak bisa 2x menulis
+        // doc yang sama, jadi status approve diturunkan dari keberadaan member doc
+        // (ditulis atomik bersama delete request).
+        const val JOIN_REQUEST_STATUS = "status"
+        const val JOIN_STATUS_REJECTED = "rejected"
     }
 
     // ===== Peran workspace (wajib sama dengan rules) =====
     object Roles {
         const val OWNER = "owner"
         const val MEMBER = "member"
+    }
+
+    // ===== Langganan workspace (r1.6.0) =====
+    // Plan menentukan kapasitas anggota: free = 2, pro = 6 (lihat Limits).
+    // Nilai tersimpan di doc keluarga (field `plan`) — JANGAN diubah.
+    object Plans {
+        const val FREE = "free"
+        const val PRO = "pro"
+    }
+
+    // ===== Batas jumlah anggota per workspace (r1.6.0) =====
+    // Enforce di sisi app (approveJoin) — Firestore rules tidak bisa COUNT.
+    // Catatan produksi: saat billing Play aktif, tambahkan enforce server-side
+    // (cloud function) sebagai lapisan otoritatif.
+    object Limits {
+        /** Kapasitas maksimum anggota (termasuk owner) untuk plan free. */
+        const val FREE_MAX_MEMBERS = 2
+        /** Kapasitas maksimum anggota (termasuk owner) untuk plan pro. */
+        const val PRO_MAX_MEMBERS = 6
     }
 
     // ===== Pengirim pesan khusus =====
@@ -158,6 +186,8 @@ object Constants {
         const val PIN_LENGTH = 8
         /** Panjang minimal PIN yang diterima saat join (kompatibilitas PIN 6 digit lama). */
         const val PIN_MIN_LEGACY_LENGTH = 6
+        /** Nama default workspace bila doc keluarga belum punya field `name`. */
+        const val FAMILY_NAME = "Keuangan Bersama"
     }
 
     // ===== Jenis transaksi (nilai tersimpan di DB & cloud — JANGAN diubah) =====

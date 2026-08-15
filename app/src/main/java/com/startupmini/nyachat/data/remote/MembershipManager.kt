@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.messaging.FirebaseMessaging
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.data.local.AvatarStore
 import kotlinx.coroutines.CompletableDeferred
@@ -204,6 +205,20 @@ object MembershipManager {
         myRole != ROLE_OWNER || otherOwnerCount >= 1
 
     /**
+     * Kapasitas maksimum anggota (termasuk owner) untuk sebuah plan
+     * (r1.6.0): free = 2, pro = 6. Sinkron dengan Constants.Limits &
+     * cloud function handleJoinRequest. Dipakai [approveJoin] (app-level;
+     * rules Firestore tidak bisa COUNT koleksi).
+     */
+    internal fun memberLimitFor(plan: String): Int =
+        if (plan == Constants.Plans.PRO) Constants.Limits.PRO_MAX_MEMBERS
+        else Constants.Limits.FREE_MAX_MEMBERS
+
+    /** Bolehkah approve permintaan bergabung dengan jumlah member saat ini? */
+    internal fun canApproveMember(memberCount: Int, plan: String): Boolean =
+        memberCount < memberLimitFor(plan)
+
+    /**
      * Keputusan murni (audit workspace 2026-08-14): apakah akun sudah jadi
      * OWNER di workspace LAIN (selain [currentPin])? Menegakkan aturan
      * "1 akun = 1 workspace" — kalau true, pembuatan workspace baru diblokir
@@ -234,6 +249,14 @@ object MembershipManager {
     private val _joinRequests = MutableStateFlow<List<JoinRequest>>(emptyList())
     val joinRequests: StateFlow<List<JoinRequest>> = _joinRequests.asStateFlow()
 
+    // r1.6.0: nama & plan workspace (doc keluarga). Dikonsumsi top bar (judul
+    // custom) & layar Kelola Anggota (rename + baris langganan/cap). Fallback
+    // default untuk workspace lama yang belum punya field.
+    private val _familyName = MutableStateFlow(Constants.Defaults.FAMILY_NAME)
+    val familyName: StateFlow<String> = _familyName.asStateFlow()
+    private val _familyPlan = MutableStateFlow(Constants.Plans.FREE)
+    val familyPlan: StateFlow<String> = _familyPlan.asStateFlow()
+
     /**
      * Detail kegagalan terakhir (alur PIN & keanggotaan). Disimpan supaya layar
      * gate bisa menampilkan PENYEBAB asli kegagalan — bukan hanya "gagal terhubung
@@ -250,6 +273,8 @@ object MembershipManager {
 
     @Volatile private var membersListener: ListenerRegistration? = null
     @Volatile private var joinRequestsListener: ListenerRegistration? = null
+    // r1.6.0: listener doc keluarga (nama & plan workspace) — untuk semua peran.
+    @Volatile private var familyListener: ListenerRegistration? = null
 
     /** PIN & peran workspace aktif (untuk pasang-ulang listener saat resume). */
     @Volatile private var currentPin: String = ""
@@ -438,6 +463,28 @@ object MembershipManager {
                 }
             }
         }
+        // r1.6.0: nama & plan workspace dari doc keluarga. Semua peran boleh baca
+        // doc keluarga (rules: isMember/isOwner). Doc belum ada (bootstrap) →
+        // pakai default; begitu dibuat, snapshot berikutnya mengisi nama/plan.
+        familyListener = famRef.addSnapshotListener { snap, err ->
+            if (err != null) {
+                Log.w(TAG, "Listen keluarga gagal: ${err.message}")
+                return@addSnapshotListener
+            }
+            if (snap == null || !snap.exists()) {
+                _familyName.value = Constants.Defaults.FAMILY_NAME
+                _familyPlan.value = Constants.Plans.FREE
+                return@addSnapshotListener
+            }
+            val d = snap.data ?: return@addSnapshotListener
+            _familyName.value =
+                (d[Constants.Fields.NAME] as? String)?.takeIf { it.isNotBlank() }
+                    ?: Constants.Defaults.FAMILY_NAME
+            _familyPlan.value =
+                if ((d[Constants.Fields.PLAN] as? String) == Constants.Plans.PRO)
+                    Constants.Plans.PRO
+                else Constants.Plans.FREE
+        }
         if (role != Constants.Roles.OWNER) return
         listenJoinRequests(famRef)
     }
@@ -529,6 +576,7 @@ object MembershipManager {
         paused = true
         membersListener?.remove(); membersListener = null
         joinRequestsListener?.remove(); joinRequestsListener = null
+        familyListener?.remove(); familyListener = null
     }
 
     /** Pasang ulang listener saat app kembali ke foreground. */
@@ -547,6 +595,7 @@ object MembershipManager {
         appContext = null
         membersListener?.remove(); membersListener = null
         joinRequestsListener?.remove(); joinRequestsListener = null
+        familyListener?.remove(); familyListener = null
         // Batalkan task I/O avatar yang mungkin masih jalan (review P1) —
         // jangan biarkan menulis cache setelah stop().
         avatarScope.coroutineContext.cancelChildren()
@@ -559,6 +608,10 @@ object MembershipManager {
         _lastFailure.value = null
         _kickedEvents.value = 0
         hadMembersSnapshot = false
+        // r1.6.0: reset identitas workspace — jangan bocorkan nama/plan workspace
+        // lama ke workspace berikutnya (konsisten dengan P4-1).
+        _familyName.value = Constants.Defaults.FAMILY_NAME
+        _familyPlan.value = Constants.Plans.FREE
     }
 
     /** Bangun map Firestore tanpa kunci bernilai null (null membuat set() error). */
@@ -666,7 +719,10 @@ object MembershipManager {
                     famRef.set(
                         mapOf(
                             Constants.Fields.OWNER_ID to uid,
-                            Constants.Fields.CREATED_AT to FieldValue.serverTimestamp()
+                            Constants.Fields.CREATED_AT to FieldValue.serverTimestamp(),
+                            // r1.6.0: default nama & plan workspace baru.
+                            Constants.Fields.NAME to Constants.Defaults.FAMILY_NAME,
+                            Constants.Fields.PLAN to Constants.Plans.FREE
                         ),
                         SetOptions.merge()
                     ).await()
@@ -679,7 +735,10 @@ object MembershipManager {
                     famRef.set(
                         mapOf(
                             Constants.Fields.OWNER_ID to uid,
-                            Constants.Fields.CREATED_AT to FieldValue.serverTimestamp()
+                            Constants.Fields.CREATED_AT to FieldValue.serverTimestamp(),
+                            // r1.6.0: default nama & plan workspace baru.
+                            Constants.Fields.NAME to Constants.Defaults.FAMILY_NAME,
+                            Constants.Fields.PLAN to Constants.Plans.FREE
                         ),
                         SetOptions.merge()
                     ).await()
@@ -736,6 +795,11 @@ object MembershipManager {
         val uid = currentUid() ?: return JoinRequestResult.FAILED
         _lastFailure.value = null
         val user = FirebaseAuth.getInstance().currentUser
+        // r1.6.0: token FCM pemohon disimpan di doc request — dipakai cloud
+        // function handleJoinRequest untuk mengirim notifikasi hasil keputusan
+        // (approved/rejected) walau pemohon bukan member (belum punya member doc).
+        val fcmToken = runCatching { FirebaseMessaging.getInstance().token.await() }
+            .getOrNull()
         return try {
             db().collection(Constants.Collections.FAMILIES).document(pin)
                 .collection(Constants.Collections.JOIN_REQUESTS).document(uid)
@@ -747,7 +811,8 @@ object MembershipManager {
                         // r1.4.0 (avatar foto): URL foto Google pemohon dibawa ke
                         // join request → disalin ke member doc saat disetujui.
                         Constants.Fields.PHOTO_URL to user?.photoUrl?.toString(),
-                        Constants.Fields.REQUESTED_AT to System.currentTimeMillis()
+                        Constants.Fields.REQUESTED_AT to System.currentTimeMillis(),
+                        Constants.Fields.FCM_TOKEN to fcmToken
                     )
                 ).await()
             JoinRequestResult.SUCCESS
@@ -813,12 +878,46 @@ object MembershipManager {
         }
     }
 
-    /** Owner menyetujui permintaan → jadikan anggota & hapus permintaan (atomik). */
-    suspend fun approveJoin(pin: String, request: JoinRequest) {
+    /** Hasil approve permintaan bergabung (r1.6.0 — untuk pesan cap ke UI). */
+    enum class ApproveResult {
+        SUCCESS,
+        /** Workspace sudah penuh sesuai plan (free=2 / pro=6) — tidak diproses. */
+        WORKSPACE_FULL,
+        FAILED
+    }
+
+    /**
+     * Owner menyetujui permintaan → jadikan anggota & hapus permintaan (atomik).
+     * r1.6.0: cek kapasitas dulu (jumlah member >= limit plan) — Workspace
+     * penuh dikembalikan sebagai [ApproveResult.WORKSPACE_FULL] supaya UI bisa
+     * menawarkan upgrade. Cek di sisi app (rules tidak bisa COUNT).
+     */
+    suspend fun approveJoin(pin: String, request: JoinRequest): ApproveResult {
         val famRef = db().collection(Constants.Collections.FAMILIES).document(pin)
         val memberRef = famRef.collection(Constants.Collections.MEMBERS).document(request.uid)
         val requestRef = famRef.collection(Constants.Collections.JOIN_REQUESTS).document(request.uid)
-        runCatching {
+        // r1.6.0: cek kapasitas dulu (jumlah member >= limit plan) — Workspace
+        // penuh dikembalikan sebagai [ApproveResult.WORKSPACE_FULL] supaya UI bisa
+        // menawarkan upgrade. Cek di sisi app (rules tidak bisa COUNT).
+        // Plan dibaca LANGSUNG dari doc keluarga (bukan _familyPlan.value yang
+        // bisa basi sebelum snapshot listener pertama tiba — audit r1.6.0).
+        val plan = try {
+            (famRef.get().await().data?.get(Constants.Fields.PLAN) as? String)
+                ?: Constants.Plans.FREE
+        } catch (e: Exception) {
+            Log.w(TAG, "approveJoin: baca doc keluarga gagal: ${e.message}")
+            return ApproveResult.FAILED
+        }
+        val memberCount = try {
+            famRef.collection(Constants.Collections.MEMBERS).get().await().size()
+        } catch (e: Exception) {
+            Log.w(TAG, "approveJoin: hitung anggota gagal: ${e.message}")
+            return ApproveResult.FAILED
+        }
+        if (!canApproveMember(memberCount, plan)) {
+            return ApproveResult.WORKSPACE_FULL
+        }
+        return runCatching {
             // Satu transaksi: baca ulang permintaan (untuk deteksi konflik), lalu
             // tulis member + hapus permintaan secara atomik. Kalau permintaan sudah
             // diproses device lain, transaksi tidak menulis apa-apa.
@@ -844,16 +943,54 @@ object MembershipManager {
                     txn.delete(requestRef)
                 }
             }.await()
+            ApproveResult.SUCCESS
         }.onFailure { Log.w(TAG, "approveJoin gagal: ${it.message}") }
+            .getOrDefault(ApproveResult.FAILED)
     }
 
     /** Owner menolak permintaan bergabung. */
     suspend fun rejectJoin(pin: String, uid: String) {
+        val requestRef = db().collection(Constants.Collections.FAMILIES).document(pin)
+            .collection(Constants.Collections.JOIN_REQUESTS).document(uid)
         runCatching {
-            db().collection(Constants.Collections.FAMILIES).document(pin)
-                .collection(Constants.Collections.JOIN_REQUESTS).document(uid).delete().await()
+            // r1.6.0: tandai 'rejected' dulu (dibaca cloud function handleJoinRequest
+            // saat doc dihapus untuk notifikasi ke pemohon), baru hapus. Dua operasi
+            // terpisah (bukan transaksi) — crash di tengah hanya meninggalkan request
+            // bertanda rejected yang bisa di-reject ulang.
+            requestRef.update(
+                Constants.Fields.JOIN_REQUEST_STATUS,
+                Constants.Fields.JOIN_STATUS_REJECTED
+            ).await()
+            requestRef.delete().await()
         }.onFailure { Log.w(TAG, "rejectJoin gagal: ${it.message}") }
     }
+
+    /** Owner mengganti nama workspace (r1.6.0 — nama custom di top bar & Kelola Anggota). */
+    suspend fun setFamilyName(pin: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        runCatching {
+            db().collection(Constants.Collections.FAMILIES).document(pin)
+                .update(Constants.Fields.NAME, trimmed).await()
+        }.onFailure { Log.w(TAG, "setFamilyName gagal: ${it.message}") }
+    }
+
+    /**
+     * Owner mengganti plan langganan (r1.6.0).
+     * PLACEHOLDER — beta: langsung set plan (free/pro) untuk menguji cap anggota.
+     * Saat produksi + billing, alur ini diganti verifikasi pembelian Play Billing
+     * (server-side otoritatif).
+     */
+    suspend fun setPlan(pin: String, plan: String) {
+        if (plan != Constants.Plans.FREE && plan != Constants.Plans.PRO) return
+        runCatching {
+            db().collection(Constants.Collections.FAMILIES).document(pin)
+                .update(Constants.Fields.PLAN, plan).await()
+        }.onFailure { Log.w(TAG, "setPlan gagal: ${it.message}") }
+    }
+
+    /** Kapasitas anggota maksimum plan workspace aktif (free=2 / pro=6). */
+    fun memberLimit(): Int = memberLimitFor(_familyPlan.value)
 
     /** Owner menghapus anggota dari workspace (tidak untuk diri sendiri). */
     suspend fun removeMember(pin: String, uid: String) {

@@ -44,7 +44,12 @@ service cloud.firestore {
       allow read: if signedInGoogle() && (isMember(familyId) || isOwner(familyId));
       allow create: if signedInGoogle()
         && request.resource.data.ownerId == request.auth.uid;
-      allow update, delete: if signedInGoogle() && isOwner(familyId);
+      // r1.6.0: update doc keluarga dibatasi HANYA field 'name' (rename workspace)
+      // & 'plan' (langganan) oleh owner — mengikuti pola audit (owner tidak lagi
+      // bisa menulis field sembarang).
+      allow update: if signedInGoogle() && isOwner(familyId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'plan']);
+      allow delete: if signedInGoogle() && isOwner(familyId);
     }
 
     // Daftar anggota. Bisa dibaca oleh sesama anggota (atau diri sendiri saat

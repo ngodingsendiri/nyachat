@@ -54,6 +54,8 @@ fun MainTopBar(
     messages: List<ChatMessage>,
     userName: String?,
     memberAvatarPaths: Map<String, String> = emptyMap(),
+    // r1.6.0: nama custom workspace (nilai default saat doc keluarga belum ada).
+    familyName: String = "",
     onManageMembers: () -> Unit,
     onSettings: () -> Unit
 ) {
@@ -84,7 +86,9 @@ fun MainTopBar(
                 )
                 Column {
                     Text(
-                        text = stringResource(R.string.topbar_title),
+                        // r1.6.0: nama workspace aktif; fallback default bila doc
+                        // keluarga belum sempat ter-snapshot (bootstrap).
+                        text = familyName.ifBlank { stringResource(R.string.topbar_title) },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,

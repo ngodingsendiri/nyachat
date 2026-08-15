@@ -84,6 +84,8 @@ class ConstantsTest {
         assertEquals("detectedBy", Constants.Fields.DETECTED_BY)
         assertEquals("serverUpdatedAt", Constants.Fields.SERVER_UPDATED_AT)
         assertEquals("sourceMessageCloudId", Constants.Fields.SOURCE_MESSAGE_CLOUD_ID)
+        assertEquals("plan", Constants.Fields.PLAN)
+        assertEquals("status", Constants.Fields.JOIN_REQUEST_STATUS)
     }
 
     @Test
@@ -104,7 +106,8 @@ class ConstantsTest {
             Constants.Fields.FCM_TOKEN, Constants.Fields.AVATAR_BYTES,
             Constants.Fields.AVATAR_VERSION, Constants.Fields.PHOTO_URL,
             Constants.Fields.DETECTED_BY, Constants.Fields.SERVER_UPDATED_AT,
-            Constants.Fields.SOURCE_MESSAGE_CLOUD_ID
+            Constants.Fields.SOURCE_MESSAGE_CLOUD_ID, Constants.Fields.PLAN,
+            Constants.Fields.JOIN_REQUEST_STATUS
         )
         assertTrue("ada field blank", values.none { it.isBlank() })
         assertEquals("ada nama field duplikat", values.size, values.toSet().size)
@@ -200,6 +203,29 @@ class ConstantsTest {
         assertEquals(6, Constants.Defaults.PIN_MIN_LEGACY_LENGTH)
         assertEquals("google", Constants.AvatarSources.GOOGLE)
         assertEquals("custom", Constants.AvatarSources.CUSTOM)
+    }
+
+    // ===== Plan, batas anggota & status join request (r1.6.0) =====
+    @Test
+    fun `nilai plan dan batas anggota adalah kontrak tersimpan`() {
+        // Nilai `plan` tersimpan di doc keluarga Firestore — TIDAK BOLEH berubah.
+        assertEquals("free", Constants.Plans.FREE)
+        assertEquals("pro", Constants.Plans.PRO)
+        // Kapasitas anggota (termasuk owner) — sinkron dengan memberLimitFor()
+        // (MembershipManager) & Limits di cloud function handleJoinRequest.
+        assertEquals(2, Constants.Limits.FREE_MAX_MEMBERS)
+        assertEquals(6, Constants.Limits.PRO_MAX_MEMBERS)
+        // Pro harus lebih besar dari free (persyaratan produk r1.6.0).
+        assertTrue(Constants.Limits.PRO_MAX_MEMBERS > Constants.Limits.FREE_MAX_MEMBERS)
+    }
+
+    @Test
+    fun `status join request dan nama default workspace adalah kontrak tersimpan`() {
+        // `status: rejected` ditulis SEBELUM doc request dihapus — dibaca cloud
+        // function handleJoinRequest untuk notifikasi penolakan.
+        assertEquals("rejected", Constants.Fields.JOIN_STATUS_REJECTED)
+        // Nama default workspace (r1.6.0) — dipakai doc keluarga baru & fallback.
+        assertEquals("Keuangan Bersama", Constants.Defaults.FAMILY_NAME)
     }
 
     // ===== Link eksternal =====

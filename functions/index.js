@@ -226,8 +226,65 @@ exports.aiComplete = onCall(
 );
 
 // ============================================================================
-// NOTIFIKASI CHAT (FASE 3 item 3.7)
+// NOTIFIKASI CHAT & KEANGGOTAAN (FASE 3 item 3.7 + r1.6.0)
 // ============================================================================
+
+// Batas anggota per plan — HARUS sinkron dengan Constants.Limits di app.
+const PLAN_FREE = 'free';
+const PLAN_PRO = 'pro';
+const LIMIT_FREE = 2;
+const LIMIT_PRO = 6;
+
+/** Token FCM anggota, null bila kosong/rusak. */
+function tokenOf(memberDoc) {
+  const t = memberDoc.data().fcmToken;
+  return typeof t === 'string' && t.length > 0 ? t : null;
+}
+
+/**
+ * Kirim data message multicast ke token FCM & bersihkan token invalid
+ * (app di-uninstall / token kedaluwarsa) supaya kiriman berikutnya lebih
+ * bersih & biaya FCM tidak terbuang. Dipakai notifyChatMessage &
+ * handleJoinRequest (DRY).
+ * @param {Array<{uid:string, token:string}>} tokensByUid
+ */
+async function sendMulticastAndCleanup(familyId, tokensByUid, data) {
+  if (tokensByUid.length === 0) return;
+  const tokens = tokensByUid.map((r) => r.token);
+  let response;
+  try {
+    response = await admin.messaging().sendEachForMulticast({ tokens: tokens, data: data });
+  } catch (err) {
+    logger.warn('Gagal kirim notifikasi multicast', err);
+    return;
+  }
+  const invalidUids = [];
+  response.responses.forEach((r, i) => {
+    const rec = tokensByUid[i];
+    if (!rec) return;
+    const err = r.error || {};
+    if (!r.success) {
+      invalidUids.push(rec.uid);
+      console.log('FCM gagal uid=' + rec.uid.slice(0, 10) +
+        ' code=' + (err.code || '?') +
+        ' msg=' + (err.message || '?'));
+    }
+  });
+  console.log('Multicast total=' + tokensByUid.length +
+    ' gagal=' + invalidUids.length);
+  if (invalidUids.length > 0) {
+    const batch = admin.firestore().batch();
+    invalidUids.forEach((uid) => {
+      batch.update(
+        admin.firestore()
+          .collection('families').doc(familyId).collection('members').doc(uid),
+        { fcmToken: admin.firestore.FieldValue.delete() }
+      );
+    });
+    await batch.commit()
+      .catch((err) => logger.warn('Hapus token FCM invalid gagal', err));
+  }
+}
 
 // Nama fungsi sengaja BUKAN onMessageWrite — deploy percobaan pertama sempat
 // membuat resource dengan trigger HTTPS yang tidak bisa di-update ke trigger
@@ -255,62 +312,103 @@ exports.notifyChatMessage = onDocumentWritten(
       .collection('members').get();
     const recipients = []; // { uid, token }
     membersSnap.forEach((doc) => {
-      const t = doc.data().fcmToken;
-      if (typeof t === 'string' && t.length > 0) {
-        recipients.push({ uid: doc.id, token: t });
-      }
+      const t = tokenOf(doc);
+      if (t) recipients.push({ uid: doc.id, token: t });
     });
-    if (recipients.length === 0) return;
+    await sendMulticastAndCleanup(familyId, recipients, {
+      sender: sender,
+      body: body,
+      cloudId: String(event.params.cloudId)
+    });
+  }
+);
 
-    const tokens = recipients.map((r) => r.token);
-    const message = {
-      data: {
-        sender: sender,
-        body: body,
-        cloudId: String(event.params.cloudId)
+/**
+ * Notifikasi keanggotaan (r1.6.0) — trigger pada join request:
+ * - CREATE: permintaan bergabung masuk → notifikasi PEMILIK (jika workspace
+ *   masih muat). Body memakai nama custom workspace bila ada.
+ * - DELETE: keputusan owner (approved/rejected) → notifikasi PEMOHON via token
+ *   yang disimpan di doc request saat requestJoin. Request yang dicabut sendiri
+ *   (tanpa status) tidak menghasilkan notifikasi.
+ * Payload berisi `type` sehingga app bisa membedakan dari notifikasi chat.
+ */
+exports.handleJoinRequest = onDocumentWritten(
+  'families/{familyId}/joinRequests/{uid}',
+  async (event) => {
+    const before = event.data && event.data.before;
+    const after = event.data && event.data.after;
+    const familyId = event.params.familyId;
+    const uid = event.params.uid;
+    const famRef = admin.firestore()
+      .collection('families').doc(familyId);
+
+    // EVENT DELETE — keputusan owner.
+    if (after && !after.exists && before && before.exists) {
+      const req = before.data() || {};
+      const token = typeof req.fcmToken === 'string' && req.fcmToken.length > 0
+        ? req.fcmToken
+        : null;
+      if (!token) return;
+      // Approve → member doc ada (ditulis atomik bersama delete request).
+      // Reject → ditandai `status='rejected'` sebelum delete.
+      // Selain itu (dicabut sendiri) → tanpa notifikasi.
+      let approved = false;
+      try {
+        const memberSnap = await famRef.collection('members').doc(uid).get();
+        approved = memberSnap.exists;
+      } catch (err) {
+        logger.warn('handleJoinRequest: cek member gagal', err);
+        return;
       }
-    };
-
-    let response;
-    try {
-      response = await admin.messaging().sendEachForMulticast({
-        tokens: tokens,
-        data: message.data
+      if (!approved && req.status !== 'rejected') return;
+      let familyName = '';
+      try {
+        const fam = await famRef.get();
+        if (fam.exists) familyName = String(fam.data().name || '');
+      } catch (err) {
+        logger.warn('handleJoinRequest: baca keluarga gagal', err);
+      }
+      await sendMulticastAndCleanup(familyId, [{ uid, token }], {
+        type: 'join_decision',
+        approved: approved ? '1' : '0',
+        requesterUid: uid,
+        familyName: familyName
       });
-    } catch (err) {
-      logger.warn('Gagal kirim notifikasi multicast', err);
       return;
     }
 
-    // Bersihkan token yang tidak valid (app di-uninstall / token kedaluwarsa)
-    // supaya kiriman berikutnya lebih bersih & biaya FCM tidak terbuang.
-    const invalidUids = [];
-    response.responses.forEach((r, i) => {
-      const rec = recipients[i];
-      if (!rec) return;
-      const err = r.error || {};
-      if (!r.success) {
-        invalidUids.push(rec.uid);
-        console.log('FCM gagal uid=' + rec.uid.slice(0, 10) +
-          ' code=' + (err.code || '?') +
-          ' msg=' + (err.message || '?'));
-      } else {
-        console.log('FCM OK uid=' + rec.uid.slice(0, 10));
-      }
-    });
-    console.log('Multicast total=' + recipients.length +
-      ' gagal=' + invalidUids.length + ' sender=' + sender);
-    if (invalidUids.length > 0) {
-      const batch = admin.firestore().batch();
-      invalidUids.forEach((uid) => {
-        batch.update(
-          admin.firestore()
-            .collection('families').doc(familyId).collection('members').doc(uid),
-          { fcmToken: admin.firestore.FieldValue.delete() }
-        );
+    // Bukan CREATE (hanya update status oleh owner) → tanpa notifikasi.
+    if (!after || !after.exists) return;
+    if (before && before.exists) return;
+
+    // CREATE — permintaan masuk. Cek kapasitas dulu: workspace penuh → tanpa
+    // notifikasi (owner hanya akan melihat permintaan yang tak bisa disetujui).
+    try {
+      const fam = await famRef.get();
+      if (!fam.exists) return;
+      const famData = fam.data() || {};
+      const limit = famData.plan === PLAN_PRO ? LIMIT_PRO : LIMIT_FREE;
+      const membersSnap = await famRef.collection('members').get();
+      if (membersSnap.size >= limit) return;
+
+      const ownerTokens = [];
+      membersSnap.forEach((doc) => {
+        if (doc.data().role === 'owner') {
+          const t = tokenOf(doc);
+          if (t) ownerTokens.push({ uid: doc.id, token: t });
+        }
       });
-      await batch.commit()
-        .catch((err) => logger.warn('Hapus token FCM invalid gagal', err));
+      if (ownerTokens.length === 0) return;
+      const req = after.data() || {};
+      await sendMulticastAndCleanup(familyId, ownerTokens, {
+        type: 'join_request',
+        requesterName: String(req.name || ''),
+        requesterEmail: String(req.email || ''),
+        requesterUid: uid,
+        familyName: String(famData.name || '')
+      });
+    } catch (err) {
+      logger.warn('handleJoinRequest gagal', err);
     }
   }
 );

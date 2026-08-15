@@ -161,6 +161,8 @@ class MainActivity : ComponentActivity() {
                 // — untuk header chat, topbar, dan halaman kelola anggota.
                 val members by com.startupmini.nyachat.data.remote.MembershipManager.members.collectAsStateWithLifecycle()
                 val memberAvatarPaths by com.startupmini.nyachat.data.remote.MembershipManager.memberAvatarPaths.collectAsStateWithLifecycle()
+                // r1.6.0: nama custom workspace untuk top bar & Kelola Anggota.
+                val familyName by com.startupmini.nyachat.data.remote.MembershipManager.familyName.collectAsStateWithLifecycle()
 
                 // M8: indeks transaksi per pesan (Map) supaya tap badge finansial tidak
                 // melakukan scan linear O(n) per komposisi — dibangun ulang hanya saat
@@ -1008,6 +1010,7 @@ driveController.getAutoPassphrase = {
                                 messages = messages,
                                 userName = userName,
                                 memberAvatarPaths = senderAvatarPaths,
+                                familyName = familyName,
                                 onManageMembers = { dialogs.showManageMembers = true },
                                 onSettings = { dialogs.showSettingsSheet = true }
                             )

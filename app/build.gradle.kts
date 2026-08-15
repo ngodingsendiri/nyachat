@@ -15,8 +15,8 @@ plugins {
 // tidak tersedia (gradle.properties dihapus/rusak) dan harus SELALU sinkron dengan
 // nilai aktual di gradle.properties — kalau tidak, build diam-diam memakai versi
 // usang. Workflow .github/workflows/build-apk.yml membaca fallback ini via regex.
-private val appVersion: String = project.findProperty("appVersion") as String? ?: "r1.5.1"
-private val appVersionCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 31
+private val appVersion: String = project.findProperty("appVersion") as String? ?: "r1.5.2"
+private val appVersionCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 32
 
 android {
   namespace = "com.startupmini.nyachat"

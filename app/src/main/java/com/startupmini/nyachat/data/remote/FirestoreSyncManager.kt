@@ -248,7 +248,11 @@ object FirestoreSyncManager {
                 famRef.set(
                     mapOf(
                         Constants.Fields.OWNER_ID to uid,
-                        Constants.Fields.CREATED_AT to FieldValue.serverTimestamp()
+                        Constants.Fields.CREATED_AT to FieldValue.serverTimestamp(),
+                        // r1.6.0: default nama & plan workspace baru. SetOptions.merge()
+                        // → workspace lama tidak tertimpa.
+                        Constants.Fields.NAME to Constants.Defaults.FAMILY_NAME,
+                        Constants.Fields.PLAN to Constants.Plans.FREE
                     ),
                     SetOptions.merge()
                 ).await()

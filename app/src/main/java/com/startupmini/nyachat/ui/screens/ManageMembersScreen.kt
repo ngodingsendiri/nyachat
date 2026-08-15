@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -54,8 +55,10 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.remote.FamilyMember
 import com.startupmini.nyachat.data.remote.MembershipManager
@@ -88,7 +91,14 @@ fun ManageMembersScreen(
     val memberAvatars by MembershipManager.memberAvatarPaths.collectAsState()
     val myUid = remember { MembershipManager.currentUid() }
 
+    // r1.6.0: nama & plan workspace (dari doc keluarga via listener) —
+    // header menampilkan nama custom, baris paket menampilkan plan & kapasitas.
+    val familyName by MembershipManager.familyName.collectAsState()
+    val familyPlan by MembershipManager.familyPlan.collectAsState()
+
     var labelTarget by remember { mutableStateOf<FamilyMember?>(null) }
+    var nameDialogOpen by remember { mutableStateOf(false) }
+    var upgradeDialogOpen by remember { mutableStateOf(false) }
     // Audit workspace (2026-08-12): aksi destruktif (hapus/promote/demote)
     // WAJIB konfirmasi dulu — menghapus anggota = akses hilang permanen,
     // jadikan pemilik = transfer kendali. Sebelumnya dieksekusi langsung.
@@ -134,12 +144,39 @@ fun ManageMembersScreen(
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = stringResource(R.string.manage_members_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        // r1.6.0: nama custom workspace; fallback default saat doc
+                        // keluarga belum ter-snapshot (bootstrap).
+                        text = familyName.ifBlank { stringResource(R.string.topbar_title) },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        // r1.6.0: kapasitas anggota (termasuk diri sendiri) vs limit plan.
+                        text = stringResource(
+                            R.string.manage_members_capacity,
+                            members.size,
+                            MembershipManager.memberLimit()
+                        ),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                // r1.6.0: owner bisa mengganti nama workspace (dialog di bawah).
+                if (isOwner) {
+                    IconButton(onClick = { nameDialogOpen = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Edit,
+                            contentDescription = stringResource(R.string.manage_members_edit_name),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
 
             LazyColumn(
@@ -151,38 +188,51 @@ fun ManageMembersScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // r1.6.0: baris paket (owner saja) — plan aktif + kapasitas +
+                // tombol upgrade placeholder (billing menyusul saat produksi).
                 if (isOwner) {
+                    item {
+                        PlanCard(
+                            plan = familyPlan,
+                            memberCount = members.size,
+                            limit = MembershipManager.memberLimit(),
+                            onUpgrade = { upgradeDialogOpen = true }
+                        )
+                    }
+                }
+                // r1.6.0: section permintaan bergabung disembunyikan total saat
+                // kosong (umpan balik tester) — baris kosong tidak tampil.
+                if (isOwner && joinRequests.isNotEmpty()) {
                     item { SectionTitle(stringResource(R.string.manage_members_join_requests)) }
-                    if (joinRequests.isEmpty()) {
-                        item {
-                            Text(
-                                text = stringResource(R.string.manage_members_no_requests),
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        // Key harus unik di SELURUH LazyColumn (bukan per section):
-                        // saat approve, member sudah masuk ke daftar `members`
-                        // sementara join request-nya masih ada di `joinRequests`
-                        // → UID sama muncul 2x → crash "Key was already used".
-                        items(joinRequests, key = { "join_${it.uid}" }) { request ->
-                            JoinRequestCard(
-                                request = request,
-                                onApprove = {
-                                    scope.launch {
-                                        MembershipManager.approveJoin(pin, request)
+                    // Key harus unik di SELURUH LazyColumn (bukan per section):
+                    // saat approve, member sudah masuk ke daftar `members`
+                    // sementara join request-nya masih ada di `joinRequests`
+                    // → UID sama muncul 2x → crash "Key was already used".
+                    items(joinRequests, key = { "join_${it.uid}" }) { request ->
+                        JoinRequestCard(
+                            request = request,
+                            onApprove = {
+                                scope.launch {
+                                    val result = MembershipManager.approveJoin(pin, request)
+                                    // r1.6.0: workspace penuh (free=2) → arahkan ke
+                                    // dialog upgrade, bukan diam-diam gagal. Plan
+                                    // sudah pro & penuh → tak ada upgrade yang bisa
+                                    // ditawarkan (hindari dialog buntu).
+                                    if (result == MembershipManager.ApproveResult.WORKSPACE_FULL &&
+                                        familyPlan != Constants.Plans.PRO
+                                    ) {
+                                        upgradeDialogOpen = true
                                     }
-                                },
-                                onReject = {
-                                    scope.launch { MembershipManager.rejectJoin(pin, request.uid) }
                                 }
-                            )
-                        }
+                            },
+                            onReject = {
+                                scope.launch { MembershipManager.rejectJoin(pin, request.uid) }
+                            }
+                        )
                     }
                     item { Spacer(modifier = Modifier.height(4.dp)) }
-                    item { SectionTitle(stringResource(R.string.manage_members_list)) }
                 }
+                item { SectionTitle(stringResource(R.string.manage_members_list)) }
 
                 // P3 (audit keanggotaan): empty-state untuk SEMUA peran — owner
                 // juga dapat melihat "kosong" saat snapshot belum datang / anggota
@@ -300,6 +350,49 @@ fun ManageMembersScreen(
             dismissButton = {
                 TextButton(onClick = { pendingAction = null }) {
                     Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
+
+    // r1.6.0: rename nama workspace (owner) — nama kosong diblokir tombol Simpan.
+    if (nameDialogOpen) {
+        WorkspaceNameDialog(
+            currentName = familyName.ifBlank { stringResource(R.string.topbar_title) },
+            onDismiss = { nameDialogOpen = false },
+            onSave = { newName ->
+                scope.launch { MembershipManager.setFamilyName(pin, newName) }
+                nameDialogOpen = false
+            }
+        )
+    }
+
+    // r1.6.0: upgrade ke Pro — PLACEHOLDER beta (billing Play menyusul).
+    // Muncul dari tombol baris paket ATAU saat approve ditolak karena penuh.
+    if (upgradeDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { upgradeDialogOpen = false },
+            title = { Text(stringResource(R.string.plan_upgrade_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.plan_upgrade_body,
+                        Constants.Limits.FREE_MAX_MEMBERS,
+                        Constants.Limits.PRO_MAX_MEMBERS
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        upgradeDialogOpen = false
+                        scope.launch { MembershipManager.setPlan(pin, Constants.Plans.PRO) }
+                    }
+                ) { Text(stringResource(R.string.plan_upgrade_now)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { upgradeDialogOpen = false }) {
+                    Text(stringResource(R.string.plan_upgrade_later))
                 }
             }
         )
@@ -460,29 +553,34 @@ private fun MemberCard(
                 }
             }
 
+            // r1.6.0 (umpan balik tester): aksi member dirapikan ke SATU menu
+            // overflow (MoreVert) — sebelumnya tombol teks panjang + ikon edit
+            // membuat kartu berantakan. Menu: Ubah Label, peran (pemilik/anggota),
+            // Hapus (guard: owner tidak bisa dihapus langsung).
             if (isOwner && !isSelf) {
-                IconButton(onClick = onEditLabel) {
-                    Icon(
-                        imageVector = Icons.Rounded.Edit,
-                        contentDescription = stringResource(R.string.manage_members_edit_label),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.width(20.dp)
-                    )
-                }
                 var menuOpen by remember { mutableStateOf(false) }
                 Box(modifier = Modifier) {
                     IconButton(onClick = { menuOpen = true }) {
-                        Text(
-                            text = if (member.isOwner) {
-                                stringResource(R.string.manage_members_make_member)
-                            } else {
-                                stringResource(R.string.manage_members_make_owner)
-                            },
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.primary
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = stringResource(R.string.manage_members_actions),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    stringResource(R.string.manage_members_edit_label),
+                                    fontSize = 13.sp
+                                )
+                            },
+                            onClick = {
+                                menuOpen = false
+                                onEditLabel()
+                            }
+                        )
                         DropdownMenuItem(
                             text = {
                                 Text(
@@ -500,8 +598,7 @@ private fun MemberCard(
                             }
                         )
                         // Audit workspace: owner TIDAK bisa langsung dihapus — harus
-                        // di-demote dulu menjadi anggota (string sudah disiapkan tapi
-                        // guard tidak pernah diterapkan). Menghapus owner = workspace
+                        // di-demote dulu menjadi anggota. Menghapus owner = workspace
                         // berisiko kehilangan semua kendali & tidak ada yang menyetujui
                         // permintaan bergabung.
                         if (!member.isOwner) {
@@ -553,6 +650,106 @@ private fun AvatarCircle(name: String, seed: String) {
             fontSize = 16.sp
         )
     }
+}
+
+@Composable
+private fun PlanCard(
+    plan: String,
+    memberCount: Int,
+    limit: Int,
+    onUpgrade: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.plan_row_label),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (plan == Constants.Plans.PRO) {
+                            stringResource(R.string.plan_pro_label)
+                        } else {
+                            stringResource(R.string.plan_free_label)
+                        },
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        // Kapasitas: member aktif vs limit plan (mis. "2/6 anggota").
+                        text = stringResource(R.string.manage_members_capacity, memberCount, limit),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            // r1.6.0: upgrade placeholder — langsung set plan 'pro' (billing
+            // Play Billing diterapkan saat produksi).
+            if (plan != Constants.Plans.PRO) {
+                TextButton(onClick = onUpgrade) {
+                    Text(
+                        stringResource(R.string.plan_upgrade_button),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceNameDialog(
+    currentName: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(currentName) }
+
+    // F3 (audit focus order): fokus langsung ke kolom nama saat dialog dibuka.
+    val nameFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(120)
+        nameFocusRequester.requestFocus()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.workspace_name_dialog_title)) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text(stringResource(R.string.workspace_name_dialog_hint)) },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(nameFocusRequester)
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onSave(text.trim()) }, enabled = text.isNotBlank()) {
+                Text(stringResource(R.string.workspace_name_dialog_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        }
+    )
 }
 
 @Composable

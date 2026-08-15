@@ -345,7 +345,7 @@
     <string name="sync_status_error">Belum sinkron</string>
     <string name="manage_members_title">Kelola Anggota</string>
     <string name="manage_members_join_requests">Permintaan Bergabung</string>
-    <string name="manage_members_no_requests">Tidak ada permintaan bergabung.</string>
+    <string name="manage_members_actions">Aksi</string>
     <string name="manage_members_list">Anggota Workspace</string>
     <string name="manage_members_empty">Belum ada anggota lain. Bagikan PIN untuk mengundang.</string>
     <string name="manage_members_you">(kamu)</string>
@@ -367,6 +367,30 @@
     <string name="manage_members_confirm_promote_msg">%1$s akan bisa mengelola anggota, menyetujui permintaan, dan mengganti peran pemilik. Lanjutkan?</string>
     <string name="manage_members_confirm_demote_title">Jadikan Anggota?</string>
     <string name="manage_members_confirm_demote_msg">%1$s akan kehilangan hak kelola workspace. Lanjutkan?</string>
+    <!-- r1.6.0: nama custom workspace — header Kelola Anggota & dialog rename. -->
+    <string name="manage_members_workspace_name">Nama Workspace</string>
+    <string name="manage_members_edit_name">Ubah Nama</string>
+    <string name="workspace_name_dialog_title">Nama Workspace</string>
+    <string name="workspace_name_dialog_hint">Mis. Keuangan Keluarga, Toko Bersama…</string>
+    <string name="workspace_name_dialog_save">Simpan</string>
+    <!-- r1.6.0: kapasitas anggota per plan (free=2 / pro=6) + placeholder upgrade. -->
+    <string name="manage_members_capacity">%1$d/%2$d anggota</string>
+    <string name="plan_row_label">Paket</string>
+    <string name="plan_free_label">Gratis</string>
+    <string name="plan_pro_label">Pro</string>
+    <string name="plan_upgrade_button">Upgrade ke Pro</string>
+    <string name="plan_upgrade_title">Upgrade Paket</string>
+    <string name="plan_upgrade_body">Paket Gratis maksimal %1$d anggota. Upgrade ke Pro untuk menambah hingga %2$d anggota.</string>
+    <string name="plan_upgrade_now">Upgrade Sekarang</string>
+    <string name="plan_upgrade_later">Nanti Saja</string>
+    <!-- r1.6.0: notifikasi keanggotaan (channel, permintaan bergabung, keputusan). -->
+    <string name="notif_membership_channel_name">Aktivitas workspace</string>
+    <string name="notif_membership_channel_desc">Permintaan bergabung &amp; keputusan keanggotaan</string>
+    <string name="notif_join_request_title">Permintaan Bergabung</string>
+    <string name="notif_join_request_body">%1$s ingin bergabung ke %2$s</string>
+    <string name="notif_join_decision_title">Keputusan Bergabung</string>
+    <string name="notif_join_approved_body">Permintaan Anda disetujui — selamat datang di %1$s</string>
+    <string name="notif_join_rejected_body">Permintaan Anda ditolak oleh pengelola %1$s</string>
     <!-- Audit workspace: pesan saat user dikeluarkan/di-kick dari workspace
          (deteksi foreground via kickedEvents ATAU saat resume A3). -->
     <string name="membership_kicked_message">Kamu telah dikeluarkan dari workspace ini.</string>

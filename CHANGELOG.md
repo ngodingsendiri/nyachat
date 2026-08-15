@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [r1.5.2] - 2026-08-15 (notifikasi keanggotaan · nama workspace · kapasitas anggota per plan)
+- **Notifikasi keanggotaan (umpan balik tester)**: pemilik kini mendapat
+  notifikasi "X ingin bergabung ke <nama workspace>" saat ada permintaan
+  bergabung; pemohon mendapat notifikasi disetujui/ditolak. Dikirim via cloud
+  function `handleJoinRequest` (FCM data message) di kanal "Aktivitas workspace",
+  di-gate toggle notifikasi chat yang sama (keputusan beta).
+- **Nama workspace custom**: nama default "Keuangan Bersama" bisa diganti dari
+  "Kelola Anggota" (pemilik) — nama tampil di top bar & header kelola anggota.
+  Doc keluarga baru diberi default `name` + `plan`.
+- **Kapasitas anggota per plan**: free = 2 anggota, pro = 6 (termasuk pemilik).
+  Permintaan bergabung yang melebihi kapasitas tidak bisa disetujui — UI
+  mengarahkan ke dialog upgrade (placeholder; verifikasi Play Billing menyusul
+  saat produksi). Cloud function menunda notifikasi pemilik bila workspace penuh.
+- **UI Kelola Anggota dirapikan (umpan balik tester)**: aksi per anggota dipindah
+  ke satu menu overflow (⋮) — sebelumnya tombol teks panjang + ikon edit
+  berantakan; section "Permintaan Bergabung" disembunyikan total saat kosong
+  (sebelumnya menampilkan baris "Tidak ada permintaan").
+- **Keamanan**: update doc keluarga dibatasi rules hanya field `name` & `plan`
+  oleh pemilik (`hasOnly(['name','plan'])`).
+- **Perbaikan (audit r1.6.0)**: `approveJoin` membaca plan otoritatif dari doc
+  keluarga (bukan state yang bisa basi) & ID notifikasi keanggotaan per-pemohon
+  (`requesterUid`) agar notifikasi tidak saling menimpa.
+
 ## [r1.5.1] - 2026-08-15 (update in-app langsung untuk build release)
 - **Update in-app tidak lagi diarahkan ke repo** di build release — tombol
   "Update Sekarang" kini langsung mengunduh APK dari GitHub Release dan
