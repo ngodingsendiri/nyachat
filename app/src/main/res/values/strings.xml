@@ -244,12 +244,10 @@
          sebelumnya tidak ada loading, user menunggu tanpa tahu proses sedang berjalan. -->
     <string name="chat_attach_saving">Menyimpan lampiran…</string>
 
-    <!-- Update otomatis dari GitHub Release -->
+    <!-- Update otomatis dari GitHub Release (download & install langsung) -->
     <string name="update_available_title">Update Tersedia 🚀</string>
     <string name="update_available_message">Versi baru %1$s sudah dirilis. Download &amp; install sekarang?</string>
-    <string name="update_available_message_release">Versi baru %1$s sudah dirilis. Ketuk tombol berikut untuk membuka halaman rilis, lalu unduh &amp; pasang APK-nya.</string>
     <string name="update_action">Update Sekarang</string>
-    <string name="update_action_release">Lihat Halaman Rilis</string>
     <string name="update_later">Nanti</string>
     <string name="update_downloading">Mengunduh update…</string>
     <string name="update_download_failed">Gagal mengunduh update. Coba lagi nanti.</string>

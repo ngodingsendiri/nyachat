@@ -2,14 +2,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 3.7: notifikasi chat real-time (Android 13+ runtime permission) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- BUG-06 lanjutan (P0): deteksi jaringan via ConnectivityManager.NetworkCallback
          agar indikator sync jujur saat offline murni (tanpa izin ini callback tak
          menerima event jaringan). Normal — bukan runtime permission. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- REQUEST_INSTALL_PACKAGES TIDAK ada di build release (menghindari review Play
-         atas sideload APK). Hanya aktif di build debug via app/src/debug/AndroidManifest.xml. -->
+    <!-- Update in-app: download APK dari GitHub Release lalu pasang langsung di SEMUA
+         build (debug & release) — distribusi lewat GitHub Release, bukan Play Store.
+         Di Android 8+ tanpa permission ini ACTION_VIEW package-archive ditolak. -->
 
     <application
         android:allowBackup="false"

@@ -35,7 +35,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
-import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.remote.GitHubRelease
 import java.io.File
@@ -253,7 +252,7 @@ fun PinSwitchDialog(
     )
 }
 
-/** Dialog "update tersedia" — aksi di-hoist (unduh/pasang vs buka rilis). */
+/** Dialog "update tersedia" — aksi di-hoist (unduh & pasang langsung). */
 @Composable
 fun UpdateAvailableDialog(
     release: GitHubRelease,
@@ -269,10 +268,8 @@ fun UpdateAvailableDialog(
             Text(
                 text = if (isDownloading) {
                     stringResource(R.string.update_downloading)
-                } else if (BuildConfig.DEBUG) {
-                    stringResource(R.string.update_available_message, release.versionName)
                 } else {
-                    stringResource(R.string.update_available_message_release, release.versionName)
+                    stringResource(R.string.update_available_message, release.versionName)
                 }
             )
         },
@@ -281,7 +278,7 @@ fun UpdateAvailableDialog(
                 enabled = !isDownloading,
                 onClick = onAction
             ) {
-                Text(stringResource(if (BuildConfig.DEBUG) R.string.update_action else R.string.update_action_release))
+                Text(stringResource(R.string.update_action))
             }
         },
         dismissButton = {

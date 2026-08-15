@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Permission install APK kini dideklarasikan di main manifest (update in-app
+     berlaku untuk build debug & release). Manifest debug ini sengaja dikosongkan
+     supaya mainifest merge tidak menambah apa pun di build debug. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Permission install APK hanya untuk build DEBUG (update in-app via GitHub).
-         Release memakai update Play Store resmi, jadi permission ini tidak disertakan. -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-
 </manifest>

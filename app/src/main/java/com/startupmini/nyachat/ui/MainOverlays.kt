@@ -40,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.abs
 import kotlin.math.max
-import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.backup.DriveBackupController
@@ -151,31 +150,23 @@ fun BoxScope.MainOverlays(
             isDownloading = dialogs.isDownloadingUpdate,
             onAction = {
                 scope.launch {
-                    // Aksi selalu tersedia di SEMUA build. Debug → unduh &
-                    // pasang langsung (permission REQUEST_INSTALL_PACKAGES).
-                    // Release → buka halaman release GitHub di browser (ganti
-                    // APK terpasang lebih aman lewat Play Store, tapi tau
-                    // dulu ke halaman rilis agar tetap ada tombol aksi).
-                    if (BuildConfig.DEBUG) {
-                        dialogs.isDownloadingUpdate = true
-                        try {
-                            val url = release.apkUrl
-                            if (url == null) throw IllegalStateException("APK tidak tersedia di release")
-                            val dest = File(context.cacheDir, "downloads/nyachat-${release.versionName}.apk")
-                            GitHubUpdateChecker.downloadApk(url, dest)
-                            installApk(context, dest)
-                        } catch (e: Exception) {
-                            dialogs.updateMessage = context.getString(R.string.update_download_failed)
-                        } finally {
-                            dialogs.isDownloadingUpdate = false
-                            dialogs.updateInfo = null
-                        }
-                    } else {
-                        val intent = android.content.Intent(
-                            android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse(release.releaseUrl)
-                        )
-                        context.startActivity(intent)
+                    // Update in-app berlaku di SEMUA build (debug & release):
+                    // unduh APK dari GitHub Release lalu pasang langsung. Sebelumnya
+                    // release build hanya membuka halaman rilis di browser (keluhan
+                    // tester: "klik update malah diarahkan ke repo"). Kini tombol
+                    // langsung download & install — lihat juga REQUEST_INSTALL_PACKAGES
+                    // di main manifest.
+                    dialogs.isDownloadingUpdate = true
+                    try {
+                        val url = release.apkUrl
+                        if (url == null) throw IllegalStateException("APK tidak tersedia di release")
+                        val dest = File(context.cacheDir, "downloads/nyachat-${release.versionName}.apk")
+                        GitHubUpdateChecker.downloadApk(url, dest)
+                        installApk(context, dest)
+                    } catch (e: Exception) {
+                        dialogs.updateMessage = context.getString(R.string.update_download_failed)
+                    } finally {
+                        dialogs.isDownloadingUpdate = false
                         dialogs.updateInfo = null
                     }
                 }

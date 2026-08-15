@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [r1.5.1] - 2026-08-15 (update in-app langsung untuk build release)
+- **Update in-app tidak lagi diarahkan ke repo** di build release — tombol
+  "Update Sekarang" kini langsung mengunduh APK dari GitHub Release dan
+  memunculkan installer (sebelumnya release build hanya membuka halaman rilis
+  di browser; tester dikeluhkan "klik update malah ke repo"). `REQUEST_INSTALL_PACKAGES`
+  dipindah dari manifest debug ke main manifest agar berlaku di semua build.
+
 ## [r1.5.0] - 2026-08-15 (audit menyeluruh: keamanan server, presisi uang, aturan workspace)
 - **P1#1 Kunci pemulihan auto-backup**: passphrase acak auto-backup (hanya di
   Keystore) kini ditampilkan SEKALI ke user saat pertama dibangkitkan — HP
