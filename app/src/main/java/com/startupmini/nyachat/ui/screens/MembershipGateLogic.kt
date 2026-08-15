@@ -3,7 +3,7 @@ package com.startupmini.nyachat.ui.screens
 import com.startupmini.nyachat.data.remote.MembershipStatus
 
 /** Penyebab gate berhenti dengan error (ditampilkan ke pengguna). */
-enum class GateError { PIN_OWNED, NOT_FOUND, FAILED, REJECTED, TIMEOUT }
+enum class GateError { PIN_OWNED, OWNED_ELSEWHERE, NOT_FOUND, FAILED, REJECTED, TIMEOUT }
 
 /**
  * Langkah berikutnya untuk alur gate anggota. Logika murni — dipisah dari

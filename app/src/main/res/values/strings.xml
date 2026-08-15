@@ -298,6 +298,9 @@
     <string name="backup_auto_recovery_title">Kunci Pemulihan Auto-Backup</string>
     <string name="backup_auto_recovery_message">Auto-backup Drive kamu dienkripsi otomatis. Kunci pemulihan di bawah hanya disimpan di perangkat ini — salin &amp; simpan di tempat aman (password manager / catatan pribadi). Tanpa kunci ini, backup Drive tidak bisa dipulihkan di perangkat baru.</string>
     <string name="backup_auto_recovery_ok">Saya sudah menyimpannya</string>
+    <!-- Audit workspace (2026-08-14): aturan 1 akun = 1 workspace — owner yang
+         masih punya workspace aktif diblokir bikin yang baru. -->
+    <string name="membership_error_owned_elsewhere">Kamu sudah punya workspace lain sebagai pemilik. Hapus workspace lama atau serahkan kepemilikan ke anggota lain (promote jadi owner) sebelum membuat workspace baru.</string>
     <string name="restore_failed">Gagal mengunduh backup dari Google Drive.</string>
     <string name="restore_failed_parse">File backup tidak valid atau rusak.</string>
 

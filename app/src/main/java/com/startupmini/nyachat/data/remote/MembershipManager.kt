@@ -155,7 +155,7 @@ enum class MembershipStatus { MEMBER, PENDING, NOT_REQUESTED, FAILED, TIMED_OUT 
 enum class JoinRequestResult { SUCCESS, NOT_FOUND, FAILED }
 
 /** Hasil penyiapan workspace pemilik. */
-enum class OwnerSetupResult { SUCCESS, ALREADY_OWNED, FAILED }
+enum class OwnerSetupResult { SUCCESS, ALREADY_OWNED, OWNED_ELSEWHERE, FAILED }
 
 /** Hasil keluar dari workspace (r1.4.0). */
 enum class LeaveWorkspaceResult { LEFT, NEED_OWNER_TRANSFER, FAILED }
@@ -202,6 +202,22 @@ object MembershipManager {
      */
     internal fun canLeaveWorkspace(myRole: String, otherOwnerCount: Int): Boolean =
         myRole != ROLE_OWNER || otherOwnerCount >= 1
+
+    /**
+     * Keputusan murni (audit workspace 2026-08-14): apakah akun sudah jadi
+     * OWNER di workspace LAIN (selain [currentPin])? Menegakkan aturan
+     * "1 akun = 1 workspace" — kalau true, pembuatan workspace baru diblokir
+     * sampai workspace lama DIHAPUS atau kepemilikan DIWARISKAN (promote
+     * anggota lain jadi owner). Anggota biasa (bukan owner) di workspace lain
+     * TIDAK terblokir — mereka bebas bikin workspace sendiri.
+     *
+     * Member docs = pasangan (pin, role). Diekstrak supaya bisa di-unit-test
+     * (query Firestore-nya ada di [ensureOwnerWorkspace]).
+     */
+    internal fun ownsWorkspaceElsewhere(
+        memberDocs: List<Pair<String, String?>>,
+        currentPin: String
+    ): Boolean = memberDocs.any { (pin, role) -> pin != currentPin && role == ROLE_OWNER }
 
 
     /**
@@ -619,6 +635,27 @@ object MembershipManager {
     suspend fun ensureOwnerWorkspace(pin: String): OwnerSetupResult {
         val uid = currentUid() ?: return OwnerSetupResult.FAILED
         _lastFailure.value = null
+        // Audit workspace (2026-08-14): aturan "1 akun = 1 workspace". Rules
+        // Firestore tidak bisa query collectionGroup, jadi guard di sisi app:
+        // sebelum membuat workspace BARU, pastikan akun belum jadi OWNER di
+        // workspace lain — kalau sudah, blokir (harus hapus/wariskan dulu).
+        // Ini mencegah penumpukan workspace sampah (semua akun tes di DB punya
+        // 2–7 workspace karena dulu tidak ada guard ini).
+        val memberDocs = try {
+            db().collectionGroup(Constants.Collections.MEMBERS)
+                .whereEqualTo(Constants.Fields.UID, uid)
+                .get().await()
+                .documents.mapNotNull { d ->
+                    val otherPin = d.reference.parent.parent?.id
+                    if (otherPin.isNullOrBlank()) null else otherPin to d.getString(Constants.Fields.ROLE)
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "ensureOwnerWorkspace: cek kepemilikan gagal: ${e.message}")
+            return OwnerSetupResult.FAILED
+        }
+        if (ownsWorkspaceElsewhere(memberDocs, pin)) {
+            return OwnerSetupResult.OWNED_ELSEWHERE
+        }
         val famRef = db().collection(Constants.Collections.FAMILIES).document(pin)
         return runCatching {
             var ownedByMe = false

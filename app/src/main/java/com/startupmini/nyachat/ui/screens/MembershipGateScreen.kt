@@ -93,6 +93,9 @@ fun MembershipGateScreen(
             when (MembershipManager.ensureOwnerWorkspace(pin)) {
                 OwnerSetupResult.SUCCESS -> currentOnReady()
                 OwnerSetupResult.ALREADY_OWNED -> { error = GateError.PIN_OWNED; state = GateState.ERROR }
+                // Audit workspace (2026-08-14): akun sudah jadi owner di workspace
+                // LAIN — blokir bikin baru sampai lama dihapus/diwariskan.
+                OwnerSetupResult.OWNED_ELSEWHERE -> { error = GateError.OWNED_ELSEWHERE; state = GateState.ERROR }
                 OwnerSetupResult.FAILED -> { error = GateError.FAILED; state = GateState.ERROR }
             }
             return@LaunchedEffect
@@ -182,6 +185,7 @@ fun MembershipGateScreen(
 
     val errorRes = when (error) {
         GateError.PIN_OWNED -> R.string.membership_error_pin_owned
+        GateError.OWNED_ELSEWHERE -> R.string.membership_error_owned_elsewhere
         GateError.NOT_FOUND -> R.string.membership_error_not_found
         GateError.REJECTED -> R.string.membership_error_rejected
         GateError.TIMEOUT -> R.string.membership_error_timeout
