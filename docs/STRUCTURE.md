@@ -77,13 +77,13 @@ nyachat/
 │   │       ├── MainTopBar.kt · MainNavigationBar.kt · GlowingBackground.kt
 │   │
 │   ├── res/                       ← Sumber daya
-│   │   ├── values/   (strings.xml 357 baris · themes.xml · colors.xml · font_certs.xml · keep.xml)
+│   │   ├── values/   (strings.xml 375 baris · themes.xml · colors.xml · font_certs.xml · keep.xml)
 │   │   ├── values-night/ (colors.xml) · values-v31/ (themes.xml — splash 12+)
 │   │   ├── drawable/  (logo, splash) · xml/ (file_paths.xml) · mipmap-*/
 │   │
 │   └── AndroidManifest.xml
 │
-├── app/src/test/                  ← 🧪 45 file test (Robolectric + Roborazzi + Compose UI)
+├── app/src/test/                  ← 🧪 46 file test (Robolectric + Roborazzi + Compose UI)
 ├── app/src/androidTest/           ← 📱 AppSmokeTest (smoke di emulator NYATA — CI job device-smoke)
 │   ├── ConstantsTest              ← kontrak nilai Constants.Fields (anti-regresi rename)
 │   ├── data/analytics/  FinancialInsightsTest · MonthlyAnalyticsTest · WeeklyInsightsTest
@@ -92,7 +92,9 @@ nyachat/
 │   ├── data/remote/     BitmapCacheTest · FirestoreSyncManager* (3) · GeminiService* · RelayAiServiceTest
 │   │                     · GitHubUpdateCheckerTest · ImageFileUtilSamplingTest
 │   │                     · ImageFileUtilAttachmentCleanupTest (pembersihan lampiran rekursif)
-│   │                     · MembershipKickLogicTest · CloudMessageMappingTest · AiTuningAuditTest
+│   │                     · MembershipKickLogicTest · MembershipLeaveLogicTest (keluar/anti-yatim)
+│   │                     · WorkspaceOwnershipTest (aturan 1 akun = 1 workspace)
+│   │                     · CloudMessageMappingTest · AiTuningAuditTest
 │   │                     · MembershipAutoConnectTest (keputusan auto-connect r1.4.0)
 │   │                     · MembershipAvatarSourceTest (sumber avatar: bytes/photoUrl)
 │   │                     · MultiTransactionExtractionTest (multi-transaksi r1.4.0)
@@ -124,8 +126,8 @@ nyachat/
 |---|---|
 | File Kotlin produksi | 71 |
 | Baris kode (produksi + test) | ±27.900 |
-| File test | 46 (45 unit + 1 androidTest) |
-| Jumlah test (unit, Robolectric/Compose) | 481 |
+| File test | 47 (46 unit + 1 androidTest) |
+| Jumlah test (unit, Robolectric/Compose) | 486 |
 | `minSdk` / `targetSdk` | 24 / 36 |
 | `applicationId` | `com.startupmini.nyachat` |
 | Bahasa UI | Indonesia (strings.xml terpusat) |

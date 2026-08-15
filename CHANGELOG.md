@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-08-14 (audit menyeluruh: keamanan server, presisi uang, struktur)
+## [r1.5.0] - 2026-08-15 (audit menyeluruh: keamanan server, presisi uang, aturan workspace)
 - **P1#1 Kunci pemulihan auto-backup**: passphrase acak auto-backup (hanya di
   Keystore) kini ditampilkan SEKALI ke user saat pertama dibangkitkan — HP
   hilang/reinstall tidak lagi mengunci backup Drive selamanya.
@@ -24,16 +24,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mensimulasikan runtime penuh.
 - **P3#8 Metrik ekstraksi**: konteks ekstraksi (sumber AI/HEURISTIK, jumlah,
   campuran) dicatat via Crashlytics custom key + log untuk triase crash.
+- **Aturan "1 akun = 1 workspace" ditegakkan**: `ensureOwnerWorkspace` kini
+  menolak membuat workspace baru bila akun sudah jadi owner di workspace lain
+  (sebelumnya hanya cek PIN sendiri — akun tes terbukti menumpuk 15 workspace
+  dummy di Firestore). Pesan error jelas di layar PIN + `WorkspaceOwnershipTest`
+  (+5 test). Owner tetap wajib mewariskan kepemilikan sebelum keluar (anti
+  workspace yatim); member yang diundang bebas keluar via exit membership.
+- **Pembersihan database**: 15 workspace dummy + 281 dokumen subcollection
+  (messages/transactions/members/joinRequests) dihapus permanen dari Firestore
+  — koleksi `families` bersih (0 sisa).
 
-## [r1.4.0] - 2026-08-14 (audit input AI/offline + badge campuran pelangi)
+## [r1.4.0] - 2026-08-14 (audit Finance AI menyeluruh · workspace & keanggotaan · polish UI)
 - **Audit input mesin AI/offline**: angka polos NON-NOMINAL tidak lagi dianggap
   nominal — TAHUN 19xx/20xx ("bayar spp 2025 sebesar 2jt" tadinya tercatat
   Rp 2.025 dan 2jt HILANG) dan KUANTITAS ≥2 digit ("beli 12 buku seharga 50rb"
   tadinya Rp 12.000 dan 50rb hilang). Guard `isNonMonetaryNumber` dipakai
   konsisten di ekstraksi nominal, pemisahan batas nominal, & perhitungan
   jumlah nominal. +7 regression test (477 total).
-
-## [r1.4.0] - 2026-08-14 (badge campuran pelangi + auto-connect workspace)
 - **Badge campuran pelangi**: pesan chat yang berisi PEMASUKAN DAN PENGELUARAN
   sekaligus kini menampilkan badge gradien pelangi (bukan hijau/merah) sebagai
   penanda campuran — ikon AutoAwesome + teks "N transaksi · total".
@@ -42,8 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transaksi dari pesan campuran tetap dipecah per jenis ke Rekap (pemasukan ke
   pemasukan, pengeluaran ke pengeluaran — tanpa netting); sudah terverifikasi
   E2E di emulator (1 pesan → PEMASUKAN 2jt + PENGELUARAN 45rb + 30rb).
-
-## [r1.4.0] - 2026-08-14 (auto-connect workspace + keluar dari workspace)
 
 ### Fixed (audit campuran pemasukan+pengeluaran 2026-08-14)
 - **"uang keluar 3jt" tidak terekam** saat satu pesan berisi pemasukan DAN

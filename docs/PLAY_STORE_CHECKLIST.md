@@ -1,6 +1,6 @@
 # Checklist Rilis ke Google Play (Nyachat)
 
-Checklist langkah demi langkah untuk mengirim **Nyachat** (r1.4.0 / versionCode 29)
+Checklist langkah demi langkah untuk mengirim **Nyachat** (r1.5.0 / versionCode 30)
 ke Google Play Console. Dibuat untuk memastikan tidak ada item yang terlewat.
 
 ---
@@ -21,7 +21,7 @@ ke Google Play Console. Dibuat untuk memastikan tidak ada item yang terlewat.
 1. Pastikan semua secret di atas tersedia (khususnya keystore upload).
 2. Buka tab **Actions → Build APK**.
 3. Jalankan build (Workflow dispatch), atau `push` tag `r*` (r1.2.0, ...).
-4. Unduh artifact **`Nyachat-r1.4.0-release-aab`** → file `app-release.aab`.
+4. Unduh artifact **`Nyachat-r1.5.0-release-aab`** → file `app-release.aab`.
    - Artifact debug (`...-debug.apk`) & release APK juga dibuat.
 5. *(Opsional lokal)* `./gradlew :app:bundleRelease` — butuh `KEYSTORE_PATH`/`STORE_PASSWORD`/`KEY_PASSWORD`.
 
@@ -128,7 +128,7 @@ Formulir "Data safety" di Console → **Kebijakan → Data safety & content rati
 1. Console → **Release → Production → Buat rilis baru** → buat release tracks
    (Production, atau Internal Testing untuk uji awal).
 2. Unggah `app-release.aab`.
-3. Catatan rilis: versi `r1.4.0` – `Auto-connect workspace: login Google otomatis masuk ke workspace milik akun tanpa PIN (1 akun = 1 workspace). Keluar dari Workspace baru di Settings (owner satu-satunya wajib promote dulu). Fix: workspace hilang saat login ulang akun sama. Avatar foto profil di bubble chat + ekstraksi multi-transaksi yang akurat (detectedCount, tanpa netting). Fix pesan campuran pemasukan+pengeluaran ("uang keluar" tidak hilang lagi, AI tidak lengkap dilengkapi heuristik). 462 test hijau, lint bersih.`
+3. Catatan rilis: versi `r1.5.0` – `Keamanan: kunci pemulihan auto-backup ditampilkan ke user, rate limit AI server, log AI tanpa isi finansial. Presisi uang: normalizeAmount + invariant test. Aturan 1 akun = 1 workspace ditegakkan (tolak create ganda, owner wajib wariskan sebelum keluar). Mesin heuristik dipisah ke OfflineTransactionParser. Smoke test perangkat nyata di CI. 486 test hijau, lint bersih.`
 4. Terbitkan → tunggu review Google (biasanya jam–hari).
 
 ---
