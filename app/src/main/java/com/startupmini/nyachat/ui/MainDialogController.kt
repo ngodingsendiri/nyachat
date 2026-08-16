@@ -45,5 +45,7 @@ class MainDialogController {
     // State dialog update (tampil di SEMUA layar).
     var updateInfo by mutableStateOf<GitHubRelease?>(null)
     var isDownloadingUpdate by mutableStateOf(false)
+    // Progres unduhan APK 0..1 (hanya bermakna saat isDownloadingUpdate).
+    var updateProgress by mutableStateOf(0f)
     var updateMessage by mutableStateOf<String?>(null)
 }

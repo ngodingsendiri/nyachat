@@ -21,9 +21,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,22 +33,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
-import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.ui.util.AvatarImage
 import com.startupmini.nyachat.ui.util.avatarColorFor
 
 /**
- * TopAppBar utama: avatar bertumpuk anggota + judul + aksi (kelola anggota &
- * pengaturan). Ekstraksi dari MainActivity (TASK-1.3) — tanpa perubahan behavior.
- * r1.2.3 (P1): [memberAvatarPaths] = map nama-tampilan → path foto, supaya
- * avatar bertumpuk menampilkan FOTO bila tersedia (fallback inisial berwarna).
+ * TopAppBar utama: avatar bertumpuk anggota yang SEDANG ONLINE + judul + aksi
+ * (kelola anggota & pengaturan).
+ *
+ * r1.6.0 (presence): sumber avatar berubah — dari "pengirim pesan" menjadi
+ * "anggota yang online" (daftar [onlineMemberNames] sudah difilter & diurutkan
+ * di MainActivity via MembershipManager.onlineMembers, self didahulukan).
+ * Subtitle menampilkan jumlah online/total. Ukuran avatar diturunkan (28dp)
+ * supaya 6 anggota online (cap plan pro) tetap muat bertumpuk.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainTopBar(
-    messages: List<ChatMessage>,
+    // Nama tampilan anggota yang online (self sudah pasti termasuk, didahulukan).
+    onlineMemberNames: List<String>,
+    // Total anggota di workspace (untuk subtitle "N/M online").
+    totalMembers: Int,
     userName: String?,
     memberAvatarPaths: Map<String, String> = emptyMap(),
     // r1.6.0: nama custom workspace (nilai default saat doc keluarga belum ada).
@@ -59,16 +61,8 @@ fun MainTopBar(
     onManageMembers: () -> Unit,
     onSettings: () -> Unit
 ) {
-    // M8: indeks pengirim unik untuk avatar — dibangun ulang hanya saat daftar
-    // pesan berubah (dulu di MainActivity, dipindah bersama TopAppBar).
-    val uniqueSenders by remember(messages) {
-        derivedStateOf {
-            messages
-                .map { it.sender }
-                .filter { it != Constants.Sender.AI }
-                .distinct()
-                .take(4)
-        }
+    val avatars = onlineMemberNames.ifEmpty {
+        userName?.let { listOf(it) } ?: emptyList()
     }
 
     TopAppBar(
@@ -78,9 +72,7 @@ fun MainTopBar(
                 modifier = Modifier.padding(start = 0.dp)
             ) {
                 StackedAvatars(
-                    senders = uniqueSenders.ifEmpty {
-                        userName?.let { listOf(it) } ?: emptyList()
-                    },
+                    senders = avatars,
                     avatarPaths = memberAvatarPaths,
                     modifier = Modifier.padding(end = 10.dp)
                 )
@@ -94,15 +86,15 @@ fun MainTopBar(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (uniqueSenders.size > 1) {
+                    if (onlineMemberNames.size > 1 && totalMembers > 0) {
                         Text(
-                            text = stringResource(R.string.topbar_member_count, uniqueSenders.size),
+                            text = stringResource(R.string.topbar_online_count, onlineMemberNames.size, totalMembers),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    } else if (uniqueSenders.size == 1) {
+                    } else if (onlineMemberNames.size == 1) {
                         Text(
-                            text = uniqueSenders.first(),
+                            text = onlineMemberNames.first(),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -140,17 +132,20 @@ fun MainTopBar(
  * Avatar bertumpuk (stacked) bergaya Twitter/X group chat.
  * Setiap avatar adalah lingkaran berwarna unik dari hash nama pengirim,
  * dengan inisial huruf di tengah. Avatar berikutnya sedikit overlap ke kiri.
+ * r1.6.0 (presence): menampilkan hingga 6 avatar (cap plan pro) supaya seluruh
+ * anggota yang online terlihat sekaligus.
  */
 @Composable
 private fun StackedAvatars(
     senders: List<String>,
     modifier: Modifier = Modifier,
     avatarPaths: Map<String, String> = emptyMap(),
-    avatarSize: Int = 32,
-    overlapDp: Int = 10
+    avatarSize: Int = 28,
+    overlapDp: Int = 10,
+    maxAvatars: Int = 6
 ) {
     if (senders.isEmpty()) return
-    val show = senders.take(3)
+    val show = senders.take(maxAvatars)
     val totalWidth = (avatarSize + (show.size - 1) * (avatarSize - overlapDp)).dp
 
     Box(

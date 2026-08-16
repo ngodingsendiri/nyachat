@@ -141,6 +141,10 @@ object Constants {
         // (ditulis atomik bersama delete request).
         const val JOIN_REQUEST_STATUS = "status"
         const val JOIN_STATUS_REJECTED = "rejected"
+        // r1.6.0 (presence): penanda waktu aktivitas terakhir anggota — di-update
+        // berkala (heartbeat) selama app di foreground. Menentukan siapa yang
+        // "online" di topbar (lihat Constants.Presence.ONLINE_WINDOW_MS).
+        const val LAST_ACTIVE_AT = "lastActiveAt"
     }
 
     // ===== Peran workspace (wajib sama dengan rules) =====
@@ -166,6 +170,20 @@ object Constants {
         const val FREE_MAX_MEMBERS = 2
         /** Kapasitas maksimum anggota (termasuk owner) untuk plan pro. */
         const val PRO_MAX_MEMBERS = 6
+    }
+
+    // ===== Presence (r1.6.0) =====
+    // Anggota dianggap "online" bila `lastActiveAt` di member doc masih dalam
+    // jendela [ONLINE_WINDOW_MS] dari sekarang. Heartbeat meng-update field itu
+    // tiap [HEARTBEAT_INTERVAL_MS] selama app di foreground (bukan background —
+    // presence = sedang MEMAKAI app, bukan sekadar terpasang).
+    object Presence {
+        /** Jeda pembaruan `lastActiveAt` oleh device yang aktif. */
+        const val HEARTBEAT_INTERVAL_MS = 60_000L
+        /** Jendela online: `lastActiveAt` lebih muda dari ini → dianggap online. */
+        const val ONLINE_WINDOW_MS = 3 * 60_000L
+        /** Jeda UI topbar menyegarkan status online (lebih jarang dari heartbeat). */
+        const val UI_REFRESH_MS = 30_000L
     }
 
     // ===== Pengirim pesan khusus =====

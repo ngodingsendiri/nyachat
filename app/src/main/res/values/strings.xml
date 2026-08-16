@@ -4,12 +4,13 @@
 
     <!-- Top bar & navigasi -->
     <string name="topbar_title">Keuangan Bersama</string>
+    <!-- r1.6.0 (presence): subtitle topbar — anggota online vs total. -->
+    <string name="topbar_online_count">%1$d dari %2$d anggota online</string>
     <string name="action_settings">Pengaturan</string>
     <string name="tab_diskusi">Diskusi</string>
     <string name="tab_rekap">Rekap</string>
     <string name="tab_chat_desc">Chat</string>
     <string name="tab_rekap_desc">Rekap</string>
-    <string name="topbar_member_count">%1$d anggota</string>
 
     <!-- Menu pengaturan -->
     <string name="menu_mode_light">Mode Terang</string>
@@ -244,15 +245,20 @@
          sebelumnya tidak ada loading, user menunggu tanpa tahu proses sedang berjalan. -->
     <string name="chat_attach_saving">Menyimpan lampiran…</string>
 
-    <!-- Update otomatis dari GitHub Release (download & install langsung) -->
-    <string name="update_available_title">Update Tersedia 🚀</string>
-    <string name="update_available_message">Versi baru %1$s sudah dirilis. Download &amp; install sekarang?</string>
+    <!-- Update otomatis dari GitHub Release (download & install langsung).
+         Audit UI/UX r1.5.2: teks netral tanpa emoji, dilengkapi versi saat ini,
+         catatan rilis, dan persen progres unduhan. -->
+    <string name="update_available_title">Update Tersedia</string>
+    <string name="update_available_message">Versi baru %1$s telah dirilis untuk Anda.</string>
+    <string name="update_current_version">Versi saat ini: %1$s</string>
+    <string name="update_release_notes_title">Catatan rilis</string>
     <string name="update_action">Update Sekarang</string>
-    <string name="update_later">Nanti</string>
+    <string name="update_later">Nanti Saja</string>
     <string name="update_downloading">Mengunduh update…</string>
-    <string name="update_download_failed">Gagal mengunduh update. Coba lagi nanti.</string>
+    <string name="update_download_percent">%1$d%%</string>
+    <string name="update_download_failed">Gagal mengunduh update. Periksa koneksi lalu coba lagi.</string>
     <string name="update_check_title">Periksa Update</string>
-    <string name="update_no_update">Aplikasi sudah versi terbaru ✅</string>
+    <string name="update_no_update">Aplikasi sudah menggunakan versi terbaru.</string>
     <string name="action_ok">OK</string>
 
     <!-- Export CSV & Backup Google Drive -->

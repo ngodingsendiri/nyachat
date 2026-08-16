@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.abs
 import kotlin.math.max
+import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.backup.DriveBackupController
@@ -147,7 +148,9 @@ fun BoxScope.MainOverlays(
     dialogs.updateInfo?.let { release ->
         UpdateAvailableDialog(
             release = release,
+            currentVersion = BuildConfig.VERSION_NAME,
             isDownloading = dialogs.isDownloadingUpdate,
+            progress = dialogs.updateProgress,
             onAction = {
                 scope.launch {
                     // Update in-app berlaku di SEMUA build (debug & release):
@@ -157,16 +160,22 @@ fun BoxScope.MainOverlays(
                     // langsung download & install — lihat juga REQUEST_INSTALL_PACKAGES
                     // di main manifest.
                     dialogs.isDownloadingUpdate = true
+                    dialogs.updateProgress = 0f
                     try {
                         val url = release.apkUrl
                         if (url == null) throw IllegalStateException("APK tidak tersedia di release")
                         val dest = File(context.cacheDir, "downloads/nyachat-${release.versionName}.apk")
-                        GitHubUpdateChecker.downloadApk(url, dest)
+                        // Progres dipanggil dari thread IO → marshal ke main scope
+                        // sebelum menulis state Compose.
+                        GitHubUpdateChecker.downloadApk(url, dest) { p ->
+                            scope.launch { dialogs.updateProgress = p }
+                        }
                         installApk(context, dest)
                     } catch (e: Exception) {
                         dialogs.updateMessage = context.getString(R.string.update_download_failed)
                     } finally {
                         dialogs.isDownloadingUpdate = false
+                        dialogs.updateProgress = 0f
                         dialogs.updateInfo = null
                     }
                 }

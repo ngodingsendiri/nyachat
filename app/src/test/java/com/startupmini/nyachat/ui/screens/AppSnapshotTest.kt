@@ -265,4 +265,56 @@ class AppSnapshotTest {
             )
         }
     }
+
+    @Test
+    fun `topbar dengan enam anggota online`() {
+        // r1.6.0 (presence): avatar topbar = anggota yang SEDANG ONLINE, bukan
+        // pengirim pesan. Dengan 6 anggota online (cap plan pro) seluruhnya
+        // bertumpuk; subtitle menampilkan "6 dari 6 anggota online".
+        capture("topbar_six_online") {
+            MainTopBar(
+                onlineMemberNames = listOf("Ari", "Budi", "Cici", "Dedi", "Eka", "Fani"),
+                totalMembers = 6,
+                userName = "Ari",
+                memberAvatarPaths = emptyMap(),
+                familyName = "Keuangan Bersama",
+                onManageMembers = {},
+                onSettings = {}
+            )
+        }
+    }
+
+    @Test
+    fun `topbar dengan dua anggota online`() {
+        // r1.6.0 (presence): dua anggota online → dua avatar bertumpuk &
+        // subtitle "2 dari 4 anggota online".
+        capture("topbar_two_online") {
+            MainTopBar(
+                onlineMemberNames = listOf("Ari", "Budi"),
+                totalMembers = 4,
+                userName = "Ari",
+                memberAvatarPaths = emptyMap(),
+                familyName = "Keuangan Bersama",
+                onManageMembers = {},
+                onSettings = {}
+            )
+        }
+    }
+
+    @Test
+    fun `topbar dengan satu anggota online`() {
+        // r1.6.0 (presence): hanya diri sendiri online → avatar tunggal tanpa
+        // counter (menampilkan nama member di subtitle).
+        capture("topbar_one_online") {
+            MainTopBar(
+                onlineMemberNames = listOf("Ari"),
+                totalMembers = 4,
+                userName = "Ari",
+                memberAvatarPaths = emptyMap(),
+                familyName = "Keuangan Bersama",
+                onManageMembers = {},
+                onSettings = {}
+            )
+        }
+    }
 }

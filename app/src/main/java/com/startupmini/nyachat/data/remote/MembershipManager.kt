@@ -13,11 +13,14 @@ import com.startupmini.nyachat.data.local.AvatarStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
@@ -36,7 +39,10 @@ data class FamilyMember(
     val addedAt: Long = 0L,
     // r1.2.3 (P1): versi foto avatar member (0 = belum punya foto). Bytes foto
     // tidak dibawa ke UI — di-cache ke disk via AvatarStore (lihat [cacheAvatarOf]).
-    val avatarVersion: Long = 0L
+    val avatarVersion: Long = 0L,
+    // r1.6.0 (presence): waktu aktivitas terakhir (heartbeat), epoch millis.
+    // 0 = belum pernah tercatat (member lama / belum pernah sync).
+    val lastActiveAt: Long = 0L
 ) {
     val isOwner: Boolean get() = role == Constants.Roles.OWNER
 }
@@ -180,8 +186,10 @@ object MembershipManager {
     private const val TAG = "MembershipManager"
 
     /** Peran pemilik workspace — satu-satunya yang mencatat ownerId di dokumen keluarga. */
-    const val ROLE_OWNER = "owner"
-    const val ROLE_MEMBER = "member"
+    // Alias ke Constants.Roles (audit r1.6.0): satu sumber kebenaran agar tidak
+    // melenceng dari nilai baku bila Constants.Roles diubah.
+    const val ROLE_OWNER = Constants.Roles.OWNER
+    const val ROLE_MEMBER = Constants.Roles.MEMBER
 
     /**
      * Keputusan murni: kapan listener members yang error dianggap "di-kick".
@@ -291,6 +299,13 @@ object MembershipManager {
     // dibatalkan di stop() agar tidak ada task menggantung setelah logout.
     private val avatarScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // r1.6.0 (presence): scope heartbeat `lastActiveAt`. Berjalan di IO —
+    // menulis Firestore berkala TIDAK boleh memblokir main thread. Di-cancel
+    // saat app background (pause) & saat stop()/logout supaya tidak menulis
+    // setelah listener dicabut.
+    private val presenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var presenceJob: Job? = null
+
     /** true saat app background & listener keanggotaan untuk sementara diputus (M2). */
     @Volatile private var paused = false
 
@@ -331,6 +346,9 @@ object MembershipManager {
         activeRole = role
         appContext = context?.applicationContext
         attachListeners(pin, role)
+        // r1.6.0 (presence): heartbeat `lastActiveAt` berjalan selama app
+        // foreground & workspace aktif.
+        startPresenceHeartbeat(pin)
     }
 
     /** Pasang listener keanggotaan (dipisah agar bisa dipasang ulang di resume, M2). */
@@ -400,7 +418,11 @@ object MembershipManager {
                     addedAt = (d[Constants.Fields.ADDED_AT] as? Number)?.toLong()
                         ?: (d[Constants.Fields.ADDED_AT] as? com.google.firebase.Timestamp)?.toDate()?.time
                         ?: 0L,
-                    avatarVersion = (d[Constants.Fields.AVATAR_VERSION] as? Number)?.toLong() ?: 0L
+                    avatarVersion = (d[Constants.Fields.AVATAR_VERSION] as? Number)?.toLong() ?: 0L,
+                    // r1.6.0 (presence): lastActiveAt bisa berupa Timestamp server
+                    // (FieldValue.serverTimestamp) atau Number (jam klien) — tangani keduanya.
+                    lastActiveAt = (d[Constants.Fields.LAST_ACTIVE_AT] as? com.google.firebase.Timestamp)?.toDate()?.time
+                        ?: (d[Constants.Fields.LAST_ACTIVE_AT] as? Number)?.toLong() ?: 0L
                 )
             }
             _members.value = list
@@ -577,6 +599,8 @@ object MembershipManager {
         membersListener?.remove(); membersListener = null
         joinRequestsListener?.remove(); joinRequestsListener = null
         familyListener?.remove(); familyListener = null
+        // r1.6.0 (presence): hentikan heartbeat — presence = app sedang dipakai.
+        stopPresenceHeartbeat()
     }
 
     /** Pasang ulang listener saat app kembali ke foreground. */
@@ -585,6 +609,39 @@ object MembershipManager {
         paused = false
         if (currentPin.isEmpty()) return
         attachListeners(currentPin, activeRole)
+        // r1.6.0 (presence): lanjutkan heartbeat begitu app kembali ke foreground.
+        startPresenceHeartbeat(currentPin)
+    }
+
+    /**
+     * r1.6.0 (presence): heartbeat `lastActiveAt` pada member doc sendiri.
+     * Menulis serverTimestamp (sumber waktu otoritatif — jam klien yang tidak
+     * akurat tidak bisa "memundurkan" presence) tiap [Constants.Presence.HEARTBEAT_INTERVAL_MS]
+     * selama masih workspace aktif & tidak paused.
+     */
+    private fun startPresenceHeartbeat(pin: String) {
+        stopPresenceHeartbeat()
+        if (paused) return
+        presenceJob = presenceScope.launch {
+            while (isActive && currentPin == pin && !paused) {
+                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: break
+                runCatching {
+                    db().collection(Constants.Collections.FAMILIES)
+                        .document(pin)
+                        .collection(Constants.Collections.MEMBERS)
+                        .document(uid)
+                        .update(Constants.Fields.LAST_ACTIVE_AT, FieldValue.serverTimestamp())
+                        .await()
+                }.onFailure { Log.w(TAG, "heartbeat presence gagal: ${it.message}") }
+                // Langsung kirim sekali, lalu jeda interval berikutnya.
+                delay(Constants.Presence.HEARTBEAT_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun stopPresenceHeartbeat() {
+        presenceJob?.cancel()
+        presenceJob = null
     }
 
     /** Hentikan listener & reset state (dipanggil juga dari FirestoreSyncManager.stop). */
@@ -596,6 +653,8 @@ object MembershipManager {
         membersListener?.remove(); membersListener = null
         joinRequestsListener?.remove(); joinRequestsListener = null
         familyListener?.remove(); familyListener = null
+        // r1.6.0 (presence): hentikan heartbeat — jangan menulis setelah logout.
+        stopPresenceHeartbeat()
         // Batalkan task I/O avatar yang mungkin masih jalan (review P1) —
         // jangan biarkan menulis cache setelah stop().
         avatarScope.coroutineContext.cancelChildren()
@@ -891,14 +950,18 @@ object MembershipManager {
      * r1.6.0: cek kapasitas dulu (jumlah member >= limit plan) — Workspace
      * penuh dikembalikan sebagai [ApproveResult.WORKSPACE_FULL] supaya UI bisa
      * menawarkan upgrade. Cek di sisi app (rules tidak bisa COUNT).
+     *
+     * Batasan transaksi (audit r1.6.0): SDK Android tidak bisa query koleksi di
+     * dalam transaksi, jadi cek jumlah member tetap dilakukan SEBELUM transaksi
+     * (read non-atomik). Dua approve konkuren di ambang batas bisa menghasilkan
+     * kelebihan 1 anggota (TOCTOU) — perbaikan sejati butuh counter doc
+     * `memberCount` di doc keluarga atau verifikasi server-side (cloud function);
+     * dicatat sebagai pekerjaan pasca-rilis.
      */
     suspend fun approveJoin(pin: String, request: JoinRequest): ApproveResult {
         val famRef = db().collection(Constants.Collections.FAMILIES).document(pin)
         val memberRef = famRef.collection(Constants.Collections.MEMBERS).document(request.uid)
         val requestRef = famRef.collection(Constants.Collections.JOIN_REQUESTS).document(request.uid)
-        // r1.6.0: cek kapasitas dulu (jumlah member >= limit plan) — Workspace
-        // penuh dikembalikan sebagai [ApproveResult.WORKSPACE_FULL] supaya UI bisa
-        // menawarkan upgrade. Cek di sisi app (rules tidak bisa COUNT).
         // Plan dibaca LANGSUNG dari doc keluarga (bukan _familyPlan.value yang
         // bisa basi sebelum snapshot listener pertama tiba — audit r1.6.0).
         val plan = try {
@@ -918,8 +981,8 @@ object MembershipManager {
             return ApproveResult.WORKSPACE_FULL
         }
         return runCatching {
-            // Satu transaksi: baca ulang permintaan (untuk deteksi konflik), lalu
-            // tulis member + hapus permintaan secara atomik. Kalau permintaan sudah
+            // Satu transaksi: baca ulang permintaan (deteksi konflik), lalu tulis
+            // member + hapus permintaan secara atomik. Kalau permintaan sudah
             // diproses device lain, transaksi tidak menulis apa-apa.
             db().runTransaction { txn ->
                 if (txn.get(requestRef).exists()) {
@@ -948,20 +1011,23 @@ object MembershipManager {
             .getOrDefault(ApproveResult.FAILED)
     }
 
-    /** Owner menolak permintaan bergabung. */
+    /** Owner menolak permintaan bergabung (atomik: tandai 'rejected' + hapus). */
     suspend fun rejectJoin(pin: String, uid: String) {
         val requestRef = db().collection(Constants.Collections.FAMILIES).document(pin)
             .collection(Constants.Collections.JOIN_REQUESTS).document(uid)
         runCatching {
-            // r1.6.0: tandai 'rejected' dulu (dibaca cloud function handleJoinRequest
-            // saat doc dihapus untuk notifikasi ke pemohon), baru hapus. Dua operasi
-            // terpisah (bukan transaksi) — crash di tengah hanya meninggalkan request
-            // bertanda rejected yang bisa di-reject ulang.
-            requestRef.update(
-                Constants.Fields.JOIN_REQUEST_STATUS,
-                Constants.Fields.JOIN_STATUS_REJECTED
-            ).await()
-            requestRef.delete().await()
+            // Audit r1.6.0: tandai 'rejected' + hapus dalam SATU transaksi. Status
+            // 'rejected' dibaca cloud function handleJoinRequest saat doc dihapus
+            // (notifikasi ke pemohon); commit atomik menghilangkan window crash
+            // yang meninggalkan request bertanda rejected tersangkut.
+            db().runTransaction { txn ->
+                txn.update(
+                    requestRef,
+                    Constants.Fields.JOIN_REQUEST_STATUS,
+                    Constants.Fields.JOIN_STATUS_REJECTED
+                )
+                txn.delete(requestRef)
+            }.await()
         }.onFailure { Log.w(TAG, "rejectJoin gagal: ${it.message}") }
     }
 
@@ -1051,6 +1117,11 @@ object MembershipManager {
      * satu-satunya owner — wajib promote anggota lain jadi owner DULU
      * (dikembalikan sebagai [LeaveWorkspaceResult.NEED_OWNER_TRANSFER]). Guard
      * ini di sisi app karena rules Firestore tidak bisa query daftar member.
+     * Batasan (audit r1.6.0): hitung owner lain TIDAK bisa masuk transaksi (SDK
+     * Android tidak bisa query koleksi di dalam transaksi) — dua owner terakhir
+     * yang keluar bersamaan di ambang batas berisiko workspace yatim. Perbaikan
+     * sejati butuh counter owner server-side; dicatat sebagai pekerjaan
+     * pasca-rilis. Sisa alur (baca self → cek → hapus) aman untuk kasus umum.
      *
      * Catatan: setelah keluar, data lokal masih ada sampai pemanggil
      * membersihkannya ([MainViewModel.clearLocalData] + hapus PIN lokal).
@@ -1114,6 +1185,28 @@ object MembershipManager {
         }.onFailure { Log.w(TAG, "uploadMyAvatar gagal: ${it.message}") }
             .getOrDefault(false)
     }
+
+    /**
+     * r1.6.0 (presence): apakah seorang anggota dianggap ONLINE pada waktu [now]?
+     * Murni (tanpa state internal) supaya bisa di-unit-test & dipakai UI layer.
+     * `lastActiveAt` 0 (belum pernah tercatat) → offline.
+     */
+    fun isOnlineNow(
+        lastActiveAt: Long,
+        now: Long = System.currentTimeMillis(),
+        windowMs: Long = Constants.Presence.ONLINE_WINDOW_MS
+    ): Boolean = lastActiveAt > 0 && now - lastActiveAt <= windowMs
+
+    /**
+     * r1.6.0 (presence): filter daftar member menjadi yang sedang online,
+     * MURNI untuk UI topbar (dipakai MainActivity via remember). Urutan
+     * dipertahankan seperti [members].
+     */
+    fun onlineMembers(
+        members: List<FamilyMember>,
+        now: Long = System.currentTimeMillis(),
+        windowMs: Long = Constants.Presence.ONLINE_WINDOW_MS
+    ): List<FamilyMember> = members.filter { isOnlineNow(it.lastActiveAt, now, windowMs) }
 
     /**
      * Build map nama-tampilan → path foto avatar (r1.2.3 — P1) untuk header

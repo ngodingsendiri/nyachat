@@ -17,7 +17,9 @@ data class GitHubRelease(
     val tagName: String,
     val versionName: String,
     val apkUrl: String?,
-    val releaseUrl: String
+    val releaseUrl: String,
+    /** Catatan rilis (body GitHub API), sudah dibersihkan dari sintaks markdown. */
+    val body: String = ""
 )
 
 /**
@@ -70,7 +72,8 @@ object GitHubUpdateChecker {
                         tagName = tag,
                         versionName = tag.removePrefix("r").removePrefix("v"),
                         apkUrl = releaseApk ?: debugApk,
-                        releaseUrl = releaseUrl
+                        releaseUrl = releaseUrl,
+                        body = sanitizeReleaseNotes(root.optString("body", ""))
                     )
                 }
             }
@@ -100,18 +103,59 @@ object GitHubUpdateChecker {
         )
     }
 
-    /** Unduh APK ke path tujuan (cache app — tanpa izin eksternal). */
-    suspend fun downloadApk(url: String, destination: File) {
+    /**
+     * Unduh APK ke path tujuan (cache app — tanpa izin eksternal).
+     * [onProgress] dipanggil dengan progres 0..1 (tidak lebih dari ~4x/detik)
+     * — dipakai dialog update untuk menampilkan bar progres.
+     */
+    suspend fun downloadApk(
+        url: String,
+        destination: File,
+        onProgress: (Float) -> Unit = {}
+    ) {
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                 val body = response.body ?: throw IOException("Response kosong")
+                val total = body.contentLength()
                 destination.parentFile?.mkdirs()
                 body.byteStream().use { input ->
-                    destination.outputStream().use { output -> input.copyTo(output) }
+                    destination.outputStream().use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var read = 0L
+                        // Throttle: laporkan tiap ~256 KB supaya UI tidak spam-recompose
+                        // saat progres di-marshal ke main thread.
+                        var lastReported = 0L
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n == -1) break
+                            output.write(buffer, 0, n)
+                            read += n
+                            if (total > 0 && (read - lastReported >= 256 * 1024 || read >= total)) {
+                                lastReported = read
+                                onProgress((read.toFloat() / total.toFloat()).coerceIn(0f, 1f))
+                            }
+                        }
+                        if (total <= 0) onProgress(1f)
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * Bersihkan catatan rilis GitHub (markdown) untuk tampil polos di dialog:
+     * buang judul/heading, penekanan tebal/miring, dan inline code.
+     */
+    private fun sanitizeReleaseNotes(raw: String): String {
+        if (raw.isBlank()) return ""
+        return raw
+            .replace(Regex("#{1,6}\\s*"), "")
+            .replace(Regex("\\*\\*|__"), "")
+            .replace(Regex("\\*|`"), "")
+            .replace(Regex("^\\s*[-*+]\\s+", RegexOption.MULTILINE), "• ")
+            .replace(Regex("[ \\t]+"), " ")
+            .trim()
     }
 }

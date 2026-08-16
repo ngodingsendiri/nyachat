@@ -2,18 +2,26 @@ package com.startupmini.nyachat.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -25,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -32,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -252,33 +262,103 @@ fun PinSwitchDialog(
     )
 }
 
-/** Dialog "update tersedia" — aksi di-hoist (unduh & pasang langsung). */
+/** Dialog "update tersedia" — aksi di-hoist (unduh & pasang langsung).
+ *
+ * Audit UI/UX r1.5.2: diseragamkan dengan pola dialog lain di app (ikon +
+ * judul bertintakan primary, tombol aksi fill untuk CTA, teks sekunder
+ * onSurfaceVariant). Saat mengunduh, dialog berubah jadi modal progres:
+ * CircularProgressIndicator + LinearProgressIndicator dengan angka persen.
+ */
 @Composable
 fun UpdateAvailableDialog(
     release: GitHubRelease,
+    currentVersion: String,
     isDownloading: Boolean,
+    progress: Float?,
     onAction: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = { if (!isDownloading) onDismiss() },
-        icon = { Icon(Icons.Rounded.SystemUpdate, contentDescription = null) },
-        title = { Text(stringResource(R.string.update_available_title)) },
-        text = {
-            Text(
-                text = if (isDownloading) {
-                    stringResource(R.string.update_downloading)
-                } else {
-                    stringResource(R.string.update_available_message, release.versionName)
-                }
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.SystemUpdate,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
             )
         },
+        title = {
+            Text(
+                stringResource(R.string.update_available_title),
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            if (isDownloading) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            strokeWidth = 3.dp
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                stringResource(R.string.update_downloading),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (progress != null) {
+                                Text(
+                                    stringResource(
+                                        R.string.update_download_percent,
+                                        (progress.coerceIn(0f, 1f) * 100).toInt()
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    LinearProgressIndicator(
+                        progress = { progress?.coerceIn(0f, 1f) ?: 0f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = stringResource(R.string.update_available_message, release.versionName),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = stringResource(R.string.update_current_version, currentVersion),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (release.body.isNotBlank()) {
+                        Text(
+                            text = stringResource(R.string.update_release_notes_title),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = release.body,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        },
         confirmButton = {
-            TextButton(
-                enabled = !isDownloading,
-                onClick = onAction
-            ) {
-                Text(stringResource(R.string.update_action))
+            if (!isDownloading) {
+                Button(onClick = onAction) {
+                    Text(stringResource(R.string.update_action))
+                }
             }
         },
         dismissButton = {
@@ -291,7 +371,7 @@ fun UpdateAvailableDialog(
     )
 }
 
-/** Dialog info hasil cek update (sukses/gagal mengecek). */
+/** Dialog info hasil cek update (sukses/gagal mengecek) — seragam dengan pola ikon+judul. */
 @Composable
 fun UpdateMessageDialog(
     message: String,
@@ -299,7 +379,20 @@ fun UpdateMessageDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.update_check_title)) },
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+        },
+        title = {
+            Text(
+                stringResource(R.string.update_check_title),
+                fontWeight = FontWeight.Bold
+            )
+        },
         text = { Text(message) },
         confirmButton = {
             TextButton(onClick = onDismiss) {

@@ -83,13 +83,24 @@ service cloud.firestore {
                  && resource.data.role == 'owner'
                  && request.resource.data.role == 'member'))
         || (request.auth.uid == uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'avatarBytes', 'avatarVersion', 'name', 'label', 'photoUrl'])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'avatarBytes', 'avatarVersion', 'name', 'label', 'photoUrl', 'lastActiveAt'])
             // r1.4.0 (avatar foto): photoUrl boleh di-update diri sendiri —
             // URL foto Google disegarkan saat connect/rename.
             // Guard: avatarBytes boleh tidak ada (update hanya fcmToken) —
             // jangan panggil .size() pada field null (error evaluasi rules).
             && (!('avatarBytes' in request.resource.data)
-                || request.resource.data.avatarBytes.size() <= 100000)));
+                || request.resource.data.avatarBytes.size() <= 100000)
+            // r1.6.0 (presence): lastActiveAt wajib ditulis via server timestamp
+            // (heartbeat memakai FieldValue.serverTimestamp) — klien tidak bisa
+            // mengirim jam palsu/maju ke masa depan untuk tampak online terus.
+            // request.time == nilai server timestamp saat write dievaluasi.
+            // PENTING: cek via diff().affectedKeys() — request.resource.data
+            // adalah doc HASIL MERGE (berisi nilai lastActiveAt lama dari doc),
+            // sehingga guard `'lastActiveAt' in request.resource.data` akan
+            // selalu true setelah heartbeat pertama & menolak SEMUA self-update
+            // lain (FCM token/avatar) yang ikut membawa nilai lastActiveAt lama.
+            && (!('lastActiveAt' in request.resource.data.diff(resource.data).affectedKeys())
+                || request.resource.data.lastActiveAt == request.time)));
       // Audit workspace: owner tidak bisa menghapus owner lain LANGSUNG — harus
       // di-demote jadi anggota dulu. Mencegah workspace yatim tanpa pemilik
       // (guard "Pemilik tidak bisa dihapus" kini ditegakkan di UI & rules).

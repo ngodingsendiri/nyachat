@@ -92,6 +92,7 @@ import com.startupmini.nyachat.ui.theme.IncomeGreen
 import com.startupmini.nyachat.ui.theme.Motion
 import com.startupmini.nyachat.ui.util.idrCurrencyFormat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -382,6 +383,28 @@ class MainActivity : ComponentActivity() {
                         myName = userName,
                         myAvatarPath = avatarPath
                     )
+                }
+
+                // r1.6.0 (presence): nama anggota yang SEDANG ONLINE untuk avatar
+                // topbar (self didahulukan, diikuti anggota lain urut daftar).
+                // Ticker [presenceTick] menyegarkan status online tiap
+                // UI_REFRESH_MS — anggota hilang dari topbar ~3 menit setelah
+                // heartbeat terakhir tanpa menunggu snapshot Firestore baru.
+                var presenceTick by remember { mutableIntStateOf(0) }
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        delay(Constants.Presence.UI_REFRESH_MS)
+                        presenceTick++
+                    }
+                }
+                val onlineMemberNames = remember(members, userName, presenceTick) {
+                    val myName = userName
+                    com.startupmini.nyachat.data.remote.MembershipManager.onlineMembers(members).let { online ->
+                        buildList {
+                            if (myName != null) add(myName)
+                            online.map { it.name }.filter { it != myName }.forEach { add(it) }
+                        }
+                    }
                 }
 
                 val avatarSaveFailedLabel = stringResource(R.string.avatar_save_failed)
@@ -1007,7 +1030,8 @@ driveController.getAutoPassphrase = {
                         // Column manual → urutan fokus TopAppBar → konten → NavigationBar.
                         Column(modifier = Modifier.fillMaxSize()) {
                             MainTopBar(
-                                messages = messages,
+                                onlineMemberNames = onlineMemberNames,
+                                totalMembers = members.size,
                                 userName = userName,
                                 memberAvatarPaths = senderAvatarPaths,
                                 familyName = familyName,

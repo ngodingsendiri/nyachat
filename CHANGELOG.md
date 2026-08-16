@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [r1.5.3] - 2026-08-16 (presence anggota online · update UI in-app · audit keanggotaan)
+- **Presence: topbar menampilkan anggota yang SEDANG ONLINE** (r1.6.0 presence):
+  avatar di top bar bukan lagi pengirim pesan, melainkan anggota workspace yang
+  aktif memakai app saat ini — tiap anggota bertumpuk (maks. 6, sesuai cap pro),
+  diri sendiri selalu paling depan. Online dideteksi via heartbeat `lastActiveAt`
+  (jam server) tiap 60 detik selama app di foreground; window online 3 menit.
+  Subtitle baru "N dari M anggota online" (satu online → tampil nama).
+- **Keamanan presence**: field `lastActiveAt` hanya bisa di-update oleh pemilik
+  doc dengan nilai jam SERVER (`request.time`) — spoofing jam klien ditolak rules.
+- **UI update in-app dirombak (umpan balik tester)**: dialog "Update Tersedia"
+  kini menampilkan ikon + judul konsisten, versi saat ini, catatan rilis yang
+  dibersihkan (tanpa markup), dan progress unduhan (indikator melingkar + batang
+  + persen); dialog "Perlu Update" diberi ikon Info. Teks UI bebas emoji.
+- **Audit workspace & keanggotaan**: `rejectJoin` kini atomik (tandai `rejected`
+  + hapus dalam satu transaksi — tidak ada lagi request tersangkut bila crash di
+  tengah); konstanta peran `owner`/`member` disatukan ke `Constants.Roles`
+  (sebelumnya duplikasi literal bisa melenceng). Residual terdokumentasi di kode:
+  race `approveJoin`/`leaveWorkspace` (SDK tidak bisa query koleksi dalam
+  transaksi — perbaikan sejati butuh counter server-side) & `setPlan` masih
+  placeholder menunggu Play Billing.
+- **Pengujian**: +8 unit test presence (`PresenceOnlineTest`), +3 snapshot
+  Roborazzi topbar (1/2/6 anggota online), 504 test total hijau, lint 0.
+
 ## [r1.5.2] - 2026-08-15 (notifikasi keanggotaan · nama workspace · kapasitas anggota per plan)
 - **Notifikasi keanggotaan (umpan balik tester)**: pemilik kini mendapat
   notifikasi "X ingin bergabung ke <nama workspace>" saat ada permintaan
