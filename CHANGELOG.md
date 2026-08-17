@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [r1.6.0] - 2026-08-17 (audit bug: resolusi konflik · presisi uang · relay · dokumentasi isOwner)
+- **Satu resolusi konflik** (audit): duplikat cloudId yang sama sebelumnya bisa
+  dipilih pemenang BERBEDA oleh dua jalur — merge listener (`cloudIsNewer`)
+  memprioritaskan `serverUpdatedAt`, dedupe tampilan (`dedupeByCloudId`) hanya
+  `editedAt ?: timestamp`. Kini satu definisi `lastWriterCompare`
+  (serverUpdatedAt → waktu efektif) dipakai BERSAMA keduanya; kasus tepi edit
+  lokal lebih baru yang belum sync tidak lagi bisa dikalahkan cloud lebih tua.
+- **Presisi uang di SEMUA batas persist**: `normalizeAmount` dipindah ke
+  data.local dan diterapkan juga di parse backup/restore & pending-op
+  (`transactionFromJson`) dan merge cloud (`upsertTransaction`) — pecahan
+  rupiah dari file backup lama / perangkat lain tidak lagi masuk DB apa adanya
+  (sebelumnya hanya jalur parse AI yang men-snap).
+- **Relay AI lebih tahan salah klasifikasi**: kegagalan "fungsi tidak terdeploy /
+  FirebaseApp belum aktif" dideteksi via kode error FirebaseFunctions
+  (`NOT_FOUND`) & jenis exception, bukan substring pesan — error penyedia hulu
+  yang kebetulan memuat kata "NOT_FOUND"/"FirebaseApp" tidak lagi mematikan
+  relay. Pemulihan saat jaringan pulih sudah ada (tanpa restart app).
+- **Dokumentasi rules**: komentar BUG-08 dikoreksi (get()/exists() tidak
+  bergantung rules baca target — bukti bootstrap owner) + penjelasan kenapa
+  `get()` pada member doc sendiri aman (self-read dijamin).
+- **Pengujian**: +3 unit test (snap pecahan di `transactionFromJson`, 2 paritas
+  serverUpdatedAt di dedupe), 507 test total hijau, lint 0.
+
 ## [r1.5.3] - 2026-08-16 (presence anggota online · update UI in-app · audit keanggotaan)
 - **Presence: topbar menampilkan anggota yang SEDANG ONLINE** (r1.6.0 presence):
   avatar di top bar bukan lagi pengirim pesan, melainkan anggota workspace yang

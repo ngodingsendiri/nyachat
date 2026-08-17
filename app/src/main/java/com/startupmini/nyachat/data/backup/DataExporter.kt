@@ -3,6 +3,7 @@ package com.startupmini.nyachat.data.backup
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.local.FinancialTransaction
+import com.startupmini.nyachat.data.local.normalizeAmount
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -245,12 +246,15 @@ object DataExporter {
             .putOpt(Constants.Fields.DETECTED_BY, m.detectedBy)
             .putOpt(Constants.Fields.SERVER_UPDATED_AT, m.serverUpdatedAt)
 
-    /** Parse transaksi dari JSON. */
+    /** Parse transaksi dari JSON (backup/restore & payload pending-op). */
+    // Audit r1.6.0: amount di-snap via normalizeAmount di SETIAP batas persist —
+    // file backup lama/payload lain bisa berisi nominal desimal yang tidak boleh
+    // masuk DB apa adanya (paritas dengan jalur parse AI di FinanceRepository).
     internal fun transactionFromJson(o: JSONObject): FinancialTransaction =
         FinancialTransaction(
             type = o.optString(Constants.Fields.TYPE, Constants.TransactionTypes.EXPENSE),
             category = o.optString(Constants.Fields.CATEGORY, Constants.Categories.MISC),
-            amount = o.optDouble(Constants.Fields.AMOUNT, 0.0),
+            amount = normalizeAmount(o.optDouble(Constants.Fields.AMOUNT, 0.0)),
             description = o.optString(Constants.Fields.DESCRIPTION, ""),
             loggedBy = o.optString(Constants.Fields.LOGGED_BY, ""),
             timestamp = o.optLong(Constants.Fields.TIMESTAMP, 0L),

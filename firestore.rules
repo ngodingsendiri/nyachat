@@ -10,17 +10,27 @@ service cloud.firestore {
 
     // Data keanggotaan diri sendiri (members/uid). Digunakan oleh semua rules
     // untuk mengecek "apakah pengguna sudah jadi anggota/owner".
-    // PENTING (BUG-08): memakai fungsi `exists()` — bukan `get(...).exists` —
-    // karena pada produksi, get() dari dalam aturan terhadap dokumen members
-    // mengembalikan resource null sehingga evaluasi menolak SEMUA operasi
-    // (sinkronisasi "Gagal sinkron") walau member valid. exists() dievaluasi
-    // server-side tanpa membaca resource.
+    // BUG-08 (historis, sudah diperbaiki): isMember pernah memakai
+    // `get(path).exists`. get()/exists() dievaluasi server-side terhadap state
+    // NYATA Firestore — TIDAK bergantung pada rules baca dokumen target (bukti:
+    // bootstrap create member di bawah mengecek get(familyDoc).data.ownerId
+    // padahal aturan read keluarga menolak non-anggota) — tapi ada jendela
+    // eventual-consistency sesaat setelah create member sehingga evaluasi bisa
+    // menolak operasi walau member valid ("Gagal sinkron"). Pindah ke fungsi
+    // built-in `exists()` yang dievaluasi tanpa perantara resource membuat
+    // evaluasi tidak lagi sensitif terhadap jendela itu.
     function memberPath(familyId) {
       return /databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid);
     }
     function isMember(familyId) {
       return exists(memberPath(familyId));
     }
+    // isOwner memakai get() (bukan exists()) karena perlu membaca FIELD role.
+    // Aman — dua alasan: (1) get() dikembalikan server-side terhadap state nyata
+    // tanpa bergantung pada rules baca dokumen target (lihat bukti bootstrap di
+    // atas), dan (2) path yang dibaca selalu member doc user SENDIRI yang baca-
+    // nya dijamin aturan self-read (request.auth.uid == uid), jadi evaluasi
+    // tidak pernah jatuh ke null saat user benar-benar owner.
     function isOwner(familyId) {
       return isMember(familyId)
         && get(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)).data.role == 'owner';

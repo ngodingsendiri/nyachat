@@ -3,6 +3,7 @@ package com.startupmini.nyachat.data.local
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlin.math.roundToLong
 
 // Paritas dengan chat_messages: index unik cloudId mencegah duplikasi transaksi
 // permanen di lokal (race restore + snapshot listener). Index timestamp menjaga
@@ -35,3 +36,14 @@ data class FinancialTransaction(
     val cloudId: String? = null, // ID dokumen Firestore (unik lintas perangkat)
     val sourceMessageCloudId: String? = null // Cloud ID pesan chat asal (untuk cross-device lookup)
 )
+
+/**
+ * Asuransi presisi uang (audit 2026-08-14): rupiah selalu bilangan bulat, jadi
+ * semua nominal di-snap ke rupiah penuh di SETIAP batas persist — hasil parse
+ * AI/heuristik (FinanceRepository), parse backup/restore & pending-op
+ * (DataExporter.transactionFromJson), dan merge cloud (FirestoreSyncManager
+ * .upsertTransaction). Double aman untuk integer < 2^53 (±9 kuadriliun), tapi
+ * snap ini mencegah pecahan kecil masuk diam-diam ke DB (mis. AI salah format
+ * atau file backup berisi nominal desimal). Murni & deterministik.
+ */
+internal fun normalizeAmount(amount: Double): Double = amount.roundToLong().toDouble()

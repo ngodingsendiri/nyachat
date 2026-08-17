@@ -7,10 +7,11 @@ import com.startupmini.nyachat.data.local.ChatMessageDao
 import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.data.local.PendingOpDao
 import com.startupmini.nyachat.data.local.TransactionDao
+import com.startupmini.nyachat.data.local.normalizeAmount
 import com.startupmini.nyachat.data.remote.FinanceAiService
 import com.startupmini.nyachat.data.remote.FirestoreSyncManager
+import com.startupmini.nyachat.data.remote.lastWriterCompare
 import java.util.UUID
-import kotlin.math.roundToLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -613,15 +614,6 @@ data class ChatDeleted(
 )
 
 /**
- * Asuransi presisi uang (audit 2026-08-14): rupiah selalu bilangan bulat, jadi
- * semua nominal dinormalisasi ke rupiah penuh di BATAS PERSIST (hasil parse AI
- * → FinancialTransaction). Double aman untuk integer < 2^53, tapi snap ini
- * mencegah pecahan kecil masuk diam-diam ke DB (mis. AI salah format).
- * Murni & deterministik.
- */
-internal fun normalizeAmount(amount: Double): Double = amount.roundToLong().toDouble()
-
-/**
  * Bangun ulang badge finansial pesan dari SEMUA transaksinya (audit badge
  * campuran 2026-08-14): jumlah total, kategori & tipe transaksi pertama,
  * detectedCount, dan hasMixedTypes (pelangi) — dihitung dari kenyataan,
@@ -672,18 +664,18 @@ internal fun hasMixedTypes(types: Collection<String>): Boolean {
 /**
  * Guard dedup bubble (Sprint-3): satu cloudId harus tampil sebagai SATU bubble.
  * Baris duplikat bisa muncul dari race restore + snapshot listener atau backup
- * lama yang berisi id ganda. Pemenang = versi dengan waktu efektif (editedAt
- * ?: timestamp) terbaru; seri → id lokal terbesar. Pesan tanpa cloudId selalu
- * dipertahankan, dan urutan asli tidak diubah. Murni — mudah di-unit-test.
+ * lama yang berisi id ganda. Pemenang = versi dengan [lastWriterCompare] (audit
+ * r1.6.0: serverUpdatedAt → waktu efektif) — SAMA dengan keputusan merge
+ * listener (cloudIsNewer) agar dua jalur tidak memilih pemenang berbeda;
+ * seri → id lokal terbesar. Pesan tanpa cloudId selalu dipertahankan, dan
+ * urutan asli tidak diubah. Murni — mudah di-unit-test.
  */
 internal fun List<ChatMessage>.dedupeByCloudId(): List<ChatMessage> {
     val winners = HashMap<String, ChatMessage>()
     for (m in this) {
         val cid = m.cloudId ?: continue
         val cur = winners[cid]
-        if (cur == null || m.effectiveTime() > cur.effectiveTime() ||
-            (m.effectiveTime() == cur.effectiveTime() && m.id > cur.id)
-        ) {
+        if (cur == null || lastWriterWins(m, cur)) {
             winners[cid] = m
         }
     }
@@ -691,15 +683,22 @@ internal fun List<ChatMessage>.dedupeByCloudId(): List<ChatMessage> {
     return filter { m -> m.cloudId == null || winners[m.cloudId] === m }
 }
 
-private fun ChatMessage.effectiveTime(): Long = editedAt ?: timestamp
+private fun lastWriterWins(a: ChatMessage, b: ChatMessage): Boolean {
+    val cmp = lastWriterCompare(
+        a.serverUpdatedAt, a.editedAt, a.timestamp,
+        b.serverUpdatedAt, b.editedAt, b.timestamp
+    )
+    return cmp > 0 || (cmp == 0 && a.id > b.id)
+}
 
 /**
  * Guard dedupe transaksi (paritas dengan [ChatMessage] di atas): satu cloudId
  * harus tampil sebagai SATU transaksi di Rekap. Baris duplikat bisa muncul dari
  * race restore + snapshot listener atau backup lama yang berisi id ganda.
- * Pemenang = versi dengan waktu efektif (editedAt ?: timestamp) terbaru;
- * seri → id lokal terbesar. Transaksi tanpa cloudId selalu dipertahankan, dan
- * urutan asli tidak diubah. Murni — mudah di-unit-test.
+ * Pemenang = versi dengan [lastWriterCompare] (audit r1.6.0: serverUpdatedAt →
+ * waktu efektif) — SAMA dengan keputusan merge listener; seri → id lokal
+ * terbesar. Transaksi tanpa cloudId selalu dipertahankan, dan urutan asli
+ * tidak diubah. Murni — mudah di-unit-test.
  */
 @JvmName("dedupeTransactionsByCloudId") // hindari tabrakan tanda tangan JVM dengan versi ChatMessage
 internal fun List<FinancialTransaction>.dedupeByCloudId(): List<FinancialTransaction> {
@@ -707,9 +706,7 @@ internal fun List<FinancialTransaction>.dedupeByCloudId(): List<FinancialTransac
     for (t in this) {
         val cid = t.cloudId ?: continue
         val cur = winners[cid]
-        if (cur == null || t.effectiveTime() > cur.effectiveTime() ||
-            (t.effectiveTime() == cur.effectiveTime() && t.id > cur.id)
-        ) {
+        if (cur == null || lastWriterWins(t, cur)) {
             winners[cid] = t
         }
     }
@@ -717,4 +714,10 @@ internal fun List<FinancialTransaction>.dedupeByCloudId(): List<FinancialTransac
     return filter { t -> t.cloudId == null || winners[t.cloudId] === t }
 }
 
-private fun FinancialTransaction.effectiveTime(): Long = editedAt ?: timestamp
+private fun lastWriterWins(a: FinancialTransaction, b: FinancialTransaction): Boolean {
+    val cmp = lastWriterCompare(
+        a.serverUpdatedAt, a.editedAt, a.timestamp,
+        b.serverUpdatedAt, b.editedAt, b.timestamp
+    )
+    return cmp > 0 || (cmp == 0 && a.id > b.id)
+}

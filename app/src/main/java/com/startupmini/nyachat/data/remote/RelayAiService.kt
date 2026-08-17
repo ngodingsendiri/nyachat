@@ -2,6 +2,7 @@ package com.startupmini.nyachat.data.remote
 
 import android.util.Log
 import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.FirebaseFunctionsException
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -28,9 +29,12 @@ object RelayAiService {
     private const val FUNCTION_NAME = "aiComplete"
 
     /**
-     * true selama relay layak dicoba. Di-set false permanen kalau fungsi tidak
-     * terdeploy (NOT_FOUND) atau FirebaseApp tidak terinisialisasi, supaya
-     * kaskade tidak buang waktu memanggil fungsi yang pasti gagal tiap pesan.
+     * true selama relay layak dicoba. Di-set false saat kegagalan yang PASTI
+     * sia-sia (fungsi belum terdeploy / FirebaseApp belum aktif) supaya kaskade
+     * tidak buang waktu memanggil fungsi yang pasti gagal tiap pesan — TAPI
+     * bukan permanen: dipulihkan otomatis saat jaringan online (setNetworkOnline
+     * true) atau login ulang (resetUsable), jadi kalau Cloud Function menyusul
+     * di-deploy, relay bisa aktif tanpa restart app.
      */
     @Volatile
     private var relayUsable = true
@@ -104,14 +108,20 @@ object RelayAiService {
             text?.takeIf { it.isNotBlank() }
         } catch (e: Exception) {
             val msg = e.message ?: ""
-            // Nonaktifkan PERMANEN hanya kalau pasti sia-sia dicoba lagi:
-            // fungsi tidak terdeploy (NOT_FOUND) atau FirebaseApp belum aktif
-            // (unit test / salah init). Gagal lain (network, timeout, 500,
-            // unauthenticated) bersifat sementara — jangan dimatikan supaya
-            // relay bisa pulih setelah login/network normal.
-            if (msg.contains("NOT_FOUND", ignoreCase = true) ||
-                msg.contains("FirebaseApp", ignoreCase = true)
-            ) {
+            // Nonaktifkan sementara hanya untuk kegagalan yang PASTI sia-sia
+            // dicoba lagi: fungsi belum terdeploy (kode FirebaseFunctions
+            // NOT_FOUND) atau FirebaseApp belum aktif (unit test / salah init).
+            // Cocokkan via KODE error terstruktur, BUKAN substring pesan —
+            // pesan penyedia hulu bisa mengandung kata "NOT_FOUND" atau
+            // "FirebaseApp" secara kebetulan dan mematikan relay sia-sia
+            // (audit r1.6.0). Gagal lain (network, timeout, 500, unauthenticated)
+            // bersifat sementara — jangan dimatikan supaya relay bisa pulih
+            // setelah login/network normal. Flag dipulihkan setNetworkOnline(true).
+            val permanentlyFutile =
+                (e is FirebaseFunctionsException &&
+                    e.code == FirebaseFunctionsException.Code.NOT_FOUND) ||
+                    (e is IllegalStateException && "Default FirebaseApp" in msg)
+            if (permanentlyFutile) {
                 relayUsable = false
             }
             // runCatching: di unit test (tanpa Robolectric) android.util.Log

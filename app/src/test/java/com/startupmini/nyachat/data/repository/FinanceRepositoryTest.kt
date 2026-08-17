@@ -153,6 +153,26 @@ class FinanceRepositoryTest {
         assertEquals(listOf("A", "B"), result.map { it.messageText })
     }
 
+    @Test
+    fun duplikatServerUpdatedAtLebihBaruMenangWalauWaktuLokalLebihTua() {
+        // Paritas cloudIsNewer (audit r1.6.0): dua baris cloudId sama — yang
+        // punya serverUpdatedAt lebih baru menang walau editedAt lokal-nya lebih
+        // tua. Sebelumnya dedupe hanya membandingkan waktu efektif sehingga bisa
+        // memilih pemenang BERBEDA dari keputusan merge listener.
+        val cloudBaru = message.copy(
+            id = 2, messageText = "dari cloud", timestamp = 100L, editedAt = 100L,
+            serverUpdatedAt = 2000L, cloudId = "c-1"
+        )
+        val lokalEdit = message.copy(
+            id = 1, messageText = "edit lokal", timestamp = 200L, editedAt = 200L,
+            serverUpdatedAt = 1000L, cloudId = "c-1"
+        )
+        // Urutan input dibalik — pemenang tetap ditentukan serverUpdatedAt.
+        val result = listOf(lokalEdit, cloudBaru).dedupeByCloudId()
+        assertEquals(1, result.size)
+        assertEquals("dari cloud", result[0].messageText)
+    }
+
     // ---- Paritas dedupe transaksi: satu cloudId = satu baris di Rekap ----
 
     @Test
@@ -189,5 +209,21 @@ class FinanceRepositoryTest {
         val result = listOf(lokal, dup, dupBaru).dedupeByCloudId()
         assertEquals(2, result.size)
         assertEquals(9000.0, result[1].amount, 0.001)
+    }
+
+    @Test
+    fun duplikatTransaksiServerUpdatedAtLebihBaruMenang() {
+        // Paritas cloudIsNewer (audit r1.6.0) untuk transaksi Rekap.
+        val cloudBaru = transaction.copy(
+            id = 2, amount = 9000.0, timestamp = 100L, editedAt = 100L,
+            serverUpdatedAt = 2000L, cloudId = "t-1"
+        )
+        val lokalEdit = transaction.copy(
+            id = 1, amount = 15000.0, timestamp = 200L, editedAt = 200L,
+            serverUpdatedAt = 1000L, cloudId = "t-1"
+        )
+        val result = listOf(lokalEdit, cloudBaru).dedupeByCloudId()
+        assertEquals(1, result.size)
+        assertEquals(9000.0, result[0].amount, 0.001)
     }
 }

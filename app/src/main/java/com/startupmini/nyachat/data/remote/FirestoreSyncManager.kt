@@ -16,6 +16,7 @@ import com.startupmini.nyachat.data.local.FinancialTransaction
 import com.startupmini.nyachat.data.local.PendingOp
 import com.startupmini.nyachat.data.local.PendingOpDao
 import com.startupmini.nyachat.data.local.TransactionDao
+import com.startupmini.nyachat.data.local.normalizeAmount
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -407,7 +408,8 @@ object FirestoreSyncManager {
      * Klien menulis `serverUpdatedAt = FieldValue.serverTimestamp()` setiap sync,
      * sehingga perbandingan konflik tidak lagi bergantung murni pada jam lokal
      * (yang bisa selisih antar-perangkat → edit "baru" bisa tampak "tua").
-     * Aturan:
+     * Aturan (satu definisi, dipakai juga oleh dedupeByCloudId via
+     * [lastWriterCompare]):
      *  1) Dua-duanya punya serverUpdatedAt  → bandingkan waktu server (menang yang
      *     akhir ditulis ke server; sama-sama → terima cloud agar konvergen).
      *  2) Minimal satu sisi belum punya (data lama / belum pernah sync) → fallback
@@ -420,20 +422,11 @@ object FirestoreSyncManager {
         cloudEditedAt: Long?,
         cloudTimestamp: Long,
         cloudServerUpdatedAt: Long?
-    ): Boolean {
-        val localServer = existingServerUpdatedAt
-        val cloudServer = cloudServerUpdatedAt
-        if (localServer != null && cloudServer != null) {
-            if (cloudServer < localServer) return false
-            if (cloudServer > localServer) return true
-            // Server time sama → pemutus deterministik ke waktu efektif (terima
-            // cloud bila tidak lebih tua) supaya dua perangkat berakhir konsisten.
-            return effectiveSortTime(cloudEditedAt, cloudTimestamp) >=
-                effectiveSortTime(existingEditedAt, existingTimestamp)
-        }
-        return effectiveSortTime(cloudEditedAt, cloudTimestamp) >=
-            effectiveSortTime(existingEditedAt, existingTimestamp)
-    }
+    ): Boolean =
+        lastWriterCompare(
+            cloudServerUpdatedAt, cloudEditedAt, cloudTimestamp,
+            existingServerUpdatedAt, existingEditedAt, existingTimestamp
+        ) >= 0
 
     internal fun cloudIsNewer(existing: ChatMessage, c: CloudMessage): Boolean =
         cloudIsNewer(
@@ -521,7 +514,7 @@ val local = if (existing != null) {
                 id = existing.id,
                 type = c.type,
                 category = c.category,
-                amount = c.amount,
+                amount = normalizeAmount(c.amount),
                 description = c.description,
                 loggedBy = c.loggedBy,
                 timestamp = c.timestamp,
@@ -535,7 +528,7 @@ val local = if (existing != null) {
             FinancialTransaction(
                 type = c.type,
                 category = c.category,
-                amount = c.amount,
+                amount = normalizeAmount(c.amount),
                 description = c.description,
                 loggedBy = c.loggedBy,
                 timestamp = c.timestamp,
@@ -1049,4 +1042,35 @@ val local = if (existing != null) {
         }
     }
 
+}
+
+/**
+ * SATU definisi "penulis terakhir menang" (audit r1.6.0) — dipakai BERSAMA oleh
+ * merge listener ([FirestoreSyncManager.cloudIsNewer]) dan dedupe tampilan
+ * ([com.startupmini.nyachat.data.repository.dedupeByCloudId] di FinanceRepository)
+ * supaya duplikat cloudId yang sama TIDAK dipilih pemenang berbeda oleh dua
+ * jalur itu.
+ *
+ * Urutan prioritas: serverUpdatedAt (imun selisih jam perangkat) → waktu
+ * efektif (editedAt ?: timestamp) → seri.
+ *
+ * Return: 1 = a lebih baru, -1 = b lebih baru, 0 = seri. Murni & deterministik.
+ */
+internal fun lastWriterCompare(
+    aServerUpdatedAt: Long?,
+    aEditedAt: Long?,
+    aTimestamp: Long,
+    bServerUpdatedAt: Long?,
+    bEditedAt: Long?,
+    bTimestamp: Long
+): Int {
+    val aEffective = aEditedAt ?: aTimestamp
+    val bEffective = bEditedAt ?: bTimestamp
+    return if (aServerUpdatedAt != null && bServerUpdatedAt != null &&
+        aServerUpdatedAt != bServerUpdatedAt
+    ) {
+        aServerUpdatedAt.compareTo(bServerUpdatedAt)
+    } else {
+        aEffective.compareTo(bEffective)
+    }
 }

@@ -1,7 +1,9 @@
 package com.startupmini.nyachat.data.repository
 
+import com.startupmini.nyachat.data.backup.DataExporter
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.local.FinancialTransaction
+import com.startupmini.nyachat.data.local.normalizeAmount
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -55,6 +57,22 @@ class MoneyExactnessTest {
         assertEquals(1_500_001.0, normalizeAmount(1_500_000.5), 0.0)
         // Integer besar tidak berubah sama sekali (no-op untuk data valid).
         assertEquals(123_456_789.0, normalizeAmount(123_456_789.0), 0.0)
+    }
+
+    // 3b. Audit r1.6.0: jalur restore/backup (transactionFromJson) ikut men-snap
+    //     pecahan — sebelumnya hanya jalur parse AI yang menormalisasi, sehingga
+    //     file backup berisi nominal desimal bisa masuk DB apa adanya.
+    @Test
+    fun `transactionFromJson men-snap pecahan ke rupiah penuh`() {
+        val o = JSONObject()
+            .put("type", "PENGELUARAN")
+            .put("category", "Lain-lain")
+            .put("amount", 15_000.5)
+            .put("description", "bakso")
+            .put("loggedBy", "Suami")
+            .put("timestamp", 1_700_000_000_000L)
+        val t = DataExporter.transactionFromJson(o)
+        assertEquals(15_001.0, t.amount, 0.0)
     }
 
     // 4. Badge multi-transaksi: total dari 500 transaksi tetap eksak di pesan.

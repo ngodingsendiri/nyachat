@@ -335,9 +335,11 @@ cuplikan isi (`head=`) ke log.
 ### 4. Invariant uang (P2#6)
 Nominal disimpan sebagai Double — aman untuk rupiah integer < 2^53 (semua
 sumber nominal — parse AI & heuristik — menghasilkan integer).
-`normalizeAmount()` di FinanceRepository men-snap pecahan di batas persist;
-`MoneyExactnessTest` mem-pin invariant ini. **Kalau test ini gagal → ada jalur
-pecahan/drift floating-point — selidiki sebelum menambah fitur numerik apa pun.**
+`normalizeAmount()` (data/local, dipakai di FinanceRepository, DataExporter
+restore, dan FirestoreSyncManager merge cloud) men-snap pecahan di SETIAP batas
+persist; `MoneyExactnessTest` mem-pin invariant ini. **Kalau test ini gagal →
+ada jalur pecahan/drift floating-point — selidiki sebelum menambah fitur
+numerik apa pun.**
 
 ### 5. Mesin heuristik offline (P2#4)
 Logika parse offline dipindah dari GeminiService.kt → `OfflineTransactionParser.kt`
