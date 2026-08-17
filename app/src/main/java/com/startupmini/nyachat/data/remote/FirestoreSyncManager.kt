@@ -10,6 +10,7 @@ import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.SetOptions
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.data.backup.DataExporter
+import com.startupmini.nyachat.data.crypto.WorkspaceCrypto
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.local.ChatMessageDao
 import com.startupmini.nyachat.data.local.FinancialTransaction
@@ -64,6 +65,19 @@ data class CloudMessage(
     val editedAt: Long? = null,
     // M7: asal deteksi — "AI" atau "HEURISTIK" (fallback offline).
     val detectedBy: String? = null,
+    // r1.6.1 (audit pesan): path file foto di Firebase Storage — diisi oleh
+    // pengirim saat upload berhasil; penerima memakainya untuk mengunduh.
+    val imageUrl: String? = null,
+    // r1.6.1 (audit pesan): uid Firebase penulis pesan (FCM self-skip per-uid &
+    // binding rules). null untuk pesan lama.
+    val senderUid: String? = null,
+    // r1.7.0 (E2EE): ciphertext AES-GCM `ivB64.ctB64` (lihat WorkspaceCrypto).
+    // Saat msgVersion=ENCRYPTED, messageText & field finansial KOSONG — server
+    // hanya melihat `enc`. null untuk pesan plaintext lama (msgVersion=LEGACY).
+    val enc: String? = null,
+    // r1.7.0 (E2EE): versi format — Constants.MsgVersion.LEGACY (0) atau
+    // ENCRYPTED (1). Wajib ada; pesan lama tanpa field dianggap 0.
+    val msgVersion: Int = Constants.MsgVersion.LEGACY,
     // M4: waktu terakhir ditulis di server Firestore. Tipe Timestamp (bukan Long)
     // karena serverTimestamp() tersimpan sebagai com.google.firebase.Timestamp di
     // cloud — Long? membuat toObject() crash dengan "Could not deserialize object".
@@ -83,6 +97,11 @@ data class CloudTransaction(
     val chatMessageId: Long? = null,
     val editedAt: Long? = null,
     val sourceMessageCloudId: String? = null, // Cross-device lookup key
+    // r1.7.0 (E2EE): ciphertext konten transaksi (`ivB64.ctB64`) — saat
+    // msgVersion=ENCRYPTED, field type/category/amount/description KOSONG.
+    val enc: String? = null,
+    // r1.7.0 (E2EE): versi format (lihat CloudMessage.msgVersion).
+    val msgVersion: Int = Constants.MsgVersion.LEGACY,
     // M4: lihat CloudMessage — tipe Timestamp agar toObject() tidak crash;
     // dikonversi ke millis saat disimpan ke Room.
     val serverUpdatedAt: com.google.firebase.Timestamp? = null
@@ -90,6 +109,18 @@ data class CloudTransaction(
 
 /** Status sinkronisasi nyata untuk indikator UI (P2-16). */
 enum class SyncStatus { SYNCED, SYNCING, OFFLINE, ERROR }
+
+/** r1.7.0 (chat ephemeral): status ACK pesan terakhir milik user — dipantau UI
+ *  untuk menampilkan centang ala WhatsApp: ✓ (tersinkron ke server) dan
+ *  ✓✓ (SEMUA perangkat anggota sudah menerima → server segera menghapus pesan). */
+data class DeliveryState(
+    val cloudId: String = "",
+    val acked: Int = 0,
+    val members: Int = 0
+) {
+    /** Semua perangkat anggota sudah menulis ACK (termasuk pengirim). */
+    val allAcked: Boolean get() = members > 0 && acked >= members
+}
 
 // P5: FamilyMember, JoinRequest, MembershipStatus, JoinRequestResult,
 // OwnerSetupResult & seluruh alur keanggotaan pindah ke MembershipManager.kt.
@@ -120,6 +151,15 @@ object FirestoreSyncManager {
     @Volatile private var chatDao: ChatMessageDao? = null
     @Volatile private var transDao: TransactionDao? = null
     @Volatile private var pendingDao: PendingOpDao? = null
+    // r1.6.1 (audit pesan): konteks untuk mengunduh foto lampiran ke penyimpanan
+    // lokal penerima (upsertMessage). Di-set dari SyncLifecycle saat workspace
+    // aktif; null di unit test → unduhan dilewati.
+    @Volatile private var appContext: android.content.Context? = null
+    // r1.7.0 (E2EE): cloudId pesan/transaksi terenkripsi yang SEMPAT tiba saat
+    // grup key belum siap lokal (mis. member belum di-wrap) — diproses ulang
+    // begitu kunci tersedia (E2eeSyncManager.notifyReady → onE2eeKeyReady).
+    private val missedEncryptedMessages = java.util.Collections.synchronizedList(mutableListOf<String>())
+    private val missedEncryptedTransactions = java.util.Collections.synchronizedList(mutableListOf<String>())
     @Volatile private var messagesListener: ListenerRegistration? = null
     @Volatile private var transactionsListener: ListenerRegistration? = null
     // BUG-06 lanjutan (P0): status jaringan dari NetworkMonitor. null = belum
@@ -140,6 +180,12 @@ object FirestoreSyncManager {
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val recoveryEvents: SharedFlow<String> = _recoveryEvents.asSharedFlow()
+    // r1.7.0 (chat ephemeral): status ACK pesan yang sedang dipantau (pesan
+    // terakhir milik user) → centang ✓ / ✓✓ di bubble.
+    private val _deliveryState = MutableStateFlow<DeliveryState?>(null)
+    val deliveryState: StateFlow<DeliveryState?> = _deliveryState.asStateFlow()
+    @Volatile private var trackedCloudId: String? = null
+    @Volatile private var deliveryListener: ListenerRegistration? = null
     /** Sinyal "ada op baru di antrian" — drain tidur di sini (bukan polling 2s). */
     private val opsSignal = Channel<Unit>(Channel.CONFLATED)
     /** Listener dijeda saat app di background (P2-12) — hemat baterai/kuota. */
@@ -172,6 +218,17 @@ object FirestoreSyncManager {
         pendingDao = dao
     }
 
+    /** r1.6.1 (audit pesan): konteks aplikasi untuk mengunduh foto lampiran
+     *  chat dari Storage ke penyimpanan lokal penerima. Dipanggil SyncLifecycle. */
+    fun setAppContext(context: android.content.Context) {
+        appContext = context.applicationContext
+    }
+
+    /** UID Firebase pengguna yang login (null bila belum login / bukan Google).
+     *  Dipakai menulis senderUid di pesan (FCM self-skip per-uid & rules). */
+    private fun uid(): String? =
+        runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+
     /** Aktifkan sinkronisasi untuk workspace PIN tertentu. */
     fun start(pin: String, role: String = MembershipManager.ROLE_MEMBER, chatMessageDao: ChatMessageDao, transactionDao: TransactionDao, pendingOpDao: PendingOpDao) {
         stop()
@@ -199,6 +256,9 @@ object FirestoreSyncManager {
         MembershipManager.stop()
         messagesListener?.remove(); messagesListener = null
         transactionsListener?.remove(); transactionsListener = null
+        deliveryListener?.remove(); deliveryListener = null
+        trackedCloudId = null
+        _deliveryState.value = null
         scope.cancel()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         familyId = ""
@@ -222,6 +282,7 @@ object FirestoreSyncManager {
         paused = true
         messagesListener?.remove(); messagesListener = null
         transactionsListener?.remove(); transactionsListener = null
+        deliveryListener?.remove(); deliveryListener = null
     }
 
     /** Aktifkan kembali listener saat app kembali ke foreground. */
@@ -231,6 +292,40 @@ object FirestoreSyncManager {
         if (familyId.isEmpty() || chatDao == null) return
         listenMessages()
         listenTransactions()
+        // r1.7.0: pantau ulang pesan yang tadinya dipantau (ACK / centang ✓✓).
+        val tracked = trackedCloudId
+        if (tracked != null) trackDeliveries(tracked)
+    }
+
+    /** r1.7.0 (chat ephemeral): mulai/hentikan pantauan ACK sebuah pesan
+     *  (dipanggil ChatScreen untuk pesan terakhir milik user). Setelah SEMUA
+     *  perangkat anggota menulis ACK, `deliveryState.allAcked` menjadi true →
+     *  UI menampilkan ✓✓. Null → hentikan pantauan. */
+    fun trackDeliveries(cloudId: String?) {
+        deliveryListener?.remove(); deliveryListener = null
+        trackedCloudId = cloudId
+        if (cloudId.isNullOrBlank() || familyId.isEmpty()) {
+            _deliveryState.value = null
+            return
+        }
+        // runCatching: di unit test (tanpa FirebaseApp) langsung berhenti tenang.
+        runCatching {
+            deliveryListener = messagesRef().document(cloudId)
+                .collection(Constants.Collections.DELIVERIES)
+                .addSnapshotListener { snap, err ->
+                    if (err != null || paused) return@addSnapshotListener
+                    _deliveryState.value = DeliveryState(
+                        cloudId = cloudId,
+                        acked = snap?.size() ?: 0,
+                        members = MembershipManager.members.value.size
+                    )
+                }
+            _deliveryState.value = DeliveryState(
+                cloudId = cloudId,
+                acked = 0,
+                members = MembershipManager.members.value.size
+            )
+        }
     }
 
     /**
@@ -324,7 +419,16 @@ object FirestoreSyncManager {
                         when (change.type) {
                             DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED ->
                                 upsertMessage(dao, cloud)
-                            DocumentChange.Type.REMOVED -> dao.deleteByCloudId(cloud.cloudId)
+                            DocumentChange.Type.REMOVED ->
+                                // r1.7.0 (chat ephemeral): pesan terenkripsi dihapus
+                                // server setelah semua device menerimanya (cleanup
+                                // function) — device yang SUDAH menerima mempertahankan
+                                // salinan lokalnya di Room (server tidak menyimpan,
+                                // perangkat menyimpan). Pesan plaintext lama tetap
+                                // dihapus: hapus-oleh-user menyebar seperti biasa.
+                                if (cloud.msgVersion != Constants.MsgVersion.ENCRYPTED) {
+                                    dao.deleteByCloudId(cloud.cloudId)
+                                }
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Merge pesan gagal: ${e.message}")
@@ -444,102 +548,294 @@ object FirestoreSyncManager {
     internal fun com.google.firebase.Timestamp?.toMillis(): Long? = this?.toDate()?.time
 
     internal suspend fun upsertMessage(dao: ChatMessageDao, c: CloudMessage) {
-        val existing = dao.getByCloudId(c.cloudId)
+        // r1.7.0 (E2EE): pesan terenkripsi (msgVersion=ENCRYPTED) didekripsi
+        // dulu sebelum dibandingkan/di-merge. Tidak bisa didekripsi sekarang →
+        // batal (diproses ulang begitu kunci tersedia, lihat onE2eeKeyReady).
+        val c2 = decryptCloudMessage(c) ?: return
+        val existing = dao.getByCloudId(c2.cloudId)
         if (existing != null) {
             // Last-writer-by-time: snapshot listener bisa tiba dalam urutan apa
             // pun, jadi versi cloud yang lebih tua tidak boleh menimpa edit
             // lokal yang lebih baru. M4: kalau kedua sisi sudah punya waktu SERVER
             // (serverUpdatedAt), bandingkan itu dulu — imun terhadap selisih jam
             // antar-perangkat; kalau belum (data lama), jatuh ke waktu lokal.
-            if (!cloudIsNewer(existing, c)) return
+            if (!cloudIsNewer(existing, c2)) return
         }
-val local = if (existing != null) {
+        var local = if (existing != null) {
             ChatMessage(
                 id = existing.id,
-                sender = c.sender,
-                messageText = c.messageText,
-                timestamp = c.timestamp,
-                isFinancial = c.isFinancial,
-                detectedAmount = c.detectedAmount,
-                detectedCategory = c.detectedCategory,
-                detectedType = c.detectedType,
-                detectedCount = c.detectedCount,
-                hasMixedTypes = c.hasMixedTypes,
-                replyToSender = c.replyToSender,
-                replyToText = c.replyToText,
-                editedAt = c.editedAt,
-                detectedBy = c.detectedBy,
-                serverUpdatedAt = c.serverUpdatedAt.toMillis(),
-                // Lampiran (imagePath/filePath/fileName) TIDAK dikirim ke cloud —
-                // file hanya ada di perangkat yang mengirimnya. Pertahankan path
-                // lokal supaya bubble foto nota/dokumen tidak hilang saat listener
-                // Firestore mem-merge dokumen yang sama (mis. setelah restore).
+                sender = c2.sender,
+                messageText = c2.messageText,
+                timestamp = c2.timestamp,
+                isFinancial = c2.isFinancial,
+                detectedAmount = c2.detectedAmount,
+                detectedCategory = c2.detectedCategory,
+                detectedType = c2.detectedType,
+                detectedCount = c2.detectedCount,
+                hasMixedTypes = c2.hasMixedTypes,
+                replyToSender = c2.replyToSender,
+                replyToText = c2.replyToText,
+                editedAt = c2.editedAt,
+                detectedBy = c2.detectedBy,
+                serverUpdatedAt = c2.serverUpdatedAt.toMillis(),
+                // Lampiran: path lokal dipertahankan (foto/dokumen milik perangkat
+                // ini — mis. pengirim asli atau hasil unduhan sebelumnya). Di
+                // r1.6.1 foto kini DIUNGGKAH ke Storage (imageUrl), jadi perangkat
+                // penerima bisa mengunduhnya (lihat downloadMessageImage di bawah).
                 imagePath = existing.imagePath,
                 filePath = existing.filePath,
                 fileName = existing.fileName,
-                cloudId = c.cloudId
+                cloudId = c2.cloudId,
+                // r1.6.1 (audit pesan): acuan foto di Storage + uid penulis.
+                imageUrl = c2.imageUrl,
+                senderUid = c2.senderUid
             )
         } else {
             ChatMessage(
-                sender = c.sender,
-                messageText = c.messageText,
-                timestamp = c.timestamp,
-                isFinancial = c.isFinancial,
-                detectedAmount = c.detectedAmount,
-                detectedCategory = c.detectedCategory,
-                detectedType = c.detectedType,
-                detectedCount = c.detectedCount,
-                hasMixedTypes = c.hasMixedTypes,
-                replyToSender = c.replyToSender,
-                replyToText = c.replyToText,
-                editedAt = c.editedAt,
-                detectedBy = c.detectedBy,
-                serverUpdatedAt = c.serverUpdatedAt.toMillis(),
-                cloudId = c.cloudId
+                sender = c2.sender,
+                messageText = c2.messageText,
+                timestamp = c2.timestamp,
+                isFinancial = c2.isFinancial,
+                detectedAmount = c2.detectedAmount,
+                detectedCategory = c2.detectedCategory,
+                detectedType = c2.detectedType,
+                detectedCount = c2.detectedCount,
+                hasMixedTypes = c2.hasMixedTypes,
+                replyToSender = c2.replyToSender,
+                replyToText = c2.replyToText,
+                editedAt = c2.editedAt,
+                detectedBy = c2.detectedBy,
+                serverUpdatedAt = c2.serverUpdatedAt.toMillis(),
+                cloudId = c2.cloudId,
+                // r1.6.1 (audit pesan): foto datang lewat Storage — unduh ke
+                // penyimpanan lokal & isi imagePath supaya bubble langsung tampil.
+                imageUrl = c2.imageUrl,
+                senderUid = c2.senderUid
             )
         }
+        // r1.6.1 (audit pesan): foto dari perangkat lain perlu DIUNDUH dulu —
+        // imageUrl ada di cloud tapi file lokal belum (belum pernah diunduh).
+        // File di-cache per cloudId (idempoten): unduhan ulang tidak menimpa.
+        if (local.imageUrl != null && local.imagePath == null) {
+            val downloaded = downloadMessageImage(local.imageUrl!!)
+            if (downloaded != null) local = local.copy(imagePath = downloaded)
+        }
         dao.insertMessage(local)
+        // r1.7.0 (chat ephemeral): tandai "sudah diterima" di server. Begitu SEMUA
+        // perangkat anggota menulis ACK, cloud function menghapus pesan dari
+        // server — perangkat tetap menyimpan salinan lokalnya (Room).
+        if (c2.msgVersion == Constants.MsgVersion.ENCRYPTED) writeAck(c2.cloudId)
     }
 
+    /**
+     * r1.7.0 (E2EE): dekripsi [CloudMessage] terenkripsi → pesan polos.
+     * - Plaintext (msgVersion=LEGACY) → diteruskan apa adanya.
+     * - Kunci belum tersedia lokal → catat cloudId utk diproses ulang & null.
+     * - Dekripsi gagal (kunci salah) → log & null (tidak dimasukkan ke Room).
+     */
+    private suspend fun decryptCloudMessage(c: CloudMessage): CloudMessage? {
+        if (c.msgVersion != Constants.MsgVersion.ENCRYPTED) return c
+        var key = E2eeSyncManager.currentGroupKey()
+        if (key == null) {
+            E2eeSyncManager.heal() // mungkin kunci baru saja tersedia (self-heal)
+            key = E2eeSyncManager.currentGroupKey()
+        }
+        if (key == null) {
+            missedEncryptedMessages.add(c.cloudId)
+            Log.w(TAG, "Pesan terenkripsi ${c.cloudId} ditunda (grup key belum siap)")
+            return null
+        }
+        val enc = c.enc ?: run { missedEncryptedMessages.add(c.cloudId); return null }
+        val plain = WorkspaceCrypto.decryptContent(key, enc) ?: run {
+            Log.w(TAG, "Dekripsi pesan ${c.cloudId} gagal (kunci tidak cocok?)")
+            return null
+        }
+        return runCatching {
+            val m = DataExporter.messageFromJson(JSONObject(String(plain)))
+            c.copy(
+                // Metadata plaintext dari server tetap tepercaya (sender/uid/jam)
+                // — hanya konten yang diambil dari ciphertext.
+                messageText = m.messageText,
+                isFinancial = m.isFinancial,
+                detectedAmount = m.detectedAmount,
+                detectedCategory = m.detectedCategory,
+                detectedType = m.detectedType,
+                detectedCount = m.detectedCount,
+                hasMixedTypes = m.hasMixedTypes,
+                replyToSender = m.replyToSender,
+                replyToText = m.replyToText,
+                editedAt = m.editedAt ?: c.editedAt,
+                detectedBy = m.detectedBy
+            )
+        }.getOrNull()
+    }
+
+    /** r1.7.0 (chat ephemeral): tulis ACK "sudah diterima" — `deliveries/{uid}`. */
+    private suspend fun writeAck(cloudId: String) {
+        val uid = uid() ?: return
+        if (familyId.isEmpty()) return
+        runCatching {
+            messagesRef().document(cloudId)
+                .collection(Constants.Collections.DELIVERIES).document(uid)
+                .set(mapOf(Constants.Fields.DELIVERED_AT to FieldValue.serverTimestamp()))
+                .await()
+        }.onFailure { Log.w(TAG, "Tulis ACK pesan ${cloudId} gagal: ${it.message}") }
+    }
+
+    /**
+     * r1.7.0 (E2EE): grup key siap — proses ulang pesan/transaksi terenkripsi
+     * yang sempat ditunda (dipanggil E2eeSyncManager saat kunci diperoleh).
+     */
+    internal fun onE2eeKeyReady() {
+        val missedMsgs = synchronized(missedEncryptedMessages) {
+            missedEncryptedMessages.toList().also { missedEncryptedMessages.clear() }
+        }
+        val missedTxs = synchronized(missedEncryptedTransactions) {
+            missedEncryptedTransactions.toList().also { missedEncryptedTransactions.clear() }
+        }
+        if (familyId.isEmpty() || (missedMsgs.isEmpty() && missedTxs.isEmpty())) return
+        scope.launch {
+            val chatDao = chatDao
+            for (cid in missedMsgs) {
+                runCatching {
+                    val snap = messagesRef().document(cid).get().await()
+                    if (snap.exists()) {
+                        val cloud = snap.toObject(CloudMessage::class.java)
+                        if (cloud != null) chatDao?.let { upsertMessage(it, cloud) }
+                    }
+                }
+            }
+            val tDao = transDao
+            for (cid in missedTxs) {
+                runCatching {
+                    val snap = transactionsRef().document(cid).get().await()
+                    if (snap.exists()) {
+                        val cloud = snap.toObject(CloudTransaction::class.java)
+                        if (cloud != null) tDao?.let { upsertTransaction(it, cloud) }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Unduh foto lampiran pesan dari Firebase Storage ke penyimpanan lokal
+     * (attachments/<PIN>/remote_<cloudId>.jpg) — r1.6.1 (audit pesan). Sebelum
+     * ini foto hanya ada di perangkat pengirim; penerima butuh file lokal untuk
+     * menampilkan bubble. Idempoten: kalau file sudah ada, langsung kembalikan
+     * path-nya tanpa unduh ulang.
+     */
+    private suspend fun downloadMessageImage(storagePath: String): String? {
+        if (familyId.isEmpty()) return null
+        val ctx = appContext ?: return null
+        val safePin = familyId.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        val dir = java.io.File(java.io.File(ctx.filesDir, "attachments"), safePin)
+        val localFile = java.io.File(dir, "remote_${storagePath.substringAfterLast('/')}")
+        if (localFile.exists() && localFile.length() > 0) return localFile.absolutePath
+        return try {
+            runCatching { dir.mkdirs() }
+            val bytes = storage().getReference(storagePath).stream.await().stream.use { it.readBytes() }
+            val groupKey = E2eeSyncManager.currentGroupKey()
+            // r1.7.0 (E2EE): blob foto sejak aktivasi dienkripsi (mulai IV acak,
+            // bukan magic JPEG). Blob LAMA (sebelum aktivasi) tetap JPEG murni —
+            // dikenali dari magic FFD8 & dipakai apa adanya (kompatibilitas).
+            val isLegacyJpeg = bytes.size > 1 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()
+            val plain = when {
+                isLegacyJpeg -> bytes
+                groupKey != null -> WorkspaceCrypto.decryptBytes(groupKey, bytes)
+                else -> null
+            }
+            if (plain == null) {
+                Log.w(TAG, "Foto pesan ${storagePath} belum bisa dibuka (kunci tidak siap/tidak cocok)")
+                return null
+            }
+            localFile.writeBytes(plain)
+            localFile.absolutePath
+        } catch (e: Exception) {
+            // Gagal (offline/size limit) → bubble tetap tampil dengan placeholder
+            // "📷 Foto"; unduhan diulang saat snapshot berikutnya.
+            Log.w(TAG, "Unduh foto pesan gagal (${storagePath}): ${e.message}")
+            null
+        }
+    }
+
+    /** Referensi Firebase Storage (r1.6.1) — bucket default project. */
+    private fun storage() = com.google.firebase.storage.FirebaseStorage.getInstance()
+
     internal suspend fun upsertTransaction(dao: TransactionDao, c: CloudTransaction) {
-        val existing = dao.getByCloudId(c.cloudId)
+        // r1.7.0 (E2EE): transaksi terenkripsi didekripsi dulu (lihat decryptCloudMessage).
+        val c2 = decryptCloudTransaction(c) ?: return
+        val existing = dao.getByCloudId(c2.cloudId)
         if (existing != null) {
             // Sama dengan upsertMessage — konflik edit transaksi dua perangkat
             // diselesaikan berbasis waktu edit, bukan urutan listener. M4: waktu
             // server (serverUpdatedAt) diprioritaskan bila tersedia di dua sisi.
-            if (!cloudIsNewer(existing, c)) return
+            if (!cloudIsNewer(existing, c2)) return
         }
         val local = if (existing != null) {
             FinancialTransaction(
                 id = existing.id,
-                type = c.type,
-                category = c.category,
-                amount = normalizeAmount(c.amount),
-                description = c.description,
-                loggedBy = c.loggedBy,
-                timestamp = c.timestamp,
-                editedAt = c.editedAt,
-                chatMessageId = c.chatMessageId,
-                cloudId = c.cloudId,
-                sourceMessageCloudId = c.sourceMessageCloudId,
-                serverUpdatedAt = c.serverUpdatedAt.toMillis()
+                type = c2.type,
+                category = c2.category,
+                amount = normalizeAmount(c2.amount),
+                description = c2.description,
+                loggedBy = c2.loggedBy,
+                timestamp = c2.timestamp,
+                editedAt = c2.editedAt,
+                chatMessageId = c2.chatMessageId,
+                cloudId = c2.cloudId,
+                sourceMessageCloudId = c2.sourceMessageCloudId,
+                serverUpdatedAt = c2.serverUpdatedAt.toMillis()
             )
         } else {
             FinancialTransaction(
-                type = c.type,
-                category = c.category,
-                amount = normalizeAmount(c.amount),
-                description = c.description,
-                loggedBy = c.loggedBy,
-                timestamp = c.timestamp,
-                editedAt = c.editedAt,
-                chatMessageId = c.chatMessageId,
-                cloudId = c.cloudId,
-                sourceMessageCloudId = c.sourceMessageCloudId,
-                serverUpdatedAt = c.serverUpdatedAt.toMillis()
+                type = c2.type,
+                category = c2.category,
+                amount = normalizeAmount(c2.amount),
+                description = c2.description,
+                loggedBy = c2.loggedBy,
+                timestamp = c2.timestamp,
+                editedAt = c2.editedAt,
+                chatMessageId = c2.chatMessageId,
+                cloudId = c2.cloudId,
+                sourceMessageCloudId = c2.sourceMessageCloudId,
+                serverUpdatedAt = c2.serverUpdatedAt.toMillis()
             )
         }
         dao.insertTransaction(local)
+    }
+
+    /**
+     * r1.7.0 (E2EE): dekripsi [CloudTransaction] terenkripsi → transaksi polos.
+     * Logika sama dengan decryptCloudMessage (kunci belum siap → antri ulang).
+     */
+    private suspend fun decryptCloudTransaction(c: CloudTransaction): CloudTransaction? {
+        if (c.msgVersion != Constants.MsgVersion.ENCRYPTED) return c
+        var key = E2eeSyncManager.currentGroupKey()
+        if (key == null) {
+            E2eeSyncManager.heal()
+            key = E2eeSyncManager.currentGroupKey()
+        }
+        if (key == null) {
+            missedEncryptedTransactions.add(c.cloudId)
+            Log.w(TAG, "Transaksi terenkripsi ${c.cloudId} ditunda (grup key belum siap)")
+            return null
+        }
+        val plain = WorkspaceCrypto.decryptContent(key, c.enc ?: "") ?: run {
+            Log.w(TAG, "Dekripsi transaksi ${c.cloudId} gagal (kunci tidak cocok?)")
+            return null
+        }
+        return runCatching {
+            val t = DataExporter.transactionFromJson(JSONObject(String(plain)))
+            c.copy(
+                type = t.type,
+                category = t.category,
+                amount = t.amount,
+                description = t.description,
+                loggedBy = t.loggedBy,
+                editedAt = t.editedAt ?: c.editedAt
+            )
+        }.getOrNull()
     }
 
     // ---------- Tulis: push perubahan lokal ke cloud ----------
@@ -581,16 +877,60 @@ val local = if (existing != null) {
     private suspend fun syncMessageNow(message: ChatMessage): Boolean {
         val cid = message.cloudId?.takeIf { it.isNotBlank() } ?: return false
         return try {
+            // r1.6.1 (audit pesan): foto lampiran DIUNGGKAH ke Firebase Storage
+            // saat pesan disinkronkan — sebelumnya hanya ada di perangkat pengirim,
+            // jadi penerima tidak pernah melihatnya. Path upload & referensi dokumen
+            // sama (cloudId). Kalau belum pernah di-upload (imageUrl null) dan file
+            // lokal ada, upload dulu; kegagalan upload = sync dianggap gagal (di-antri,
+            // diulang saat online — payload pending op membawa imagePath). File lokal
+            // sudah hilang → lanjut sync teks saja (foto tak bisa dipulihkan).
+            val imageUrl: String? = if (message.imageUrl.isNullOrBlank() && message.imagePath != null) {
+                val file = java.io.File(message.imagePath!!)
+                if (file.exists() && file.length() > 0L) {
+                    uploadMessageImage(cid, message.imagePath!!) ?: return false
+                } else {
+                    null
+                }
+            } else {
+                message.imageUrl
+            }
             // Firestore menolak nilai null di dalam map set() — filter dulu.
             // Nama field memakai Constants.Fields.* (kontrak cloud — nilai TIDAK
             // boleh berubah: data lintas perangkat & backup lama bergantung padanya;
             // dijaga ConstantsTest).
-            messagesRef().document(cid).set(
-                nonNullMap(
-                    Constants.Fields.CLOUD_ID to cid,
-                    Constants.Fields.SENDER to message.sender,
+            val e2eeKey = if (E2eeSyncManager.isReady()) E2eeSyncManager.currentGroupKey() else null
+            // Metadata selalu plaintext (dibutuhkan sinkronisasi & routing tanpa
+            // dekripsi): sender, senderUid, timestamp, imageUrl, editedAt, versi.
+            val metadata = nonNullMap(
+                Constants.Fields.CLOUD_ID to cid,
+                Constants.Fields.SENDER to message.sender,
+                // r1.6.1: uid penulis — rules mengikatnya ke request.auth.uid
+                // (anggota tidak bisa mengatasnamakan orang lain) & FCM
+                // self-skip presisi per-uid. Pesan lama/restore yang belum punya
+                // senderUid diisi uid penulis saat ini (penulis ulang sah).
+                Constants.Fields.SENDER_UID to (message.senderUid ?: uid()),
+                Constants.Fields.TIMESTAMP to message.timestamp,
+                Constants.Fields.IMAGE_URL to imageUrl,
+                // M4: penanda waktu SERVER — sampai di sini setiap perubahan
+                // di-push, sehingga konflik di-resolve pakai jam Firestore
+                // (deterministik) bukan jam perangkat.
+                Constants.Fields.SERVER_UPDATED_AT to FieldValue.serverTimestamp()
+            )
+            val payload = if (e2eeKey != null) {
+                // r1.7.0 (E2EE): seluruh KONTEN dienkripsi (teks, hasil AI, reply).
+                // Server hanya melihat ciphertext `enc` + metadata di atas.
+                metadata + mapOf(
+                    Constants.Fields.ENC to WorkspaceCrypto.encryptContent(
+                        e2eeKey,
+                        DataExporter.messageToJson(message).toString().toByteArray()
+                    ),
+                    Constants.Fields.MSG_VERSION to Constants.MsgVersion.ENCRYPTED
+                )
+            } else {
+                // Legacy plaintext (sebelum aktivasi E2EE / perangkat belum siap)
+                // — tetap ditulis polos agar kompatibel dengan versi lama.
+                metadata + nonNullMap(
                     Constants.Fields.MESSAGE_TEXT to message.messageText,
-                    Constants.Fields.TIMESTAMP to message.timestamp,
                     Constants.Fields.IS_FINANCIAL to message.isFinancial,
                     Constants.Fields.DETECTED_AMOUNT to message.detectedAmount,
                     Constants.Fields.DETECTED_CATEGORY to message.detectedCategory,
@@ -601,12 +941,10 @@ val local = if (existing != null) {
                     Constants.Fields.REPLY_TO_TEXT to message.replyToText,
                     Constants.Fields.EDITED_AT to message.editedAt,
                     Constants.Fields.DETECTED_BY to message.detectedBy,
-                    // M4: penanda waktu SERVER — sampai di sini setiap perubahan
-                    // di-push, sehingga konflik di-resolve pakai jam Firestore
-                    // (deterministik) bukan jam perangkat.
-                    Constants.Fields.SERVER_UPDATED_AT to FieldValue.serverTimestamp()
+                    Constants.Fields.MSG_VERSION to Constants.MsgVersion.LEGACY
                 )
-            ).await()
+            }
+            messagesRef().document(cid).set(payload).await()
             true
         } catch (e: Exception) {
             // P2-2: biarkan PERMISSION_DENIED mengalir ke pemanggil (dibuang di
@@ -615,6 +953,42 @@ val local = if (existing != null) {
             Log.w(TAG, "Sync pesan gagal: ${e.message}")
             onSyncFailure(e)
             false
+        }
+    }
+
+    /**
+     * Upload foto lampiran pesan ke Firebase Storage (r1.6.1 — audit pesan).
+     * Path: families/{PIN}/messages/{cloudId}.jpg (satu sumber acuan dengan
+     * dokumen pesan). File sudah dikompresi klien (ImageFileUtil: max 1280px,
+     * JPEG 82). Sejak E2EE aktif (r1.7.0) blob diENKRIPSI AES-GCM (mulai IV
+     * acak, bukan magic JPEG) — penerima mendekripsi saat unduh. Idempoten —
+     * path deterministik, upload ulang menimpa.
+     * Return path Storage, atau null kalau gagal (upload dipisah dari write
+     * Firestore supaya pesan tanpa foto tetap sinkron).
+     */
+    private suspend fun uploadMessageImage(cloudId: String, localPath: String): String? {
+        if (familyId.isEmpty()) return null
+        val file = java.io.File(localPath)
+        if (!file.exists() || file.length() == 0L) return null
+        return try {
+            val path = "${Constants.Collections.FAMILIES}/${familyId}/${Constants.Collections.MESSAGES}/$cloudId.jpg"
+            val ref = storage().getReference(path)
+            val groupKey = E2eeSyncManager.currentGroupKey()
+            if (E2eeSyncManager.isReady() && groupKey != null) {
+                val encrypted = WorkspaceCrypto.encryptBytes(groupKey, file.readBytes())
+                ref.putBytes(encrypted).await()
+            } else {
+                // Legacy (belum terenkripsi) — tetap JPEG murni supaya device
+                // lama & foto lama kompatibel.
+                ref.putFile(android.net.Uri.fromFile(file)).await()
+            }
+            path
+        } catch (e: Exception) {
+            // Upload gagal (offline / izin Storage) → syncMessageNow me-retry
+            // (op di-antri); file di-upload ulang saat drain berikutnya.
+            Log.w(TAG, "Upload foto pesan gagal ($cloudId): ${e.message}")
+            onSyncFailure(e)
+            null
         }
     }
 
@@ -639,6 +1013,15 @@ val local = if (existing != null) {
 
     private suspend fun deleteMessageNow(cloudId: String): Boolean = try {
         messagesRef().document(cloudId).delete().await()
+        // r1.6.1: hapus juga foto di Storage (kalau ada) — best-effort, jangan
+        // menggagalkan hapus pesan kalau Storage error (mis. offline).
+        if (familyId.isNotEmpty()) {
+            runCatching {
+                storage().getReference(
+                    "${Constants.Collections.FAMILIES}/$familyId/${Constants.Collections.MESSAGES}/$cloudId.jpg"
+                ).delete().await()
+            }
+        }
         true
     } catch (e: Exception) {
         if (isPermissionDenied(e)) throw e
@@ -669,23 +1052,40 @@ val local = if (existing != null) {
     private suspend fun syncTransactionNow(transaction: FinancialTransaction): Boolean {
         val cid = transaction.cloudId?.takeIf { it.isNotBlank() } ?: return false
         return try {
-            transactionsRef().document(cid).set(
-                nonNullMap(
-                    Constants.Fields.CLOUD_ID to cid,
+            // r1.7.0 (E2EE): transaksi (KONTEN: tipe/kategori/nominal/deskripsi/
+            // pencatat) dienkripsi saat E2EE aktif — server hanya menyimpan
+            // ciphertext `enc`; Rekap dihitung lokal di setiap perangkat dari
+            // Room (yang tetap polos). Legacy plaintext untuk kompatibilitas.
+            val e2eeKey = if (E2eeSyncManager.isReady()) E2eeSyncManager.currentGroupKey() else null
+            val metadata = nonNullMap(
+                Constants.Fields.CLOUD_ID to cid,
+                Constants.Fields.TIMESTAMP to transaction.timestamp,
+                Constants.Fields.EDITED_AT to transaction.editedAt,
+                // M4: penanda waktu SERVER — resolusi konflik deterministik lintas
+                // perangkat tanpa bergantung kalibrasi jam lokal.
+                Constants.Fields.SERVER_UPDATED_AT to FieldValue.serverTimestamp()
+            )
+            val payload = if (e2eeKey != null) {
+                metadata + mapOf(
+                    Constants.Fields.ENC to WorkspaceCrypto.encryptContent(
+                        e2eeKey,
+                        DataExporter.transactionToJson(transaction).toString().toByteArray()
+                    ),
+                    Constants.Fields.MSG_VERSION to Constants.MsgVersion.ENCRYPTED
+                )
+            } else {
+                metadata + nonNullMap(
                     Constants.Fields.TYPE to transaction.type,
                     Constants.Fields.CATEGORY to transaction.category,
                     Constants.Fields.AMOUNT to transaction.amount,
                     Constants.Fields.DESCRIPTION to transaction.description,
                     Constants.Fields.LOGGED_BY to transaction.loggedBy,
-                    Constants.Fields.TIMESTAMP to transaction.timestamp,
-                    Constants.Fields.EDITED_AT to transaction.editedAt,
                     Constants.Fields.CHAT_MESSAGE_ID to transaction.chatMessageId,
                     Constants.Fields.SOURCE_MESSAGE_CLOUD_ID to transaction.sourceMessageCloudId,
-                    // M4: penanda waktu SERVER — resolusi konflik deterministik lintas
-                    // perangkat tanpa bergantung kalibrasi jam lokal.
-                    Constants.Fields.SERVER_UPDATED_AT to FieldValue.serverTimestamp()
+                    Constants.Fields.MSG_VERSION to Constants.MsgVersion.LEGACY
                 )
-            ).await()
+            }
+            transactionsRef().document(cid).set(payload).await()
             true
         } catch (e: Exception) {
             if (isPermissionDenied(e)) throw e

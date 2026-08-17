@@ -1,6 +1,6 @@
 # Kebijakan Privasi — Nyachat
 
-Terakhir diperbarui: 8 Agustus 2026
+Terakhir diperbarui: 18 Agustus 2026
 
 Kebijakan privasi ini menjelaskan bagaimana aplikasi **Nyachat** ("aplikasi", "kami")
 mengumpulkan, menggunakan, dan melindungi data Anda. Dengan menggunakan aplikasi ini,
@@ -31,8 +31,7 @@ Data digunakan untuk:
 ## 3. Penyimpanan Data
 
 - **Data lokal:** Sebagian besar data (pesan, transaksi, lampiran) disimpan secara
-  lokal di perangkat Anda dalam database aplikasi ("Room"). Lampiran (foto/dokumen)
-  hanya disimpan di perangkat yang mengirimnya dan **tidak** ikut tersinkron.
+  lokal di perangkat Anda dalam database aplikasi ("Room") dalam bentuk terbaca.
   Lampiran di-namespace per workspace (folder `filesDir/attachments/<PIN>/`) sehingga
   ganti workspace tidak menghapus lampiran workspace lain.
 - **Cloud (Firebase Firestore):** Jika Anda mengaktifkan sinkronisasi, pesan dan
@@ -41,6 +40,17 @@ Data digunakan untuk:
   akun Google dan aturan keamanan Firestore.
   Sinkronisasi memakai **last-writer-wins deterministik berbasis server timestamp**
   (`FieldValue.serverTimestamp()`) — immune terhadap selisih jam antar-perangkat.
+- **Cloud (Firebase Storage):** Foto lampiran diunggah ke Storage (dalam bentuk
+  terkompresi) supaya bisa diterima anggota workspace lain; foto dihapus saat pesan
+  terkait terhapus. Akses dibatasi hanya untuk anggota workspace itu.
+- **End-to-End Encryption:** Sejak versi r1.7.0, pesan dan transaksi baru **dienkripsi
+  di perangkat Anda** sebelum dikirim ke server. Server hanya menyimpan ciphertext —
+  isi chat tidak dapat dibaca oleh siapa pun tanpa kunci yang disimpan di perangkat
+  anggota workspace. Pesan lama (dibuat sebelum r1.7.0) tetap tersimpan dalam bentuk
+  yang sama seperti saat dibuat.
+- **Chat ephemeral:** Pesan r1.7.0 **dihapus otomatis** setelah semua perangkat
+  menandai pesan sebagai dibaca, dengan batas waktu maksimum 90 hari — server tidak
+  menyimpan pesan tanpa batas waktu.
 - **Google Drive:** Jika Anda memilih backup ke Google Drive, salinan data chat dan
   transaksi disimpan di akun Google Drive Anda.
   Auto-backup harian sekarang jalan walau enkripsi aktif — pakai passphrase otomatis
@@ -89,6 +99,9 @@ sendiri") atau kunci yang Anda masukkan di menu Pengaturan untuk penyedia:
 ## 8. Keamanan
 
 - Akses cloud memerlukan login Google dan dibatasi oleh aturan keamanan Firebase.
+- **Enkripsi end-to-end:** isi pesan & transaksi dienkripsi di perangkat sebelum
+  mencapai server (lihat bagian 3). Kunci pembongkar disimpan di Android Keystore
+  tiap perangkat anggota workspace.
 - Kami tidak menyimpan kunci API AI atas nama Anda; kunci disimpan di perangkat Anda.
 - Namun, mohon dipahami bahwa saat Anda berbagi **PIN keluarga**, siapa pun yang memiliki
   PIN tersebut dapat mengakses workspace yang sama.

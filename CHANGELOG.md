@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [r1.7.0] - 2026-08-18 (chat end-to-end terenkripsi · ephemeral + centang ✓/✓✓ · kompresi foto · audit pesan antar perangkat)
+- **Chat End-to-End Terenkripsi (r1.7.0)**: pesan & transaksi dienkripsi AES-GCM
+  di perangkat PENGIRIM sebelum naik ke server; kunci AES dibungkus kunci publik
+  X25519 tiap anggota workspace (`e2eeKeyBytes` di doc member). Server hanya
+  menyimpan ciphertext — kebocoran database tidak menampakkan isi chat.
+  Room tetap plaintext (data lokal milik Anda); pesan lama (pra-r1.7.0) tetap
+  tampil normal dan tidak ikut dihapus. Batasan desain terdokumentasi: 1 kunci
+  publik per anggota (reinstall ke perangkat baru butuh sinkron ulang) & anggota
+  baru yang belum membuka app belum punya kunci publik → pesan dikirim
+  terenkripsi saat semua penerima punya kunci.
+- **Chat ephemeral + indikator terkirim**: pesan r1.7.0 dihapus otomatis setelah
+  semua perangkat menandai sudah dibaca (ACK `deliveredAt` per penerima) dan
+  tidak pernah menunggu lebih dari 90 hari (TTL via cloud function
+  `cleanupDeliveredMessage`). Bubble kini menampilkan centang `✓` (terkirim ke
+  server) / `✓✓` (dibaca semua perangkat) — termasuk centang berbayar (`✓✓` biru)
+  untuk pesan yang sudah dibaca.
+- **Kompresi foto saat kirim**: lampiran diubah ukurannya ke maks 1280px sebelum
+  upload (hemat kuota & bandwidth); foto nota tetap terbaca AI vision.
+- **Audit pesan antar perangkat (r1.6.1)**: foto lampiran kini benar-benar
+  tersinkron — diunggah ke Firebase Storage (`imageUrl` di chat_messages) dan
+  diunduh otomatis penerima (DB v14→v15); `senderUid` menempel di tiap pesan
+  (FCM self-skip presisi per-uid + binding rules). DB v13→v14 menambah index
+  `chatMessageId` (percepat edit/hapus pesan) & membuang tabel backup duplikat.
+- **DB lebih aman (audit)**: `@Upsert` menggantikan INSERT REPLACE di
+  chat_messages & financial_transactions — konflik index unik tidak lagi bisa
+  menghapus baris lain diam-diam saat id lokal bentrok; backup/restore kini
+  menyertakan `imageUrl` & `senderUid`.
+- **Hardening rules Firestore & Storage**: `e2ee`/`e2eeKeys`/`deliveries` hanya
+  bisa ditulis workspace itu sendiri; `e2eePubKey` hanya bisa di-set pemilik
+  doc; Storage foto hanya boleh diakses anggota workspace.
+- **Pengujian**: +13 unit test (E2EE round-trip kunci salah/kunci rusak, skema
+  migrasi v15, constan baru), 520 test total hijau, lint 0, rules lint & deploy
+  production `nyachat-in` sukses.
+
 ## [r1.6.0] - 2026-08-17 (audit bug: resolusi konflik · presisi uang · relay · dokumentasi isOwner)
 - **Satu resolusi konflik** (audit): duplikat cloudId yang sama sebelumnya bisa
   dipilih pemenang BERBEDA oleh dua jalur — merge listener (`cloudIsNewer`)

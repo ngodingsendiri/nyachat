@@ -2,10 +2,9 @@ package com.startupmini.nyachat.data.local
 
 import androidx.room.Dao
 import androidx.room.Delete
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -13,11 +12,13 @@ interface TransactionDao {
     @Query("SELECT * FROM financial_transactions ORDER BY timestamp DESC")
     fun getAllTransactions(): Flow<List<FinancialTransaction>>
 
-    // REPLACE (bukan ABORT): dengan index unik cloudId, merge dari snapshot
-    // listener yang balapan harus KONVERGEN, bukan crash. Aman karena semua
-    // pemanggil upsert resolve baris lewat getByCloudId dulu (id lokal dijaga);
-    // restore menimpa tabel kosong, jadi primary key tidak pernah berubah diam-diam.
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // @Upsert (bukan INSERT REPLACE, audit DB r1.6.0): sama dengan chat_messages —
+// konflik index unik (cloudId ATAU id) menghasilkan DO UPDATE yang menjaga
+// primary key baris lama; REPLACE bisa menghapus baris lain diam-diam bila id
+// eksplisit bentrok. Semua pemanggil upsert resolve baris lewat getByCloudId
+// dulu (id lokal dijaga); @Upsert menjadikan id LOKAL tidak pernah berubah
+// bahkan bila jalur itu terlewat.
+    @Upsert
     suspend fun insertTransaction(transaction: FinancialTransaction): Long
 
     @Update

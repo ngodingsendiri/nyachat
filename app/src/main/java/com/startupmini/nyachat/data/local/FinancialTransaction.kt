@@ -13,6 +13,11 @@ import kotlin.math.roundToLong
     indices = [
         Index(value = ["timestamp"]),
         Index(value = ["cloudId"], unique = true),
+        // Audit DB r1.6.0: index lookup per-pesan — dipakai tiap edit/hapus pesan
+        // (getAllByChatMessageId/deleteByChatMessageId) & rebuild badge; tanpa
+        // index = full table scan. Konsisten dengan MIGRATION_13_14 yang membuatnya
+        // untuk instalasi lama.
+        Index(value = ["chatMessageId"]),
         // Konsisten dengan MIGRATION_8_9 yang membuat index ini saat upgrade:
         // DB fresh (onCreate) & DB hasil migrasi harus punya index yang sama,
         // kalau tidak Room gagal verifikasi schema (M12 migration test).

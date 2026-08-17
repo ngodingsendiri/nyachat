@@ -1006,6 +1006,10 @@ object MembershipManager {
                     txn.delete(requestRef)
                 }
             }.await()
+            // r1.7.0 (E2EE): kalau workspace sudah terenkripsi & public key member
+            // baru sudah ada (perangkatnya sudah start), langsung wrap grup key ke
+            // dia — kalau belum, self-heal berkala E2eeSyncManager yang mengurus.
+            E2eeSyncManager.wrapForNewMember(request.uid)
             ApproveResult.SUCCESS
         }.onFailure { Log.w(TAG, "approveJoin gagal: ${it.message}") }
             .getOrDefault(ApproveResult.FAILED)

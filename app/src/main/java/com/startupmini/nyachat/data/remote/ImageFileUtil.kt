@@ -25,8 +25,11 @@ data class SavedFile(val path: String, val name: String)
  */
 object ImageFileUtil {
 
-    private const val MAX_DIMENSION = 1600
-    private const val JPEG_QUALITY = 85
+    // r1.7.0 (kompresi ala WA): 1280px / JPEG 82 — hampir sekecil WhatsApp
+    // (1080px/80) tapi nota tetap tajam untuk parsing AI. Nilai sebelumnya
+    // 1600px/85 (lebih besar dari yang dibutuhkan untuk tampilan & AI).
+    private const val MAX_DIMENSION = 1280
+    private const val JPEG_QUALITY = 82
 
     /**
      * M9 — lampiran di-namespace per workspace (PIN). Sebelumnya SEMUA lampiran

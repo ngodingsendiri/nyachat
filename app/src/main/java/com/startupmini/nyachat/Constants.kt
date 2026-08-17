@@ -48,6 +48,10 @@ object Constants {
         // (biaya write). Di-reset saat logout (clear) & diset ulang saat rename/
         // connect berikutnya.
         const val NAME_SYNCED = "name_synced"
+        // r1.7.0 (E2EE): public key perangkat kita sudah pernah ditulis ke member
+        // doc Firestore — supaya tidak menulis ulang di SETIAP buka app. Di-reset
+        // saat logout/ganti perangkat/workspace.
+        const val E2EE_PUBKEY_SYNCED = "e2ee_pubkey_synced"
     }
 
     // ===== Link eksternal =====
@@ -76,6 +80,16 @@ object Constants {
         const val JOIN_REQUESTS = "joinRequests"
         const val MESSAGES = "messages"
         const val TRANSACTIONS = "transactions"
+        // r1.7.0 (E2EE): marker aktivasi E2EE — doc `families/{PIN}/e2ee` yang
+        // dibuat oleh device OWNER (migrasi deterministik: kapan mulai enkripsi).
+        const val E2EE = "e2ee"
+        // r1.7.0 (E2EE): doc `families/{PIN}/e2eeKeys/{uid}` berisi grup key
+        // workspace yang di-wrap ke perangkat {uid} (EciesWrap).
+        const val E2EE_KEYS = "e2eeKeys"
+        // r1.7.0 (chat ephemeral): subkoleksi ACK per penerima —
+        // `families/{PIN}/messages/{cloudId}/deliveries/{uid}`. Sebuah pesan
+        // dihapus dari server begitu semua member menulis ACK (model WA).
+        const val DELIVERIES = "deliveries"
     }
 
     // ===== Firestore document field names =====
@@ -96,7 +110,16 @@ object Constants {
         const val REQUESTED_AT = "requestedAt"
         const val CLOUD_ID = "cloudId"
         const val SENDER = "sender"
+        // r1.6.1 (audit pesan): uid penulis pesan — dipakai (1) rules Firestore
+        // mengikat penulis (anggota tidak bisa mengatasnamakan anggota lain),
+        // dan (2) FCM self-skip presisi per-uid (bukan per-nama yang bisa
+        // bertabrakan).
+        const val SENDER_UID = "senderUid"
         const val MESSAGE_TEXT = "messageText"
+        // r1.6.1 (audit pesan): path file foto di Firebase Storage
+        // (families/{PIN}/messages/{cloudId}.jpg). Penerima mengunduh & menyimpan
+        // ke penyimpanan lokal sebelum menampilkan bubble.
+        const val IMAGE_URL = "imageUrl"
         const val TIMESTAMP = "timestamp"
         const val IS_FINANCIAL = "isFinancial"
         const val DETECTED_AMOUNT = "detectedAmount"
@@ -145,6 +168,28 @@ object Constants {
         // berkala (heartbeat) selama app di foreground. Menentukan siapa yang
         // "online" di topbar (lihat Constants.Presence.ONLINE_WINDOW_MS).
         const val LAST_ACTIVE_AT = "lastActiveAt"
+        // r1.7.0 (E2EE): hasil enkripsi AES-GCM konten pesan/transaksi —
+        // format `ivB64.ctB64` (lihat WorkspaceCrypto). Ada TANPA messageText/
+        // amount dsb. saat msgVersion=1 (server hanya melihat ciphertext).
+        const val ENC = "enc"
+        // r1.7.0 (E2EE): versi format pesan — 0 = plaintext (legacy), 1 =
+        // terenkripsi. Dipakai rules Firestore & app untuk memilih jalur
+        // enkripsi/dekripsi.
+        const val MSG_VERSION = "msgVersion"
+        // r1.7.0 (E2EE): public key EC P-256 perangkat (Base64 SPKI) di member
+        // doc — dipakai untuk meng-wrap grup key ke perangkat itu.
+        const val E2EE_PUB_KEY = "e2eePubKey"
+        // r1.7.0 (E2EE): versi publik key — naik tiap regenerasi (ganti
+        // perangkat). Dipakai self-heal untuk mendeteksi perangkat lama.
+        const val E2EE_KEY_VERSION = "e2eeKeyVersion"
+        // r1.7.0 (E2EE): grup key workspace yang di-wrap (EciesWrap) —
+        // isi doc `families/{PIN}/e2eeKeys/{uid}`.
+        const val E2EE_KEY_BYTES = "e2eeKeyBytes"
+        // r1.7.0 (E2EE): timestamp aktivasi di doc marker `families/{PIN}/e2ee`.
+        const val E2EE_ACTIVATED = "activated"
+        // r1.7.0 (chat ephemeral): timestamp ACK di `deliveries/{uid}` doc —
+        // pesan dihapus server saat semua member punya ACK lebih muda dari doc.
+        const val DELIVERED_AT = "deliveredAt"
     }
 
     // ===== Peran workspace (wajib sama dengan rules) =====
@@ -194,6 +239,16 @@ object Constants {
         const val BENDARAHA = "Bendahara"
         const val ANGGOTA = "Anggota"
         const val KETUA = "Ketua"
+    }
+
+    // ===== Versi format pesan cloud (r1.7.0 — E2EE) =====
+    // Nilai field `msgVersion` — JANGAN diubah maknanya. Pesan plaintext lama
+    // (0) tetap terbaca selamanya; hanya pesan baru yang terenkripsi (1).
+    object MsgVersion {
+        /** Pesan lama/legacy — field terbaca polos (messageText, amount, …). */
+        const val LEGACY = 0
+        /** Pesan terenkripsi — hanya field `enc` + metadata (senderUid, dsb.). */
+        const val ENCRYPTED = 1
     }
 
     // ===== Default values =====

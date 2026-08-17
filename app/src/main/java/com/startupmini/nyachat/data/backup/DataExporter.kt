@@ -245,6 +245,10 @@ object DataExporter {
             // penanda asal deteksi & tie-break server.
             .putOpt(Constants.Fields.DETECTED_BY, m.detectedBy)
             .putOpt(Constants.Fields.SERVER_UPDATED_AT, m.serverUpdatedAt)
+            // r1.6.1 (audit pesan): acuan foto di Storage + uid penulis ikut
+            // dibackup — restore/pending-op tidak kehilangan keduanya.
+            .putOpt(Constants.Fields.IMAGE_URL, m.imageUrl)
+            .putOpt(Constants.Fields.SENDER_UID, m.senderUid)
 
     /** Parse transaksi dari JSON (backup/restore & payload pending-op). */
     // Audit r1.6.0: amount di-snap via normalizeAmount di SETIAP batas persist —
@@ -290,7 +294,12 @@ object DataExporter {
             cloudId = o.optNullableString(Constants.Fields.CLOUD_ID),
             sourceMessageCloudId = o.optNullableString(Constants.Fields.SOURCE_MESSAGE_CLOUD_ID),
             detectedBy = o.optNullableString(Constants.Fields.DETECTED_BY),
-            serverUpdatedAt = o.optNullableLong(Constants.Fields.SERVER_UPDATED_AT)
+            serverUpdatedAt = o.optNullableLong(Constants.Fields.SERVER_UPDATED_AT),
+            // r1.6.1 (audit pesan): acuan foto di Storage (imageUrl) tidak dibuang
+            // saat file lokal hilang — justru acuan itulah yang dipakai penerima
+            // untuk mengunduh ulang. senderUid mengikat penulis pesan.
+            imageUrl = o.optNullableString(Constants.Fields.IMAGE_URL),
+            senderUid = o.optNullableString(Constants.Fields.SENDER_UID)
         )
     }
 

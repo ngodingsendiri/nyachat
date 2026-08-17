@@ -81,6 +81,8 @@ service cloud.firestore {
       // sinkron nama pilihan user ke member doc (identitas koheren lintas
       // perangkat). 'label' hanya ditulis klien saat masih default (kosong/==
       // nama lama) sehingga label kustom owner tidak tertimpa.
+      // r1.7.0 (E2EE): 'e2eePubKey' & 'e2eeKeyVersion' boleh di-update diri
+      // sendiri — public key perangkat untuk wrap grup key (EciesWrap).
       // Audit workspace (2026-08-12):
       //   - update milik OWNER dibatasi HANYA field 'role' & 'label' (sebelumnya
       //     owner bisa menulis field apa pun, mis. menimpa name/email anggota).
@@ -93,7 +95,7 @@ service cloud.firestore {
                  && resource.data.role == 'owner'
                  && request.resource.data.role == 'member'))
         || (request.auth.uid == uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'avatarBytes', 'avatarVersion', 'name', 'label', 'photoUrl', 'lastActiveAt'])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'avatarBytes', 'avatarVersion', 'name', 'label', 'photoUrl', 'lastActiveAt', 'e2eePubKey', 'e2eeKeyVersion'])
             // r1.4.0 (avatar foto): photoUrl boleh di-update diri sendiri —
             // URL foto Google disegarkan saat connect/rename.
             // Guard: avatarBytes boleh tidak ada (update hanya fcmToken) —
@@ -194,43 +196,119 @@ service cloud.firestore {
     // connect/rename — lihat MembershipManager.updateMyIdentity).
     match /families/{familyId}/messages/{docId} {
       allow read: if signedInGoogle() && isMember(familyId);
+      // r1.7.0 (E2EE): server TIDAK bisa memvalidasi isi yang terenkripsi —
+      // validasi dipecah per msgVersion:
+      //   - 1 (terenkripsi): WAJIB ada `enc` (ciphertext) + `msgVersion`; field
+      //     konten (messageText/detected*) TIDAK lagi diperiksa (tidak ada).
+      //   - 0 / absen (legacy plaintext): pemeriksaan lama (messageText).
+      // Klien lama (pra r1.7.0) tidak menulis msgVersion → dianggap 0.
+      function validEncryptedMessage() {
+        return request.resource.data.msgVersion == 1
+          && request.resource.data.enc is string
+          && request.resource.data.enc.size() > 0
+          && request.resource.data.enc.size() <= 600000;
+      }
+      function validPlaintextMessage() {
+        return (!('msgVersion' in request.resource.data)
+            || request.resource.data.msgVersion == 0)
+          && request.resource.data.messageText is string;
+      }
+      // r1.6.1 (audit pesan): ikat senderUid ke penulis. Dipakai bersamaan
+      // dengan FCM self-skip per-uid. Progresif: klien lama (pra r1.6.1) tidak
+      // menulis senderUid → tetap diizinkan (tidak lebih buruk dari status quo);
+      // klien baru WAJIB menulis uid-nya sendiri. imageUrl (path Storage) hanya
+      // dibatasi tipenya — nilai path bebas selama dokumen valid.
       allow create: if signedInGoogle() && isMember(familyId)
         && request.resource.data.cloudId == docId
         && request.resource.data.sender is string
         && request.resource.data.sender.size() > 0
-        && request.resource.data.messageText is string
-        && request.resource.data.timestamp is number;
+        && request.resource.data.timestamp is number
+        && (validEncryptedMessage() || validPlaintextMessage())
+        && (!('senderUid' in request.resource.data)
+            || request.resource.data.senderUid == request.auth.uid)
+        && (!('imageUrl' in request.resource.data)
+            || request.resource.data.imageUrl is string);
       allow update: if signedInGoogle() && isMember(familyId)
         && request.resource.data.cloudId == docId
         && request.resource.data.sender is string
-        && request.resource.data.messageText is string
-        && request.resource.data.timestamp is number;
+        && request.resource.data.sender.size() > 0
+        && request.resource.data.timestamp is number
+        && (validEncryptedMessage() || validPlaintextMessage())
+        && (!('senderUid' in request.resource.data)
+            || request.resource.data.senderUid == request.auth.uid)
+        && (!('imageUrl' in request.resource.data)
+            || request.resource.data.imageUrl is string);
       allow delete: if signedInGoogle() && isMember(familyId);
+    }
+
+    // r1.7.0 (E2EE) — ACK "sudah diterima" untuk chat ephemeral:
+    // `families/{familyId}/messages/{docId}/deliveries/{uid}`. Setiap perangkat
+    // menulis doc miliknya SENDIRI (uid == request.auth.uid) dengan server
+    // timestamp; semua anggota boleh membaca (dipakai UI centang ✓✓). Cloud
+    // function `cleanupDeliveredMessage` (admin SDK, bypass rules) menghapus
+    // pesan begitu semua member menulis ACK.
+    match /families/{familyId}/messages/{docId}/deliveries/{uid} {
+      allow read: if signedInGoogle() && isMember(familyId);
+      allow create, update: if signedInGoogle() && isMember(familyId)
+        && request.auth.uid == uid
+        && request.resource.data.deliveredAt is timestamp;
+      allow delete: if signedInGoogle() && request.auth.uid == uid;
+    }
+
+    // r1.7.0 (E2EE) — marker aktivasi: `families/{familyId}/e2ee/e2ee`.
+    // CREATE pertama yang menang (device OWNER membuatnya saat migrasi);
+    // anggota tidak bisa mengubah/menghapus marker.
+    match /families/{familyId}/e2ee/{markerDoc} {
+      allow read: if signedInGoogle() && isMember(familyId);
+      allow create: if signedInGoogle() && isMember(familyId)
+        && request.resource.data.activated is timestamp;
+      allow update, delete: if false;
+    }
+
+    // r1.7.0 (E2EE) — grup key yang di-wrap per perangkat:
+    // `families/{familyId}/e2eeKeys/{uid}` berisi `e2eeKeyBytes` (EciesWrap).
+    // Ditulis oleh anggota mana pun yang memegang grup key (self-heal) untuk
+    // member {uid}; hanya dibatasi tipenya (server tidak bisa memvalidasi kripto).
+    match /families/{familyId}/e2eeKeys/{uid} {
+      allow read: if signedInGoogle() && isMember(familyId);
+      allow create, update: if signedInGoogle() && isMember(familyId)
+        && request.resource.data.e2eeKeyBytes is string
+        && request.resource.data.e2eeKeyBytes.size() > 0
+        && request.resource.data.e2eeKeyBytes.size() <= 5000;
+      allow delete: if false;
     }
 
     // Transaksi: selain validasi dasar, amount wajib angka positif (bukan
     // negatif/NaN) dan di bawah batas kewajaran — mencegah data korup dari
-    // klien tak patuh.
+    // klien tak patuh. r1.7.0 (E2EE): transaksi terenkripsi hanya membawa
+    // `enc` + `msgVersion` — validasi amount/type/category dilewati (server
+    // tidak bisa membacanya; Rekap dihitung lokal di setiap perangkat).
     match /families/{familyId}/transactions/{docId} {
       allow read: if signedInGoogle() && isMember(familyId);
+      function validEncryptedTx() {
+        return request.resource.data.msgVersion == 1
+          && request.resource.data.enc is string
+          && request.resource.data.enc.size() > 0
+          && request.resource.data.enc.size() <= 600000;
+      }
+      function validPlaintextTx() {
+        return (!('msgVersion' in request.resource.data)
+            || request.resource.data.msgVersion == 0)
+          && request.resource.data.amount is number
+          && request.resource.data.amount > 0
+          && request.resource.data.amount < 1000000000000
+          && request.resource.data.type in ['PEMASUKAN', 'PENGELUARAN']
+          && request.resource.data.category is string
+          && request.resource.data.category.size() > 0;
+      }
       allow create: if signedInGoogle() && isMember(familyId)
         && request.resource.data.cloudId == docId
-        && request.resource.data.amount is number
-        && request.resource.data.amount > 0
-        && request.resource.data.amount < 1000000000000
-        && request.resource.data.type in ['PEMASUKAN', 'PENGELUARAN']
-        && request.resource.data.category is string
-        && request.resource.data.category.size() > 0
-        && request.resource.data.timestamp is number;
+        && request.resource.data.timestamp is number
+        && (validEncryptedTx() || validPlaintextTx());
       allow update: if signedInGoogle() && isMember(familyId)
         && request.resource.data.cloudId == docId
-        && request.resource.data.amount is number
-        && request.resource.data.amount > 0
-        && request.resource.data.amount < 1000000000000
-        && request.resource.data.type in ['PEMASUKAN', 'PENGELUARAN']
-        && request.resource.data.category is string
-        && request.resource.data.category.size() > 0
-        && request.resource.data.timestamp is number;
+        && request.resource.data.timestamp is number
+        && (validEncryptedTx() || validPlaintextTx());
       allow delete: if signedInGoogle() && isMember(familyId);
     }
   }

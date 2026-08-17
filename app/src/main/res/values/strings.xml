@@ -231,6 +231,14 @@
     <string name="chat_edit_title">Edit Pesan</string>
     <string name="chat_edit_hint">Ubah isi pesan. Jika berisi catatan keuangan, Rekap diperbarui otomatis.</string>
     <string name="chat_edited">diedit</string>
+    <!-- r1.6.1 (audit pesan): bubble pengganti saat foto pesan belum terunduh
+         di perangkat penerima (masih ada di Storage / sedang di-download). -->
+    <string name="chat_photo_placeholder">Foto</string>
+    <!-- r1.7.0 (chat ephemeral): deskripsi aksesibilitas centang pengiriman
+         ala WhatsApp di pojok kanan-bawah bubble pesan milik user. -->
+    <string name="chat_delivery_pending_desc">Pesan sedang dikirim</string>
+    <string name="chat_delivery_sent_desc">Pesan terkirim ke server</string>
+    <string name="chat_delivery_delivered_desc">Semua perangkat anggota telah menerima pesan</string>
     <string name="chat_reply_label">Membalas %1$s</string>
     <string name="chat_reply_cancel">Batalkan balasan</string>
     <string name="chat_send_pdf">Kirim PDF / Dokumen</string>

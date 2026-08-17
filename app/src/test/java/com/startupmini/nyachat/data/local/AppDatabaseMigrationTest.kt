@@ -276,4 +276,120 @@ class AppDatabaseMigrationTest {
             rows.close()
         }
     }
+
+    /**
+     * v13→v14 (r1.6.0 — audit DB): index chatMessageId (hot path
+     * getAllByChatMessageId / deleteByChatMessageId) ditambahkan, tabel staging
+     * financial_transactions_duplicates_backup (sisa MIGRATION_7_8) dibuang, dan
+     * data lama tidak boleh hilang.
+     */
+    @Test
+    fun migrate13To14_addsChatMessageIdIndexAndDropsStagingTable() {
+        helper.createDatabase(TEST_DB, 13).apply {
+            // Data nyata: pesan + transaksi ber-relasi chatMessageId.
+            execSQL(
+                "INSERT INTO chat_messages (id, sender, messageText, timestamp, isFinancial, detectedCount, hasMixedTypes) " +
+                    "VALUES (1, 'Suami', 'Beli bensin 50.000', 1752000000000, 1, 1, 0)"
+            )
+            execSQL(
+                "INSERT INTO financial_transactions " +
+                    "(id, type, category, amount, description, loggedBy, timestamp, chatMessageId, cloudId) " +
+                    "VALUES (1, 'EXPENSE', 'Transportasi', 50000.0, 'Beli bensin', 'Suami', " +
+                    "1752000000000, 1, 'tx-cloud-1')"
+            )
+            // Simulasikan DB produksi lama: sisa tabel staging dari MIGRATION_7_8
+            // (TIDAK dideklarasikan di skema Room — hanya ada di DB riil).
+            execSQL(
+                "CREATE TABLE IF NOT EXISTS financial_transactions_duplicates_backup (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "type TEXT NOT NULL, amount REAL NOT NULL, description TEXT, " +
+                    "loggedBy TEXT, timestamp INTEGER NOT NULL, chatMessageId INTEGER)"
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DB, 14, true, AppDatabase.MIGRATION_13_14
+        ).use { db ->
+            // 1. Data lama tetap (pesan + relasi transaksi ke pesan).
+            val msg = db.query("SELECT messageText FROM chat_messages WHERE id = 1")
+            assertTrue(msg.moveToFirst())
+            assertEquals("Beli bensin 50.000", msg.getString(0))
+            msg.close()
+
+            val tx = db.query(
+                "SELECT amount, chatMessageId FROM financial_transactions WHERE id = 1"
+            )
+            assertTrue(tx.moveToFirst())
+            assertEquals(50000.0, tx.getDouble(0), 0.001)
+            assertEquals(1, tx.getLong(1))
+            tx.close()
+
+            // 2. Index chatMessageId muncul (hot path Rekap / hapus pesan).
+            val idx = db.query("PRAGMA index_list(financial_transactions)")
+            var hasChatMsgIdx = false
+            while (idx.moveToNext()) {
+                if (idx.getString(1) == "index_financial_transactions_chatMessageId") hasChatMsgIdx = true
+            }
+            idx.close()
+            assertTrue("index financial_transactions(chatMessageId) hilang", hasChatMsgIdx)
+
+            // 3. Tabel staging sisa MIGRATION_7_8 sudah dibuang.
+            val tables = db.query(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='financial_transactions_duplicates_backup'"
+            )
+            assertTrue(
+                "tabel staging financial_transactions_duplicates_backup harus di-drop",
+                !tables.moveToFirst()
+            )
+            tables.close()
+        }
+    }
+
+    /**
+     * v14→v15 (r1.6.1 — audit pesan): kolom imageUrl (acuan foto di Firebase
+     * Storage, diunduh penerima) & senderUid (uid penulis — FCM self-skip
+     * per-uid + binding rules). Data lama tidak boleh hilang; kolom baru
+     * nullable (pesan lama tidak punya keduanya).
+     */
+    @Test
+    fun migrate14To15_addsImageUrlAndSenderUidColumns_keepsData() {
+        helper.createDatabase(TEST_DB, 14).apply {
+            execSQL(
+                "INSERT INTO chat_messages (id, sender, messageText, timestamp, isFinancial) " +
+                    "VALUES (1, 'Suami', 'Beli bensin 50.000', 1752000000000, 1)"
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DB, 15, true, AppDatabase.MIGRATION_14_15
+        ).use { db ->
+            // 1. Data lama tetap.
+            val msg = db.query("SELECT messageText FROM chat_messages WHERE id = 1")
+            assertTrue(msg.moveToFirst())
+            assertEquals("Beli bensin 50.000", msg.getString(0))
+            msg.close()
+
+            // 2. Kolom baru ada & nullable (pesan lama tanpa foto/uid).
+            val cols = db.query("PRAGMA table_info(chat_messages)")
+            var hasImageUrl = false
+            var hasSenderUid = false
+            while (cols.moveToNext()) {
+                when (cols.getString(1)) {
+                    "imageUrl" -> hasImageUrl = true
+                    "senderUid" -> hasSenderUid = true
+                }
+            }
+            cols.close()
+            assertTrue("chat_messages.imageUrl hilang setelah migrasi", hasImageUrl)
+            assertTrue("chat_messages.senderUid hilang setelah migrasi", hasSenderUid)
+
+            val row = db.query("SELECT imageUrl, senderUid FROM chat_messages WHERE id = 1")
+            assertTrue(row.moveToFirst())
+            assertTrue("imageUrl pesan lama harus null", row.isNull(0))
+            assertTrue("senderUid pesan lama harus null", row.isNull(1))
+            row.close()
+        }
+    }
 }

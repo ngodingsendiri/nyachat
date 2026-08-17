@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.performTouchInput
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.data.local.ChatMessage
@@ -106,7 +107,9 @@ class ChatScreenGestureTest {
     @Test
     fun `tahan lama bubble teks memunculkan menu`() {
         showChat()
-        composeRule.onNodeWithTag("chat_bubble_1").performTouchInput { longClick() }
+        // Long-press di TEKS pesan — lihat ChatBubbleGestureTest untuk alasan
+        // (pusat bubble pesan pendek berbadge jatuh di badge clickable).
+        composeRule.onNodeWithTag("chat_bubble_1").performTouchInput { longClick(Offset(center.x, 12f)) }
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Balas").assertIsDisplayed()
         composeRule.onNodeWithText("Salin").assertIsDisplayed()

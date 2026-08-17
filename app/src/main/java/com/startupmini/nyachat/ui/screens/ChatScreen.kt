@@ -47,7 +47,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -73,6 +75,7 @@ import androidx.core.content.FileProvider
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
+import com.startupmini.nyachat.data.remote.FirestoreSyncManager
 import com.startupmini.nyachat.data.remote.ImageFileUtil
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.theme.Motion
@@ -216,6 +219,26 @@ fun ChatScreen(
     val processingMessageId = if (isAiThinking) {
         messages.lastOrNull { it.sender == activeSender }?.id
     } else null
+
+    // r1.7.0 (chat ephemeral): centang pengiriman ala WhatsApp (✓ tersinkron /
+    // ✓✓ semua perangkat menerima). Status ACK dibaca dari FirestoreSyncManager
+    // (memantau deliveries/{uid} pesan terakhir milik user). Server menghapus
+    // pesan begitu semua device menerima — perangkat tetap menyimpan salinan.
+    val deliveryState by FirestoreSyncManager.deliveryState.collectAsState()
+    // CloudId yang SUDAH mencapai ✓✓ — diingat supaya tidak "turun" jadi ✓ lagi
+    // saat server menghapus pesan (koleksi deliveries kosong → snapshot 0).
+    var deliveredIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(deliveryState?.cloudId, deliveryState?.allAcked) {
+        val st = deliveryState
+        if (st != null && st.allAcked) deliveredIds = deliveredIds + st.cloudId
+    }
+    val lastMyCloudId = messages.lastOrNull { it.sender == activeSender }?.cloudId
+    LaunchedEffect(lastMyCloudId) {
+        FirestoreSyncManager.trackDeliveries(lastMyCloudId)
+    }
+    DisposableEffect(Unit) {
+        onDispose { FirestoreSyncManager.trackDeliveries(null) }
+    }
 
     // Tombol "lompat ke pesan terbaru" muncul saat user tidak di dasar obrolan.
     val shouldShowJumpButton by remember {
@@ -363,6 +386,13 @@ fun ChatScreen(
                             var menuOpen by remember { mutableStateOf(false) }
                             val clipboard = LocalClipboardManager.current
                             val msg = row.message
+                            // r1.7.0: status centang pengiriman per bubble milik user.
+                            val delivery = when {
+                                msg.sender != activeSender -> null
+                                msg.cloudId.isNullOrBlank() -> DeliveryStatus.PENDING
+                                deliveredIds.contains(msg.cloudId) -> DeliveryStatus.DELIVERED
+                                else -> DeliveryStatus.SYNCED
+                            }
                             // Grouping pengirim sama (item 6): jarak rapat antar
                             // pesan berurutan dari pengirim yang sama; jarak penuh
                             // hanya di awal grup (header pengirim baru).
@@ -387,6 +417,7 @@ fun ChatScreen(
                                     onOpenTransaction = { onOpenTransaction(msg) },
                                     senderAvatarPath = senderAvatarPaths[msg.sender],
                                     isProcessing = processingMessageId == msg.id,
+                                    delivery = delivery,
                                     modifier = Modifier.animateItem()
                                 )
                                 DropdownMenu(

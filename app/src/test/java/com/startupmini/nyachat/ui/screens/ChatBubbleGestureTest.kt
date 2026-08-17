@@ -132,7 +132,11 @@ class ChatBubbleGestureTest {
     @Test
     fun `tahan lama bubble teks membuka menu`() {
         showBubble(textMessage())
-        bubble(textMessage()).performTouchInput { longClick() }
+        // Long-press di TEKS pesan (bukan pusat bubble) — r1.7.0 footer badge
+        // + jam menyatu di pojok kanan-bawah; pusat bubble pesan pendek berbadge
+        // lebar jatuh tepat di badge clickable (tap badge = buka transaksi,
+        // perilaku disengaja). Gestur alami user: tahan lama pada teks pesan.
+        bubble(textMessage()).performTouchInput { longClick(Offset(center.x, 12f)) }
         composeRule.waitForIdle()
         assertTrue("tahan lama harus memanggil onLongPress", longPressed)
         assertFalse("tahan lama tidak boleh memanggil onOpenImage", imageOpened)

@@ -38,10 +38,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.OfflineBolt
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Receipt
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -99,6 +102,11 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** r1.7.0 (chat ephemeral): status pengiriman pesan milik user — dipakai bubble
+ *  untuk menampilkan indikator ala WhatsApp: PENDING (jam ⏳, belum ke server),
+ *  SYNCED (✓, sudah tersinkron), DELIVERED (✓✓, semua perangkat menerima). */
+enum class DeliveryStatus { PENDING, SYNCED, DELIVERED }
 
 /** Buka file dokumen terkirim (PDF/invoice) lewat aplikasi pembaca eksternal. */
 internal fun openAttachedFile(context: Context, message: ChatMessage) {
@@ -165,7 +173,10 @@ fun ChatMessageBubble(
     // r1.4.0 (indikator AI memproses): true untuk bubble pesan milik user yang
     // sedang diproses AI — titik kecil muncul di samping waktu (menyatu dengan
     // bubble, bukan elemen terpisah di sisi chat).
-    isProcessing: Boolean = false
+    isProcessing: Boolean = false,
+    // r1.7.0 (chat ephemeral): status pengiriman pesan milik user (✓ / ✓✓).
+    // null → bukan pesan milik user → tanpa indikator.
+    delivery: DeliveryStatus? = null
 ) {
     val isAi = message.sender == Constants.Sender.AI
     val isMe = message.sender == currentActiveSender
@@ -425,11 +436,41 @@ fun ChatMessageBubble(
                     senderColor = senderColor,
                     timeDisplay = timeDisplay,
                     isProcessing = isProcessing,
+                    delivery = delivery,
                     onOpenFile = onOpenFile,
                     onOpenTransaction = onOpenTransaction
                 )
             } else {
             Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                // r1.6.1 (audit pesan): pesan ber-foto dari perangkat lain yang
+                // fotonya belum terunduh di perangkat ini (imageUrl ada di cloud,
+                // file lokal belum ada). Tampilkan placeholder supaya penerima
+                // tahu ini pesan FOTO — bukan teks kosong; unduhan berjalan
+                // otomatis saat snapshot Firestore berikutnya & bubble berubah
+                // jadi media begitu imagePath terisi.
+                if (message.imageUrl != null && message.imagePath == null) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = bubbleColor.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 18.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "\uD83D\uDCF7",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = " ${stringResource(R.string.chat_photo_placeholder)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = textColor.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 // Kutipan pesan yang dibalas (swipe kanan / menu Balas)
                 message.replyToText?.takeIf { it.isNotBlank() }?.let { quoted ->
                     Surface(
@@ -479,20 +520,20 @@ fun ChatMessageBubble(
                     )
                 }
 
-                if (isMe) {
-                    MessageTimeRow(
+                // r1.7.0 (L5): footer SATU BARIS ala WhatsApp — [spark][badge]
+                // di kiri, waktu + centang ✓/✓✓ di pojok kanan-bawah (bukan lagi
+                // bertumpuk: caption → jam → badge).
+                val hasFinancialBadge = message.isFinancial && message.detectedAmount != null
+                if (isMe || hasFinancialBadge) {
+                    MessageFooterRow(
+                        message = message,
                         timeDisplay = timeDisplay,
                         timeColor = timeColor,
-                        isProcessing = isProcessing
-                    )
-                }
-
-                // Financial Tag Badge inside message — warna pastel lebih lembut
-                if (message.isFinancial && message.detectedAmount != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    FinancialBadge(
-                        message = message,
-                        onOpenTransaction = onOpenTransaction
+                        isProcessing = isProcessing,
+                        isMe = isMe,
+                        delivery = delivery,
+                        onOpenTransaction = onOpenTransaction,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
             }
@@ -697,6 +738,7 @@ private fun ChatMediaBubbleContent(
     senderColor: Color,
     timeDisplay: String,
     isProcessing: Boolean,
+    delivery: DeliveryStatus?,
     onOpenFile: (() -> Unit)?,
     onOpenTransaction: (() -> Unit)?
 ) {
@@ -764,20 +806,35 @@ private fun ChatMediaBubbleContent(
         // Guard rasio ekstrem (bitmap 0/1px) — aspectRatio wajib finite & > 0.
         val mediaAspect = imageBitmap.width.toFloat() /
             imageBitmap.height.coerceAtLeast(1).toFloat()
-        Image(
-            bitmap = imageBitmap.asImageBitmap(),
-            contentDescription = stringResource(R.string.chat_image_desc),
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(mediaAspect),
-            contentScale = ContentScale.Fit
-        )
 
-        // Bagian bawah: caption + waktu + badge finansial — padding kecil.
-        // r1.4.0: baris waktu juga dirender saat bubble sedang diproses AI
-        // (foto nota tanpa caption tetap memperlihatkan indikator).
+        // r1.7.0 (L5): gambar MURNI milik user (tanpa caption/badge/processing)
+        // menampilkan waktu ala WhatsApp — OVERLAY di pojok kanan-bawah gambar
+        // dengan chip scrim gelap agar terbaca di foto terang. Kalau ada
+        // caption/badge/proses, waktu turun ke baris footer di bawah gambar.
         val hasCaption = message.messageText.isNotBlank()
         val hasBadge = message.isFinancial && message.detectedAmount != null
+        val overlayTime = isMe && !hasCaption && !hasBadge && !isProcessing
+        Box {
+            Image(
+                bitmap = imageBitmap.asImageBitmap(),
+                contentDescription = stringResource(R.string.chat_image_desc),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(mediaAspect),
+                contentScale = ContentScale.Fit
+            )
+            if (overlayTime) {
+                TimeChipOverlay(
+                    timeDisplay = timeDisplay,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                )
+            }
+        }
+
+        // Footer media: caption + SATU BARIS [badge][waktu] di pojok kanan-bawah
+        // (r1.7.0 L5) — menggantikan tumpukan caption → jam → badge.
         if (hasCaption || hasBadge || isProcessing) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                 if (hasCaption) {
@@ -787,29 +844,15 @@ private fun ChatMediaBubbleContent(
                         color = textColor
                     )
                 }
-                if (isMe) {
-                    MessageTimeRow(
-                        timeDisplay = timeDisplay,
-                        timeColor = timeColor,
-                        isProcessing = isProcessing
-                    )
-                }
-                if (hasBadge) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    FinancialBadge(
-                        message = message,
-                        onOpenTransaction = onOpenTransaction
-                    )
-                }
-            }
-        } else if (isMe) {
-            // Media murni milik sendiri — waktu tetap tampil (padding ramping)
-            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
-                Text(
-                    text = timeDisplay,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = timeColor,
-                    modifier = Modifier.align(Alignment.End)
+                MessageFooterRow(
+                    message = message,
+                    timeDisplay = timeDisplay,
+                    timeColor = timeColor,
+                    isProcessing = isProcessing,
+                    isMe = isMe,
+                    delivery = delivery,
+                    onOpenTransaction = onOpenTransaction,
+                    modifier = Modifier.padding(top = if (hasCaption) 6.dp else 0.dp)
                 )
             }
         }
@@ -817,21 +860,26 @@ private fun ChatMediaBubbleContent(
 }
 
 /**
- * Baris waktu pesan milik user — menyatu dengan indikator "AI memproses"
- * (r1.4.0, permintaan user): saat [isProcessing], tiga titik kecil tampil di
- * kiri waktu. Dipakai footer bubble teks & media. Harus dipanggil dalam
- * ColumnScope (memakai [ColumnScope.align]).
+ * Footer pesan — kluster SATU BARIS di pojok kanan-bawah ala WhatsApp (r1.7.0
+ * L5): [spark AI] [badge finansial] ................. [waktu] [✓/✓✓].
+ * Wrap-content (TIDAK fillMaxWidth): bubble teks tetap selebar isi terpanjang
+ * (bukan melebar penuh ke 300dp), sehingga area tengah bubble tidak pernah
+ * tertutup elemen clickable badge — long-press/menu tetap responsif.
+ * Dipakai footer bubble teks & media.
  */
 @Composable
-private fun ColumnScope.MessageTimeRow(
+private fun ColumnScope.MessageFooterRow(
+    message: ChatMessage,
     timeDisplay: String,
     timeColor: Color,
-    isProcessing: Boolean
+    isProcessing: Boolean,
+    isMe: Boolean,
+    delivery: DeliveryStatus?,
+    onOpenTransaction: (() -> Unit)?,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
-            .align(Alignment.End)
-            .padding(top = 4.dp),
+        modifier = modifier.align(Alignment.End),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isProcessing) {
@@ -840,12 +888,77 @@ private fun ColumnScope.MessageTimeRow(
                 modifier = Modifier.padding(end = 5.dp)
             )
         }
+        if (message.isFinancial && message.detectedAmount != null) {
+            FinancialBadge(
+                message = message,
+                onOpenTransaction = onOpenTransaction
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        if (isMe) {
+            Text(
+                text = timeDisplay,
+                style = MaterialTheme.typography.labelSmall,
+                color = timeColor
+            )
+            DeliveryCheckmarks(
+                delivery = delivery,
+                tint = timeColor,
+                modifier = Modifier.padding(start = 3.dp)
+            )
+        }
+    }
+}
+
+/**
+ * r1.7.0 (L5): chip waktu OVERLAY di pojok kanan-bawah gambar murni milik
+ * user (ala WhatsApp) — latar scrim gelap semi-transparan supaya terbaca di
+ * foto terang. Non-clickable (gambar tetap satu area tap/tekan).
+ */
+@Composable
+private fun TimeChipOverlay(timeDisplay: String, modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color.Black.copy(alpha = 0.35f),
+        modifier = modifier
+    ) {
         Text(
             text = timeDisplay,
             style = MaterialTheme.typography.labelSmall,
-            color = timeColor
+            color = Color.White,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )
     }
+}
+
+/**
+ * r1.7.0 (chat ephemeral): centang pengiriman ala WhatsApp —
+ * PENDING (jam) → SYNCED (✓) → DELIVERED (✓✓ semua perangkat menerima).
+ * null → bukan pesan milik user → tidak digambar.
+ */
+@Composable
+private fun DeliveryCheckmarks(
+    delivery: DeliveryStatus?,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    val d = delivery ?: return
+    Icon(
+        imageVector = when (d) {
+            DeliveryStatus.PENDING -> Icons.Rounded.Schedule
+            DeliveryStatus.SYNCED -> Icons.Rounded.Check
+            DeliveryStatus.DELIVERED -> Icons.Rounded.DoneAll
+        },
+        contentDescription = stringResource(
+            when (d) {
+                DeliveryStatus.PENDING -> R.string.chat_delivery_pending_desc
+                DeliveryStatus.SYNCED -> R.string.chat_delivery_sent_desc
+                DeliveryStatus.DELIVERED -> R.string.chat_delivery_delivered_desc
+            }
+        ),
+        tint = tint,
+        modifier = modifier.size(13.dp)
+    )
 }
 
 /**

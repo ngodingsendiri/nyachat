@@ -382,7 +382,7 @@ class MainViewModelTest {
         override fun createRepository(application: Application): FinanceRepository {
             val db = AppDatabase.getDatabase(application)
             return FinanceRepository(
-                db.chatMessageDao(), db.transactionDao(), db.pendingOpDao(), DelayedAiService()
+                db, db.chatMessageDao(), db.transactionDao(), db.pendingOpDao(), DelayedAiService()
             )
         }
     }
@@ -407,7 +407,7 @@ class MainViewModelTest {
         override fun createRepository(application: Application): FinanceRepository {
             val db = AppDatabase.getDatabase(application)
             return FinanceRepository(
-                db.chatMessageDao(), db.transactionDao(), db.pendingOpDao(), FailingAiService()
+                db, db.chatMessageDao(), db.transactionDao(), db.pendingOpDao(), FailingAiService()
             )
         }
     }

@@ -1,10 +1,9 @@
 package com.startupmini.nyachat.data.local
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -20,11 +19,13 @@ interface ChatMessageDao {
     @Query("SELECT * FROM chat_messages ORDER BY timestamp DESC LIMIT :limit")
     suspend fun getRecentMessages(limit: Int): List<ChatMessage>
 
-    // REPLACE (bukan ABORT): dengan index unik cloudId, merge dari snapshot
-    // listener yang balapan harus KONVERGEN, bukan crash. Aman karena upsert di
-    // FirestoreSyncManager resolve baris lewat getByCloudId dulu (id lokal dijaga)
-    // dan sendMessage selalu menyertakan id lokal pada insert kedua.
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // @Upsert (bukan INSERT REPLACE, audit DB r1.6.0): pada konflik index unik
+// (cloudId ATAU id), SQLite menjalankan DO UPDATE yang MEMPERTAHANKAN primary
+// key baris yang sudah ada. REPLACE lama menghapus baris konflik lalu insert
+// baru — kalau entity membawa id eksplisit yang bentrok dengan id baris lain,
+// baris itu ikut terhapus diam-diam. @Upsert aman: id lokal tidak pernah
+// berganti di luar sepengetahuan pemanggil.
+@Upsert
     suspend fun insertMessage(message: ChatMessage): Long
 
     @Update

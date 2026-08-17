@@ -1,0 +1,41 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // r1.6.1 (audit pesan): Firebase Storage hanya untuk FOTO lampiran chat
+    // (nota belanja). Path upload/download menyatu dengan Firestore:
+    //   families/{PIN}/messages/{cloudId}.jpg
+    // Rule di bawah melindungi SEPERTI Firestore messages: hanya anggota
+    // workspace (yang sudah disetujui owner) yang boleh baca/tulis.
+    // `exists()` membaca member doc Firestore milik user sendiri — evaluasi
+    // server-side terhadap state nyata, tidak bergantung pada rules baca
+    // dokumen target (pola yang sama dengan firestore.rules isMember).
+
+    match /families/{familyId}/messages/{fileName} {
+      // r1.6.1: fungsi akses Firestore dari Storage WAJIB pakai prefix
+      // `firestore.` (bukan `exists()` polos yang khusus rules Firestore).
+      // `database` = ID database Firestore (default) — dievaluasi server-side.
+      function isMember() {
+        return request.auth != null
+          && firestore.exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid));
+      }
+      // Foto diunggah dari klien. Sejak E2EE aktif (r1.7.0) blob foto diENKRIPSI
+      // (AES-GCM, mulai IV acak) → contentType application/octet-stream, bukan
+      // image/* lagi — server hanya menyimpan ciphertext. Blob lama (sebelum
+      // aktivasi) tetap image/jpeg. Dua-duanya diizinkan; batas ukuran: kompresi
+      // klien ImageFileUtil maks ~1280px/JPEG 82 (<1MB terenkripsi); 5MB memberi
+      // ruang aman tanpa memicu quota tak wajar.
+      allow read: if isMember();
+      allow create: if isMember()
+        && request.resource.size <= 5 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType == 'application/octet-stream');
+      allow delete: if isMember();
+    }
+
+    // Segala path lain di luar families/{PIN}/messages TIDAK boleh diakses —
+    // Storage tidak dipakai untuk hal lain (avatar disimpan di Firestore doc).
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

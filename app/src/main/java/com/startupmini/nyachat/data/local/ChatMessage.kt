@@ -29,6 +29,11 @@ data class ChatMessage(
     // (badge hijau pemasukan / merah pengeluaran seperti biasa).
     val hasMixedTypes: Boolean? = null,
     val imagePath: String? = null, // path file foto lampiran (nota belanja) di penyimpanan internal
+    // r1.6.1 (audit pesan): path file foto di Firebase Storage — ada nilainya
+    // untuk pesan yang mengirimkan foto. Di perangkat PENGIRIM selalu null
+    // (file lokal via imagePath); di perangkat PENERIMA menjadi acuan unduhan
+    // sebelum imagePath diisi dari file hasil download.
+    val imageUrl: String? = null,
     val filePath: String? = null, // path file dokumen (PDF/invoice/nota) di penyimpanan internal
     val fileName: String? = null, // nama asli file dokumen untuk ditampilkan di bubble
     val replyToSender: String? = null, // snapshot pengirim pesan yang dibalas (balasan via swipe)
@@ -43,6 +48,10 @@ data class ChatMessage(
     // selisih jam antar-perangkat (jenis LWW deterministik).
     val serverUpdatedAt: Long? = null,
     val cloudId: String? = null, // ID dokumen Firestore (unik lintas perangkat)
+    // r1.6.1 (audit pesan): uid Firebase penulis — FCM self-skip presisi per-uid
+    // & binding rules Firestore (anggota tidak bisa menulis atas nama anggota
+    // lain). null untuk data lama / pesan hasil restore yang belum di-sync ulang.
+    val senderUid: String? = null,
     // Audit data/ (2026-08-14): kolom ini SENGAJA tidak diisi di runtime untuk
     // pesan — cross-device lookup memakai field di TRANSaksi (lihat
     // FinancialTransaction.sourceMessageCloudId). Dipertahankan di schema

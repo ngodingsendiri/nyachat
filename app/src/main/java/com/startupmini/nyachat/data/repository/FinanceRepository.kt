@@ -1,7 +1,9 @@
 package com.startupmini.nyachat.data.repository
 
 import android.util.Log
+import androidx.room.withTransaction
 import com.startupmini.nyachat.Constants
+import com.startupmini.nyachat.data.local.AppDatabase
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.local.ChatMessageDao
 import com.startupmini.nyachat.data.local.FinancialTransaction
@@ -27,6 +29,10 @@ import kotlinx.coroutines.withContext
  * (badge finansial) sengaja dipertahankan di sini karena relasinya lintas-entitas.
  */
 class FinanceRepository(
+    // Audit DB r1.6.0: referensi database dipakai untuk operasi multi-tabel
+    // ATOMIK (db.withTransaction) — tanpa ini crash di tengah operasi (mis.
+    // sendMessage / editMessage / restore) meninggalkan state parsial.
+    private val db: AppDatabase,
     private val chatMessageDao: ChatMessageDao,
     private val transactionDao: TransactionDao,
     private val pendingOpDao: PendingOpDao,
@@ -108,44 +114,51 @@ class FinanceRepository(
             if (aiResult.containsTransaction) {
                 val txs = aiResult.all
                 if (txs.isNotEmpty()) {
-                    val insertedList = txs.map { tx ->
-                        val trans = FinancialTransaction(
-                            type = tx.type,
-                            category = tx.category,
-                            amount = normalizeAmount(tx.amount),
-                            description = tx.description.ifBlank { messageText },
-                            loggedBy = sender,
-                            // Timestamp eksplisit (tanggal disebut di pesan) atau waktu pesan.
-                            timestamp = tx.timestamp ?: now,
-                            chatMessageId = msgId,
-                            cloudId = UUID.randomUUID().toString(),
-                            sourceMessageCloudId = finalMsg.cloudId // Cross-device lookup key
+                    // Insert transaksi + badge pesan secara ATOMIK (audit DB
+                    // r1.6.0): crash di tengah tidak boleh meninggalkan pesan
+                    // tanpa transaksi/badge, atau transaksi yatim tanpa pesan.
+                    val insertedList = db.withTransaction {
+                        val list = txs.map { tx ->
+                            val trans = FinancialTransaction(
+                                type = tx.type,
+                                category = tx.category,
+                                amount = normalizeAmount(tx.amount),
+                                description = tx.description.ifBlank { messageText },
+                                loggedBy = sender,
+                                // Timestamp eksplisit (tanggal disebut di pesan) atau waktu pesan.
+                                timestamp = tx.timestamp ?: now,
+                                chatMessageId = msgId,
+                                cloudId = UUID.randomUUID().toString(),
+                                sourceMessageCloudId = finalMsg.cloudId // Cross-device lookup key
+                            )
+                            val txId = transactionDao.insertTransaction(trans)
+                            trans.copy(id = txId)
+                        }
+                        val total = list.sumOf { it.amount }
+                        val first = list.first()
+
+                        // Update user message with financial badge tags on the message itself
+                        finalMsg = initialMsg.copy(
+                            id = msgId,
+                            isFinancial = true,
+                            detectedAmount = total,
+                            detectedCategory = first.category,
+                            detectedType = first.type,
+                            // r1.4.0 (audit Finance AI): jumlah transaksi — badge
+                            // multi-transaksi tidak men-netting pemasukan/pengeluaran.
+                            detectedCount = list.size,
+                            // r1.4.0 (badge campuran): penanda pesan berisi pemasukan
+                            // DAN pengeluaran sekaligus → badge pelangi di chat.
+                            hasMixedTypes = hasMixedTypes(list.map { it.type }),
+                            // M7: catat asal deteksi (AI atau heuristik offline) untuk
+                            // indikator transparansi di badge financisial.
+                            detectedBy = aiResult.detectedBy
                         )
-                        val txId = transactionDao.insertTransaction(trans)
-                        trans.copy(id = txId)
+                        chatMessageDao.insertMessage(finalMsg)
+                        list
                     }
                     createdTx = insertedList.first()
                     val total = insertedList.sumOf { it.amount }
-                    val first = insertedList.first()
-
-                    // Update user message with financial badge tags on the message itself
-                    finalMsg = initialMsg.copy(
-                        id = msgId,
-                        isFinancial = true,
-                        detectedAmount = total,
-                        detectedCategory = first.category,
-                        detectedType = first.type,
-                        // r1.4.0 (audit Finance AI): jumlah transaksi — badge
-                        // multi-transaksi tidak men-netting pemasukan/pengeluaran.
-                        detectedCount = insertedList.size,
-                        // r1.4.0 (badge campuran): penanda pesan berisi pemasukan
-                        // DAN pengeluaran sekaligus → badge pelangi di chat.
-                        hasMixedTypes = hasMixedTypes(insertedList.map { it.type }),
-                        // M7: catat asal deteksi (AI atau heuristik offline) untuk
-                        // indikator transparansi di badge financisial.
-                        detectedBy = aiResult.detectedBy
-                    )
-                    chatMessageDao.insertMessage(finalMsg)
 
                     // P3#8 (audit 2026-08-14): konteks ekstraksi untuk triase crash &
                     // metrik akurasi produksi (custom key Crashlytics + log ringan).
@@ -209,32 +222,39 @@ class FinanceRepository(
                 // M7: perbarui asal deteksi juga saat edit.
                 detectedBy = if (isFinancial) aiResult.detectedBy else null
             )
-            chatMessageDao.updateMessage(updated)
-
-            // r1.2.4: REBUILD semua transaksi pesan ini (bukan update 1 baris) —
-            // konsisten untuk pesan single maupun multi-transaksi: hapus yang lama
-            // (lokal + cloud), lalu tulis ulang dari hasil parse terbaru.
+            // r1.2.4: REBUILD semua transaksi pesan ini (bukan update 1 baris) — konsisten
+            // untuk pesan single maupun multi-transaksi: hapus yang lama (lokal +
+            // cloud), lalu tulis ulang dari hasil parse terbaru.
             val oldTxs = transactionDao.getAllByChatMessageId(existing.id)
             oldTxs.forEach { tx -> tx.cloudId?.let { FirestoreSyncManager.deleteTransaction(it) } }
-            transactionDao.deleteByChatMessageId(existing.id)
 
-            if (isFinancial) {
-                txs.forEach { tx ->
-                    val trans = FinancialTransaction(
-                        type = tx.type,
-                        category = tx.category,
-                        amount = normalizeAmount(tx.amount),
-                        description = tx.description.ifBlank { newText },
-                        loggedBy = existing.sender,
-                        timestamp = tx.timestamp ?: existing.timestamp,
-                        chatMessageId = messageId,
-                        cloudId = UUID.randomUUID().toString(),
-                        sourceMessageCloudId = existing.cloudId // Cross-device lookup key
-                    )
-                    val txId = transactionDao.insertTransaction(trans)
-                    FirestoreSyncManager.syncTransaction(trans.copy(id = txId))
+            // Hapus + tulis ulang transaksi & update pesan secara ATOMIK (audit DB
+            // r1.6.0). Sinkronisasi cloud dijalankan SETELAH transaksi selesai —
+            // operasi jaringan tidak boleh mengunci DB.
+            val insertedTxs = db.withTransaction {
+                chatMessageDao.updateMessage(updated)
+                transactionDao.deleteByChatMessageId(existing.id)
+                if (isFinancial) {
+                    txs.map { tx ->
+                        val trans = FinancialTransaction(
+                            type = tx.type,
+                            category = tx.category,
+                            amount = normalizeAmount(tx.amount),
+                            description = tx.description.ifBlank { newText },
+                            loggedBy = existing.sender,
+                            timestamp = tx.timestamp ?: existing.timestamp,
+                            chatMessageId = messageId,
+                            cloudId = UUID.randomUUID().toString(),
+                            sourceMessageCloudId = existing.cloudId // Cross-device lookup key
+                        )
+                        val txId = transactionDao.insertTransaction(trans)
+                        trans.copy(id = txId)
+                    }
+                } else {
+                    emptyList()
                 }
             }
+            insertedTxs.forEach { FirestoreSyncManager.syncTransaction(it) }
 
             FirestoreSyncManager.syncMessage(updated)
         }
@@ -404,21 +424,27 @@ class FinanceRepository(
             // Cap waktu edit — dipakai resolusi konflik sync (last-writer-by-time)
             // supaya edit bersamaan di dua perangkat tidak saling menindas acak.
             val edited = transaction.copy(editedAt = System.currentTimeMillis())
-            transactionDao.updateTransaction(edited)
 
-            edited.chatMessageId?.let { messageId ->
-                chatMessageDao.getById(messageId)?.let { msg ->
-                    // Audit badge campuran (2026-08-14): badge dihitung ulang dari
-                    // SEMUA transaksi pesan ini (bukan hanya transaksi yang diedit)
-                    // — jumlah total, detectedCount, DAN hasMixedTypes ikut konsisten
-                    // kalau user mengubah tipe transaksi di pesan campuran
-                    // (pelangi muncul/hilang sesuai kenyataan).
-                    val updatedMsg = msg.rebuildBadge(transactionDao.getAllByChatMessageId(messageId))
-                    chatMessageDao.updateMessage(updatedMsg)
-                    FirestoreSyncManager.syncMessage(updatedMsg)
+            // Update transaksi + badge pesan terkait secara ATOMIK (audit DB
+            // r1.6.0); sinkronisasi cloud dijalankan di luar transaksi.
+            var updatedMsg: ChatMessage? = null
+            db.withTransaction {
+                transactionDao.updateTransaction(edited)
+                updatedMsg = edited.chatMessageId?.let { messageId ->
+                    chatMessageDao.getById(messageId)?.let { msg ->
+                        // Audit badge campuran (2026-08-14): badge dihitung ulang dari
+                        // SEMUA transaksi pesan ini (bukan hanya transaksi yang diedit)
+                        // — jumlah total, detectedCount, DAN hasMixedTypes ikut konsisten
+                        // kalau user mengubah tipe transaksi di pesan campuran
+                        // (pelangi muncul/hilang sesuai kenyataan).
+                        val rebuilt = msg.rebuildBadge(transactionDao.getAllByChatMessageId(messageId))
+                        chatMessageDao.updateMessage(rebuilt)
+                        rebuilt
+                    }
                 }
             }
 
+            updatedMsg?.let { FirestoreSyncManager.syncMessage(it) }
             edited.cloudId?.let { FirestoreSyncManager.syncTransaction(edited) }
         }
     }
@@ -435,11 +461,15 @@ class FinanceRepository(
             // Konsistensi 1 arah: hapus SEMUA transaksi terkait pesan ini agar tidak
             // jadi orphan di Rekap (dan dihapus juga dari cloud).
             val linkedTxs = transactionDao.getAllByChatMessageId(messageId)
+            // Hapus transaksi + pesan secara ATOMIK (audit DB r1.6.0); penghapusan
+            // cloud dijalankan setelah transaksi selesai.
+            db.withTransaction {
+                transactionDao.deleteByChatMessageId(messageId)
+                chatMessageDao.deleteMessage(messageId)
+            }
             linkedTxs.forEach { tx ->
-                transactionDao.deleteTransaction(tx)
                 tx.cloudId?.let { FirestoreSyncManager.deleteTransaction(it) }
             }
-            chatMessageDao.deleteMessage(messageId)
             msg.cloudId?.let { FirestoreSyncManager.deleteMessage(it) }
             ChatDeleted(message = msg, transactions = linkedTxs)
         }
@@ -455,24 +485,29 @@ class FinanceRepository(
             // Hapus DULU, lalu query sisa — tanpa filter id (review r1.2.4): filter
             // `id != transaction.id` rapuh saat id lokal 0 (baris dari cloud yang
             // belum pernah dapat id lokal).
-            transactionDao.deleteTransaction(transaction)
-            transaction.cloudId?.let { FirestoreSyncManager.deleteTransaction(it) }
-
-            // Konsistensi 2 arah: kalau transaksi ini dibuat dari pesan chat, perbarui
-            // badge pesan + sinkron, agar Rekap & chat sinkron dan re-parse tidak
-            // menciptakan transaksi ulang.
-            // Audit r1.2.4: pesan MULTI-transaksi — menghapus SATU transaksi tidak
-            // boleh menghilangkan badge total (sebelumnya clearFinancialBadge()
-            // menghapus SEMUA badge padahal transaksi lain masih ada).
-            transaction.chatMessageId?.let { messageId ->
-                chatMessageDao.getById(messageId)?.let { msg ->
-                    // Audit badge campuran (2026-08-14): recompute via helper murni
-                    // — kalau tinggal satu tipe, penanda pelangi hilang otomatis.
-                    val updated = msg.rebuildBadge(transactionDao.getAllByChatMessageId(messageId))
-                    chatMessageDao.updateMessage(updated)
-                    FirestoreSyncManager.syncMessage(updated)
+            var updatedMsg: ChatMessage? = null
+            // Hapus transaksi + perbarui badge pesan terkait secara ATOMIK (audit
+            // DB r1.6.0); sinkronisasi cloud dijalankan di luar transaksi.
+            db.withTransaction {
+                transactionDao.deleteTransaction(transaction)
+                // Konsistensi 2 arah: kalau transaksi ini dibuat dari pesan chat, perbarui
+                // badge pesan + sinkron, agar Rekap & chat sinkron dan re-parse tidak
+                // menciptakan transaksi ulang.
+                // Audit r1.2.4: pesan MULTI-transaksi — menghapus SATU transaksi tidak
+                // boleh menghilangkan badge total (sebelumnya clearFinancialBadge()
+                // menghapus SEMUA badge padahal transaksi lain masih ada).
+                updatedMsg = transaction.chatMessageId?.let { messageId ->
+                    chatMessageDao.getById(messageId)?.let { msg ->
+                        // Audit badge campuran (2026-08-14): recompute via helper murni
+                        // — kalau tinggal satu tipe, penanda pelangi hilang otomatis.
+                        val updated = msg.rebuildBadge(transactionDao.getAllByChatMessageId(messageId))
+                        chatMessageDao.updateMessage(updated)
+                        updated
+                    }
                 }
             }
+            transaction.cloudId?.let { FirestoreSyncManager.deleteTransaction(it) }
+            updatedMsg?.let { FirestoreSyncManager.syncMessage(it) }
         }
     }
 
@@ -483,47 +518,58 @@ class FinanceRepository(
      */
     suspend fun restoreDeleted(message: ChatMessage?, transactions: List<FinancialTransaction>) {
         withContext(Dispatchers.IO) {
-            var newMid: Long? = null
-            if (message != null) {
-                newMid = chatMessageDao.insertMessage(message.copy(id = 0))
-                message.cloudId?.let { cid ->
-                    FirestoreSyncManager.syncMessage(message.copy(id = newMid))
+            // Insert ulang pesan + transaksi + rebuild badge secara ATOMIK (audit
+            // DB r1.6.0); sinkronisasi cloud dijalankan setelah transaksi selesai.
+            var messageToSync: ChatMessage? = null
+            val transactionSyncs = mutableListOf<Pair<FinancialTransaction, String?>>()
+            val messageBadgeSyncs = mutableListOf<Pair<ChatMessage, String?>>()
+            db.withTransaction {
+                var newMid: Long? = null
+                if (message != null) {
+                    newMid = chatMessageDao.insertMessage(message.copy(id = 0))
+                    messageToSync = message.copy(id = newMid)
+                }
+                // Saat pesan ikut di-restore, relasi transaksi harus menunjuk ke id
+                // pesan yang BARU (id lama sudah diganti).
+                val affectedMessageIds = linkedSetOf<Long>()
+                transactions.forEach { tx ->
+                    val remapped = if (newMid != null) tx.copy(chatMessageId = newMid) else tx
+                    val newTxId = transactionDao.insertTransaction(remapped.copy(id = 0))
+                    transactionSyncs.add(remapped.copy(id = newTxId) to remapped.cloudId)
+                    (newMid ?: remapped.chatMessageId)?.let { affectedMessageIds.add(it) }
+                }
+                // Badge pesan terkait dihitung ulang SEKALI per pesan (audit repository
+                // 2026-08-14): sebelumnya di-loop per transaksi → N× query + N× sync
+                // cloud untuk pesan multi-transaksi. Hasil akhir identik (dihitung dari
+                // semua transaksinya setelah semua insert selesai).
+                affectedMessageIds.forEach { mid ->
+                    chatMessageDao.getById(mid)?.let { m ->
+                        // Audit badge campuran (2026-08-14): recompute via helper murni
+                        // dari semua transaksi pesan ini (pelangi ikut konsisten).
+                        val updated = m.rebuildBadge(transactionDao.getAllByChatMessageId(mid))
+                        chatMessageDao.updateMessage(updated)
+                        messageBadgeSyncs.add(updated to updated.cloudId)
+                    }
                 }
             }
-            // Saat pesan ikut di-restore, relasi transaksi harus menunjuk ke id
-            // pesan yang BARU (id lama sudah diganti).
-            val affectedMessageIds = linkedSetOf<Long>()
-            transactions.forEach { tx ->
-                val remapped = if (newMid != null) tx.copy(chatMessageId = newMid) else tx
-                val newTxId = transactionDao.insertTransaction(remapped.copy(id = 0))
-                remapped.cloudId?.let { cid ->
-                    FirestoreSyncManager.syncTransaction(remapped.copy(id = newTxId))
-                }
-                (newMid ?: remapped.chatMessageId)?.let { affectedMessageIds.add(it) }
-            }
-            // Badge pesan terkait dihitung ulang SEKALI per pesan (audit repository
-            // 2026-08-14): sebelumnya di-loop per transaksi → N× query + N× sync
-            // cloud untuk pesan multi-transaksi. Hasil akhir identik (dihitung dari
-            // semua transaksinya setelah semua insert selesai).
-            affectedMessageIds.forEach { mid ->
-                chatMessageDao.getById(mid)?.let { m ->
-                    // Audit badge campuran (2026-08-14): recompute via helper murni
-                    // dari semua transaksi pesan ini (pelangi ikut konsisten).
-                    val updated = m.rebuildBadge(transactionDao.getAllByChatMessageId(mid))
-                    chatMessageDao.updateMessage(updated)
-                    FirestoreSyncManager.syncMessage(updated)
-                }
-            }
+
+            messageToSync?.let { m -> m.cloudId?.let { FirestoreSyncManager.syncMessage(m) } }
+            transactionSyncs.forEach { (tx, cid) -> cid?.let { FirestoreSyncManager.syncTransaction(tx) } }
+            messageBadgeSyncs.forEach { (m, cid) -> cid?.let { FirestoreSyncManager.syncMessage(m) } }
         }
     }
 
     suspend fun clearAllData() {
         withContext(Dispatchers.IO) {
-            chatMessageDao.deleteAllMessages()
-            transactionDao.deleteAllTransactions()
-            // Ops yang belum tersinkron ikut dihapus — data lokal sudah hilang,
-            // mengeksekusinya lagi hanya akan mem-push data basi ke cloud.
-            pendingOpDao.deleteAll()
+            // Tiga tabel dibersihkan secara ATOMIK (audit DB r1.6.0) — crash di
+            // tengah tidak boleh menyisakan separuh data.
+            db.withTransaction {
+                chatMessageDao.deleteAllMessages()
+                transactionDao.deleteAllTransactions()
+                // Ops yang belum tersinkron ikut dihapus — data lokal sudah hilang,
+                // mengeksekusinya lagi hanya akan mem-push data basi ke cloud.
+                pendingOpDao.deleteAll()
+            }
             FirestoreSyncManager.clearFamilyData()
         }
     }
@@ -536,9 +582,12 @@ class FinanceRepository(
      */
     suspend fun clearLocalData() {
         withContext(Dispatchers.IO) {
-            chatMessageDao.deleteAllMessages()
-            transactionDao.deleteAllTransactions()
-            pendingOpDao.deleteAll()
+            // Tiga tabel dibersihkan secara ATOMIK (audit DB r1.6.0).
+            db.withTransaction {
+                chatMessageDao.deleteAllMessages()
+                transactionDao.deleteAllTransactions()
+                pendingOpDao.deleteAll()
+            }
         }
     }
 
@@ -550,22 +599,26 @@ class FinanceRepository(
      */
     suspend fun restoreBackup(messages: List<ChatMessage>, transactions: List<FinancialTransaction>) {
         withContext(Dispatchers.IO) {
-            chatMessageDao.deleteAllMessages()
-            transactionDao.deleteAllTransactions()
-            // Ops lama milik data yang ditimpa — buang supaya tidak push data basi.
-            pendingOpDao.deleteAll()
-
+            // Hapus semua + tulis ulang dari backup secara ATOMIK (audit DB
+            // r1.6.0): crash di tengah restore tidak boleh meninggalkan DB
+            // setengah terisi. Sinkronisasi cloud dijalankan di luar transaksi.
             val idMap = mutableMapOf<Long, Long>()
-            messages.forEach { m ->
-                val newId = chatMessageDao.insertMessage(m.copy(id = 0))
-                idMap[m.id] = newId
-            }
+            val restoredTxs = db.withTransaction {
+                chatMessageDao.deleteAllMessages()
+                transactionDao.deleteAllTransactions()
+                // Ops lama milik data yang ditimpa — buang supaya tidak push data basi.
+                pendingOpDao.deleteAll()
 
-            transactions.forEach { t ->
-                transactionDao.insertTransaction(
+                messages.forEach { m ->
+                    val newId = chatMessageDao.insertMessage(m.copy(id = 0))
+                    idMap[m.id] = newId
+                }
+
+                transactions.map { t ->
                     t.copy(id = 0, chatMessageId = t.chatMessageId?.let { idMap[it] })
-                )
+                }
             }
+            val restoredMsgs = messages.map { m -> m.copy(id = idMap[m.id] ?: m.id) }
 
             // Hapus dulu dokumen cloud yang TIDAK ada di backup — tanpa ini,
             // dokumen lama bertahan di cloud dan muncul lagi di perangkat lain
@@ -575,16 +628,14 @@ class FinanceRepository(
                 keptTransactionCloudIds = transactions.mapNotNull { it.cloudId }.toSet()
             )
 
-            transactions.forEach { t ->
+            restoredTxs.forEach { t ->
                 t.cloudId?.let {
-                    FirestoreSyncManager.syncTransaction(
-                        t.copy(chatMessageId = t.chatMessageId?.let { oldId -> idMap[oldId] })
-                    )
+                    FirestoreSyncManager.syncTransaction(t)
                 }
             }
-            messages.forEach { m ->
+            restoredMsgs.forEach { m ->
                 m.cloudId?.let {
-                    FirestoreSyncManager.syncMessage(m.copy(id = idMap[m.id] ?: m.id))
+                    FirestoreSyncManager.syncMessage(m)
                 }
             }
         }

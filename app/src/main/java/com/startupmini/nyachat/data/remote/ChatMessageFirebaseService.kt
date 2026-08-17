@@ -85,8 +85,15 @@ class ChatMessageFirebaseService : FirebaseMessagingService() {
                 val cloudId = data["cloudId"] ?: ""
 
                 // Pesan dari workspace perangkat ini (diri sendiri) → jangan notif.
+                // r1.6.1 (audit pesan): skip presisi per-UID (payload senderUid
+                // dari cloud function). Fallback nama untuk payload lama (pra
+                // r1.6.1) yang belum membawa uid — nama bisa ambigu (dua orang
+                // bernama sama), uid tidak pernah.
+                val senderUid = data["senderUid"]?.takeIf { it.isNotBlank() }
+                val myUid = FirebaseAuth.getInstance().currentUser?.uid
+                if (senderUid != null && myUid != null && senderUid == myUid) return
                 val localName = prefs.getString(Constants.Prefs.USER_NAME, null)
-                if (!localName.isNullOrBlank() && sender == localName) return
+                if (senderUid == null && !localName.isNullOrBlank() && sender == localName) return
 
                 postNotification(
                     channelId = CHANNEL_ID,

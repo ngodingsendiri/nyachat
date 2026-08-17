@@ -43,7 +43,7 @@ open class MainViewModel(application: Application) : AndroidViewModel(applicatio
     protected open fun createRepository(application: Application): FinanceRepository {
         val db = AppDatabase.getDatabase(application)
         return FinanceRepository(
-            db.chatMessageDao(), db.transactionDao(), db.pendingOpDao(), FinanceAiService()
+            db, db.chatMessageDao(), db.transactionDao(), db.pendingOpDao(), FinanceAiService()
         )
     }
 

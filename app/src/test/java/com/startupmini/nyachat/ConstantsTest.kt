@@ -41,6 +41,10 @@ class ConstantsTest {
         assertEquals("joinRequests", Constants.Collections.JOIN_REQUESTS)
         assertEquals("messages", Constants.Collections.MESSAGES)
         assertEquals("transactions", Constants.Collections.TRANSACTIONS)
+        // r1.7.0 (E2EE + chat ephemeral)
+        assertEquals("e2ee", Constants.Collections.E2EE)
+        assertEquals("e2eeKeys", Constants.Collections.E2EE_KEYS)
+        assertEquals("deliveries", Constants.Collections.DELIVERIES)
     }
 
     // ===== Firestore document field names =====
@@ -86,6 +90,21 @@ class ConstantsTest {
         assertEquals("sourceMessageCloudId", Constants.Fields.SOURCE_MESSAGE_CLOUD_ID)
         assertEquals("plan", Constants.Fields.PLAN)
         assertEquals("status", Constants.Fields.JOIN_REQUEST_STATUS)
+        // r1.7.0 (E2EE + chat ephemeral) — kontrak cloud baru.
+        assertEquals("enc", Constants.Fields.ENC)
+        assertEquals("msgVersion", Constants.Fields.MSG_VERSION)
+        assertEquals("e2eePubKey", Constants.Fields.E2EE_PUB_KEY)
+        assertEquals("e2eeKeyVersion", Constants.Fields.E2EE_KEY_VERSION)
+        assertEquals("e2eeKeyBytes", Constants.Fields.E2EE_KEY_BYTES)
+        assertEquals("activated", Constants.Fields.E2EE_ACTIVATED)
+        assertEquals("deliveredAt", Constants.Fields.DELIVERED_AT)
+    }
+
+    @Test
+    fun `versi format pesan cloud adalah kontrak tersimpan`() {
+        assertEquals(0, Constants.MsgVersion.LEGACY)
+        assertEquals(1, Constants.MsgVersion.ENCRYPTED)
+        assertTrue(Constants.MsgVersion.ENCRYPTED > Constants.MsgVersion.LEGACY)
     }
 
     @Test
@@ -107,7 +126,12 @@ class ConstantsTest {
             Constants.Fields.AVATAR_VERSION, Constants.Fields.PHOTO_URL,
             Constants.Fields.DETECTED_BY, Constants.Fields.SERVER_UPDATED_AT,
             Constants.Fields.SOURCE_MESSAGE_CLOUD_ID, Constants.Fields.PLAN,
-            Constants.Fields.JOIN_REQUEST_STATUS
+            Constants.Fields.JOIN_REQUEST_STATUS,
+            // r1.7.0 (E2EE + chat ephemeral)
+            Constants.Fields.ENC, Constants.Fields.MSG_VERSION,
+            Constants.Fields.E2EE_PUB_KEY, Constants.Fields.E2EE_KEY_VERSION,
+            Constants.Fields.E2EE_KEY_BYTES, Constants.Fields.E2EE_ACTIVATED,
+            Constants.Fields.DELIVERED_AT
         )
         assertTrue("ada field blank", values.none { it.isBlank() })
         assertEquals("ada nama field duplikat", values.size, values.toSet().size)
@@ -144,7 +168,8 @@ class ConstantsTest {
             Constants.Prefs.BACKUP_AUTO_PASSPHRASE, Constants.Prefs.CHAT_NOTIFICATIONS_ENABLED,
             Constants.Prefs.NOTIF_PERMISSION_ASKED, Constants.Prefs.AVATAR_SOURCE,
             Constants.Prefs.USER_EMAIL, Constants.Prefs.LAST_UPLOADED_AVATAR,
-            Constants.Prefs.NAME_SYNCED
+            Constants.Prefs.NAME_SYNCED,
+            Constants.Prefs.E2EE_PUBKEY_SYNCED
         )
         assertTrue("ada pref key blank", keys.none { it.isBlank() })
         assertEquals("ada pref key duplikat", keys.size, keys.toSet().size)
@@ -259,7 +284,13 @@ class ConstantsTest {
         Constants.Fields.FCM_TOKEN, Constants.Fields.AVATAR_BYTES,
         Constants.Fields.AVATAR_VERSION, Constants.Fields.PHOTO_URL,
         Constants.Fields.DETECTED_BY,
-        Constants.Fields.SERVER_UPDATED_AT, Constants.Fields.SOURCE_MESSAGE_CLOUD_ID
+        Constants.Fields.SERVER_UPDATED_AT, Constants.Fields.SOURCE_MESSAGE_CLOUD_ID,
+        // r1.6.1 (audit pesan): imageUrl + senderUid ikut kontrak cloud (lihat
+        // tes "setiap field CloudMessage..." — DTO non-null supaya terserialisasi).
+        Constants.Fields.IMAGE_URL, Constants.Fields.SENDER_UID,
+        // r1.7.0 (E2EE): enc + msgVersion ikut kontrak cloud — DTO menulisnya
+        // non-null/bermakna di tes di bawah supaya CustomClassMapper memverifikasi.
+        Constants.Fields.ENC, Constants.Fields.MSG_VERSION
     )
 
     @Test
@@ -280,6 +311,12 @@ class ConstantsTest {
             replyToText = "ok",
             editedAt = 2_000L,
             detectedBy = "AI",
+            // r1.6.1 (audit pesan): non-null supaya CustomClassMapper juga
+            // memverifikasi imageUrl + senderUid (keduanya wajib punya konstanta).
+            imageUrl = "families/PIN/messages/c1.jpg",
+            senderUid = "uid-ari",
+            enc = "ivB64.ctB64",
+            msgVersion = Constants.MsgVersion.ENCRYPTED,
             serverUpdatedAt = com.google.firebase.Timestamp(Date(3_000L))
         )
         val plain = CustomClassMapper.convertToPlainJavaTypes(cloud) as Map<*, *>
@@ -307,6 +344,8 @@ class ConstantsTest {
             chatMessageId = 7L,
             editedAt = 2_000L,
             sourceMessageCloudId = "c1",
+            enc = "ivB64.ctB64",
+            msgVersion = Constants.MsgVersion.ENCRYPTED,
             serverUpdatedAt = com.google.firebase.Timestamp(Date(3_000L))
         )
         val plain = CustomClassMapper.convertToPlainJavaTypes(tx) as Map<*, *>

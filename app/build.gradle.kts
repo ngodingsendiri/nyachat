@@ -137,6 +137,9 @@ dependencies {
   // 3.7: notifikasi chat real-time — FCM data message ditampilkan
   // FirebaseMessagingService (versi dikelola firebase-bom).
   implementation(libs.firebase.messaging)
+  // r1.6.1 (audit pesan): penampung foto lampiran chat antar perangkat —
+  // versi dikelola firebase-bom.
+  implementation(libs.firebase.storage)
   implementation(libs.androidx.credentials)
   implementation(libs.googleid)
   implementation(libs.androidx.credentials.play.services.auth)

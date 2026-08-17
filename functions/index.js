@@ -303,8 +303,13 @@ exports.notifyChatMessage = onDocumentWritten(
     const familyId = event.params.familyId;
 
     const sender = String(data.sender || 'Nyachat');
-    const text = String(data.messageText || '').trim();
-    const body = text ? text.slice(0, 220) : 'Pesan baru';
+    // r1.7.0 (E2EE): konten pesan TIDAK dikirim ke cloud apa adanya lagi —
+    // sejak aktivasi E2EE body = ciphertext `enc` yang tidak terbaca server.
+    // Payload FCM dibuat GENERIK ("Pesan baru dari X") tanpa teks/isi; konten
+    // hanya bisa dilihat di dalam app setelah didekripsi (server tidak pernah
+    // memegang plaintext). Notifikasi lama (pra E2EE) tetap dikirim generik —
+    // konsisten & tidak membocorkan isi.
+    const senderUid = String(data.senderUid || '');
 
     // Kumpulkan token FCM semua anggota yang pernah disinkronkan.
     const membersSnap = await admin.firestore()
@@ -313,13 +318,75 @@ exports.notifyChatMessage = onDocumentWritten(
     const recipients = []; // { uid, token }
     membersSnap.forEach((doc) => {
       const t = tokenOf(doc);
-      if (t) recipients.push({ uid: doc.id, token: t });
+      // r1.6.1: jangan kirim ke penulis sendiri (hemat FCM & tidak perlu
+      // di-skip lagi di app). Bila senderUid kosong (data lama) kirim semua.
+      if (!t || (senderUid && doc.id === senderUid)) return;
+      recipients.push({ uid: doc.id, token: t });
     });
     await sendMulticastAndCleanup(familyId, recipients, {
       sender: sender,
-      body: body,
-      cloudId: String(event.params.cloudId)
+      cloudId: String(event.params.cloudId),
+      senderUid: senderUid
     });
+  }
+);
+
+/**
+ * r1.7.0 — CHAT EPHEMERAL ala WhatsApp: hapus pesan dari server begitu SEMUA
+ * perangkat anggota menulis ACK di subkoleksi deliveries/{uid} (perangkat
+ * menerima & menyimpan pesan di Room — server tidak menyimpan konten).
+ *
+ * Trigger: tiap tulis di `families/{familyId}/messages/{cloudId}/deliveries/{uid}`.
+ *  1. Pesan plaintext lama (msgVersion=0) → TIDAK pernah dihapus (riwayat lama
+ *     tetap tersimpan & tersinkron antar perangkat).
+ *  2. Pesan terenkripsi (msgVersion=1): hapus bila (a) semua anggota punya ACK,
+ *     ATAU (b) TTL: pesan berumur > TTL_MS sejak timestamp (jaring pengaman
+ *     untuk perangkat yang tidak pernah online lagi).
+ *  3. Hapus: doc pesan + subkoleksi ACK-nya + foto blob Storage (best-effort).
+ */
+exports.cleanupDeliveredMessage = onDocumentWritten(
+  'families/{familyId}/messages/{cloudId}/deliveries/{uid}',
+  async (event) => {
+    const familyId = event.params.familyId;
+    const cloudId = event.params.cloudId;
+    const messageRef = admin.firestore()
+      .collection('families').doc(familyId)
+      .collection('messages').doc(cloudId);
+
+    const messageSnap = await messageRef.get();
+    if (!messageSnap.exists) return; // sudah dihapus
+    const data = messageSnap.data() || {};
+    // Hanya pesan terenkripsi (post-E2EE) yang ephemeral.
+    if (Number(data.msgVersion || 0) !== 1) return;
+    const TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 hari jaring pengaman
+    const old = Number(data.timestamp || 0) > 0 &&
+      Date.now() - Number(data.timestamp) > TTL_MS;
+    if (!old) {
+      // Butuh semua member punya ACK (termasuk pengirim — ia juga menerima
+      // pesannya sendiri lewat snapshot listener & menulis ACK).
+      const [membersSnap, deliveriesSnap] = await Promise.all([
+        admin.firestore()
+          .collection('families').doc(familyId).collection('members').get(),
+        messageRef.collection('deliveries').get()
+      ]);
+      const memberCount = membersSnap.size;
+      const ackedUids = new Set(deliveriesSnap.docs.map((d) => d.id));
+      const allAcked = memberCount > 0 &&
+        membersSnap.docs.every((d) => ackedUids.has(d.id));
+      if (!allAcked) return;
+    }
+
+    // Hapus pesan + ACK + foto Storage (best-effort, jangan menggagalkan doc).
+    const batch = admin.firestore().batch();
+    batch.delete(messageRef);
+    const deliveries = await messageRef.collection('deliveries').get();
+    deliveries.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit()
+      .catch((err) => logger.warn('Hapus pesan+ACK gagal', err));
+    const storagePath =
+      'families/' + familyId + '/messages/' + cloudId + '.jpg';
+    await admin.storage().bucket().file(storagePath).delete()
+      .catch(() => { /* foto belum ada / sudah dihapus */ });
   }
 );
 

@@ -11,6 +11,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.startupmini.nyachat.BuildConfig
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.data.backup.DriveBackupController
+import com.startupmini.nyachat.data.remote.E2eeSyncManager
 import com.startupmini.nyachat.data.remote.FirestoreSyncManager
 import com.startupmini.nyachat.data.remote.GeminiService
 import com.startupmini.nyachat.data.remote.GitHubRelease
@@ -90,6 +91,13 @@ fun SyncLifecycleGlue(
             viewModel.startCloudSync(pin, workspaceRole ?: Constants.Roles.MEMBER)
             // r1.2.3 (P1): konteks untuk cache avatar anggota lain ke disk.
             MembershipManager.start(pin, workspaceRole ?: Constants.Roles.MEMBER, context)
+            // r1.6.1 (audit pesan): konteks untuk mengunduh foto lampiran chat
+            // dari Firebase Storage ke penyimpanan lokal penerima.
+            FirestoreSyncManager.setAppContext(context)
+            // r1.7.0 (E2EE): siklus kunci workspace — keypair, public key ke member
+            // doc, aktivasi marker (owner), ambil & unwrap grup key, self-heal wrap.
+            // Dijalankan SETELAH cloud sync supaya onE2eeKeyReady punya familyId.
+            E2eeSyncManager.start(context, pin, workspaceRole ?: Constants.Roles.MEMBER)
             // Audit keanggotaan: pastikan nama di member doc Firestore mencerminkan
             // nama yang dipakai user (user lama yang belum pernah re-connect).
             // Hanya SEKALI (pref NAME_SYNCED) — jangan menulis Firestore di setiap
