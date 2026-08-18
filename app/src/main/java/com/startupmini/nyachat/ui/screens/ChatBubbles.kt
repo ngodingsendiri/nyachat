@@ -26,11 +26,9 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -812,26 +810,23 @@ private fun ChatMediaBubbleContent(
             Spacer(modifier = Modifier.height(6.dp))
         }
 
-        // Gambar — EDGE-TO-EDGE: lebar mengikuti bubble (max 280dp via widthIn
-        // di Surface), tinggi mengikuti aspect ratio, TANPA clip sendiri (sudut
-        // di-clip shape Surface). Tidak ada frame/padding di sekeliling gambar.
+        // Gambar — EDGE-TO-EDGE: lebar mengikuti bubble, tinggi mengikuti rasio,
+        // TANPA clip sendiri (sudut di-clip shape Surface). Tidak ada frame/
+        // padding di sekeliling gambar.
         //
-        // r1.7.2 (ukuran tampilan): .heightIn(max = 340dp) DIPASANG SEBELUM
-        // aspectRatio — foto potret tinggi di-cap: aspectRatio menurunkan lebar
-        // agar tinggi ≤ 340dp (foto 9:16 → ~191dp lebar, setara ukuran gambar
-        // chat WhatsApp; tak menutup layar); foto lanskap tetap lebar penuh
-        // (tinggi alamiah < 340dp). Proporsi terjaga, tanpa crop/stretch/
-        // letterbox karena box mengikuti rasio.
-        //
-        // CATATAN (2026-08-11): fillMaxWidth SAJA tidak cukup — Composer Image
-        // menerapkan sizeToIntrinsics (ukuran intrinsic bitmap dalam px) yang
-        // bisa mengalahkan width luar, sehingga gambar tampil menyusut (≈px
-        // asli) dan menyisakan frame bubble hijau di sisi kiri/kanan. Solusi:
-        // aspectRatio eksplisit → ukuran ditentukan penuh oleh fillMaxWidth +
-        // rasio asli gambar (proporsi terjaga, tanpa crop/stretch).
-        // Guard rasio ekstrem (bitmap 0/1px) — aspectRatio wajib finite & > 0.
+        // r1.7.2 (fix ukuran tampilan): ukuran gambar DIHITUNG eksplisit dari
+        // rasio asli dengan cap max 280dp lebar / 340dp tinggi:
+        //   - foto potret (rasio < 1): tinggi 340dp, lebar mengikuti rasio
+        //     (9:16 → ~191dp, ala WhatsApp; tak menutup layar).
+        //   - foto lanskap/kotak (rasio ≥ 1): lebar 280dp penuh, tinggi proporsional.
+        // Ukuran di-set eksplisit (width/height) sehingga proporsi terjaga TANPA
+        // letterbox/band — (fillMaxWidth+heightIn+aspectRatio sebelumnya membuat
+        // rasio pecah → strip bubble di samping foto potret).
+        // Guard rasio ekstrem (bitmap 0/1px) — rasio wajib finite & > 0.
         val mediaAspect = imageBitmap.width.toFloat() /
             imageBitmap.height.coerceAtLeast(1).toFloat()
+        val mediaW = if (mediaAspect >= 1f) 280f else 340f * mediaAspect
+        val mediaH = if (mediaAspect >= 1f) 280f / mediaAspect else 340f
 
         // r1.7.0 (L5): gambar MURNI milik user (tanpa caption/badge/processing)
         // menampilkan waktu ala WhatsApp — OVERLAY di pojok kanan-bawah gambar
@@ -845,9 +840,8 @@ private fun ChatMediaBubbleContent(
                 bitmap = imageBitmap.asImageBitmap(),
                 contentDescription = stringResource(R.string.chat_image_desc),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 340.dp)
-                    .aspectRatio(mediaAspect),
+                    .width(mediaW.dp)
+                    .height(mediaH.dp),
                 contentScale = ContentScale.Fit
             )
             if (overlayTime) {
@@ -862,8 +856,11 @@ private fun ChatMediaBubbleContent(
 
         // Footer media: caption + SATU BARIS [badge][waktu] di pojok kanan-bawah
         // (r1.7.0 L5) — menggantikan tumpukan caption → jam → badge.
+        // r1.7.2 (fix): kolom caption fillMaxWidth — teks membentang selebar
+        // gambar/bubble (sebelumnya wrap-content: teks pendek menyempit di pojok
+        // kiri & footer waktu/ticks "mengambang" di tengah bubble, menabrak tepi).
         if (hasCaption || hasBadge || isProcessing) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                 if (hasCaption) {
                     Text(
                         text = message.messageText,
