@@ -72,6 +72,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
@@ -150,6 +151,11 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var lastKnownCount by remember { mutableIntStateOf(-1) }
+    // Indeks tempat auto-scroll terakhir berhenti. Dipakai untuk tahu apakah user
+    // masih "menempel" di dasar (lastVisible == lastAnchorIndex) — kalau iya,
+    // konten baru tetap diikuti ke bawah, meski posisi sudah tidak "dekat dasar"
+    // karena sync menyisipkan pesan bertahap (lihat LaunchedEffect rows.size).
+    var lastAnchorIndex by remember { mutableIntStateOf(-1) }
 
     val inputFocusRequester = remember { FocusRequester() }
     val context = LocalContext.current
@@ -251,18 +257,53 @@ fun ChatScreen(
 
     // Auto-scroll: halus kalau sudah di bawah & ada konten baru; instan saat pertama
     // dibuka; TIDAK menarik user yang sedang membaca riwayat di atas.
+    //
+    // Race sync bertahap (r1.7.1): saat app dibuka, Room memancarkan pesan
+    // bertahap dari sync Firestore (0 → N1 → N2 → ...). Batch pertama di-anchor
+    // ke dasar (index N1-1), tapi begitu batch N2>N1 tiba posisi itu "jauh dari
+    // dasar" → gate nearBottom lama menolak follow → chat berhenti di area atas.
+    // Solusi: selama user belum sengaja scroll menjauh dari posisi yang kita
+    // tinggalkan (lastVisible == lastAnchorIndex), terus ikuti ke pesan terbaru.
     LaunchedEffect(rows.size, isAiThinking) {
         if (rows.isNotEmpty()) {
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val nearBottom = info.totalItemsCount == 0 || lastVisible >= info.totalItemsCount - 4
-            if (lastKnownCount >= 0) {
-                if (nearBottom) listState.animateScrollToItem(rows.size - 1)
-            } else {
-                listState.scrollToItem(rows.size - 1)
+            val atBottom = info.totalItemsCount == 0 || lastVisible >= info.totalItemsCount - 4
+            val firstOpen = lastKnownCount == -1
+            val untouched = lastVisible == lastAnchorIndex
+            if (firstOpen || atBottom || untouched) {
+                if (firstOpen) {
+                    listState.scrollToItem(rows.size - 1)
+                } else {
+                    listState.animateScrollToItem(rows.size - 1)
+                }
+                lastAnchorIndex = rows.size - 1
             }
             lastKnownCount = rows.size
         }
+    }
+
+    // r1.7.1 (umpan balik tester): buka app → chat harus mendarat di pesan
+    // TERBARU, bukan di posisi terakhir. Komposisi ChatScreen TIDAK dibongkar
+    // saat app ke background (lastKnownCount & scroll state diingat), jadi tanpa
+    // ini posisi menempel di tempat lama. Tidak menarik user yang sedang membaca
+    // riwayat: re-anchor hanya bila masih "menempel" di dasar / di posisi yang
+    // kita tinggalkan — kalau user sengaja scroll ke atas, posisi dihormati
+    // (juga membuat kembali dari picker foto/PDF tidak melompat).
+    LifecycleResumeEffect(Unit) {
+        coroutineScope.launch {
+            delay(120)
+            if (rows.isNotEmpty()) {
+                val info = listState.layoutInfo
+                val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                val atBottom = info.totalItemsCount == 0 || lastVisible >= info.totalItemsCount - 4
+                if (atBottom || lastVisible == lastAnchorIndex) {
+                    listState.scrollToItem(rows.size - 1)
+                    lastAnchorIndex = rows.size - 1
+                }
+            }
+        }
+        onPauseOrDispose { }
     }
 
     // Re-anchor saat keyboard (IME) muncul: viewport menyusut sehingga pesan yang
