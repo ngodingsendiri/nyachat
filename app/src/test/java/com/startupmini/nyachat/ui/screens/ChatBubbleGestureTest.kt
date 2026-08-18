@@ -259,4 +259,29 @@ class ChatBubbleGestureTest {
                 timeBounds.right >= bubbleBounds.right - px(14f)
         )
     }
+
+    @Test
+    fun `waktu bubble teks di pojok kiri-bawah`() {
+        // r1.7.3 (permintaan user): footer bubble TEKS pindah ke pojok
+        // kiri-bawah (placeTimeAtStart). Pakai teks panjang supaya lebar bubble
+        // ditentukan TEKS (bukan footer) — kalau footer yang terlebar, bubble
+        // menyusut selebar footer dan Start/End tampak sama.
+        val longText = "Belanja bulanan hari ini habis banyak sekali: sayur, buah, daging, dan kebutuhan dapur lainnya"
+        showBubble(ChatMessage(
+            id = 4,
+            sender = "Suami",
+            messageText = longText,
+            timestamp = 1_783_800_000_000L
+        ))
+        val bubbleBounds = composeRule.onNodeWithTag("chat_bubble_4").fetchSemanticsNode().boundsInRoot
+        val time = SimpleDateFormat("HH:mm", Locale.forLanguageTag("id-ID"))
+            .format(Date(1_783_800_000_000L))
+        val timeBounds = composeRule.onNodeWithText(time, useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "waktu harus di pojok kiri (time.left=${timeBounds.left}, bubble.left=${bubbleBounds.left})",
+            timeBounds.left >= bubbleBounds.left - px(1f) &&
+                timeBounds.left <= bubbleBounds.left + px(14f)
+        )
+    }
 }

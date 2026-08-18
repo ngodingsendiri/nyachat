@@ -894,11 +894,12 @@ private fun ChatMediaBubbleContent(
  * bubble tidak pernah tertutup elemen clickable badge — long-press/menu tetap
  * responsif. Dipakai footer bubble teks & media.
  *
- * r1.7.3 (permintaan user): posisi & urutan disesuaikan jenis pesan:
- *  - [placeTimeAtStart] = true (bubble TEKS)   → footer di pojok KIRI-bawah,
- *    indikator status diletakkan di KIRI waktu ([lingkaran] [waktu]).
+ * r1.7.3 (permintaan user): posisi footer disesuaikan jenis pesan:
+ *  - [placeTimeAtStart] = true (bubble TEKS)   → footer di pojok KIRI-bawah.
  *  - [placeTimeAtStart] = false (bubble GAMBAR) → footer tetap di pojok
  *    kanan-bawah (tempatnya tidak berubah).
+ * Indikator status (lingkaran) selalu diletakkan di KIRI waktu:
+ * [lingkaran] [waktu].
  */
 @Composable
 private fun ColumnScope.MessageFooterRow(
@@ -931,32 +932,19 @@ private fun ColumnScope.MessageFooterRow(
             Spacer(modifier = Modifier.width(8.dp))
         }
         if (isMe) {
-            if (placeTimeAtStart) {
-                // Bubble teks (r1.7.3): indikator di KIRI waktu — [lingkaran] [waktu]
-                MessageStatusIndicators(
-                    delivery = delivery,
-                    receiptStats = receiptStats,
-                    tint = timeColor,
-                    modifier = Modifier.padding(end = 3.dp)
-                )
-                Text(
-                    text = timeDisplay,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = timeColor
-                )
-            } else {
-                Text(
-                    text = timeDisplay,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = timeColor
-                )
-                MessageStatusIndicators(
-                    delivery = delivery,
-                    receiptStats = receiptStats,
-                    tint = timeColor,
-                    modifier = Modifier.padding(start = 3.dp)
-                )
-            }
+            // r1.7.3 (permintaan user): indikator status di KIRI waktu —
+            // [lingkaran] [waktu], konsisten untuk bubble teks & gambar.
+            MessageStatusIndicators(
+                delivery = delivery,
+                receiptStats = receiptStats,
+                tint = timeColor,
+                modifier = Modifier.padding(end = 3.dp)
+            )
+            Text(
+                text = timeDisplay,
+                style = MaterialTheme.typography.labelSmall,
+                color = timeColor
+            )
         }
     }
 }
