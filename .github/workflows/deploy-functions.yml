@@ -101,7 +101,7 @@ jobs:
             echo "::notice::GitHub secret GEMINI_API_KEY kosong — dilewati"
           fi
 
-- name: Deploy functions
+      - name: Deploy functions
         working-directory: functions
         # --force: (1) skip konfirmasi, (2) otomatis set cleanup policy
         # artifact repository (tanpa ini deploy berakhir non-zero walaupun
