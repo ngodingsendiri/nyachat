@@ -39,11 +39,24 @@ import java.security.spec.PKCS8EncodedKeySpec
  *     wrap untuk semua member yang sudah punya public key (termasuk dirinya).
  *  3. Member membuka app → keypair + public key di-sync → marker sudah ada →
  *     ambil wrap-nya sendiri (`e2eeKeys/{uid}`) → unwrap dengan private key.
- *  4. Setelah ini, FirestoreSyncManager mengenkripsi semua tulis baru
+* 4. Setelah ini, FirestoreSyncManager mengenkripsi semua tulis baru
  *     (messages & transactions) dan mendekripsi saat merge (Room tetap polos).
+ *
+ * Pemulihan perangkat (r1.7.1): wrap `e2eeKeys/{uid}` membawa `e2eeKeyVersion`
+ * (versi pubkey saat di-wrap). Self-heal me-REWRAP setiap kali versi pubkey
+ * member lebih baru dari versi di wrap — menutup kasus reinstall/perangkat
+ * baru yang membuat pubkey baru (member doc versi naik → perangkat mana pun
+ * yang memegang grup key me-rewrap; perangkat yang belum punya kunci retry
+ * ambil wrap-nya tiap self-heal berkala). Bila unwrap gagal (pubkey member doc
+ * milik perangkat lain), republish pubkey sendiri untuk memicu rewrap.
  *
  * Tidak ada kunci = pesan lama plaintext tetap terbaca; hanya pesan BARU
  * setelah aktivasi yang terenkripsi & ephemeral (lihat Constants.MsgVersion).
+ *
+ * BATASAN (dokumentasi): SATU slot wrap per member → hanya perangkat terbaru
+ * yang bisa re-fetch wrap (perangkat lain memakai grup key dari cache lokal).
+ * Kasus fatal: SEMUA perangkat ter-wipe → grup key hilang permanen (butuh
+ * fitur rotate key, di luar scope r1.7.x).
  */
 object E2eeSyncManager {
 
@@ -132,9 +145,17 @@ object E2eeSyncManager {
         runCatching {
             val memberDoc = membersRef().document(uid).get().await()
             val pub = memberDoc.getString(Constants.Fields.E2EE_PUB_KEY) ?: return
-            if (e2eeKeysRef().document(uid).get().await().exists()) return
+            val memberVersion = memberDoc.getLong(Constants.Fields.E2EE_KEY_VERSION)
+            val wrapSnap = e2eeKeysRef().document(uid).get().await()
+            if (wrapSnap.exists() && !needsRewrap(
+                    wrapSnap.getLong(Constants.Fields.E2EE_KEY_VERSION), memberVersion
+                )
+            ) return
             e2eeKeysRef().document(uid)
-                .set(mapOf(Constants.Fields.E2EE_KEY_BYTES to WorkspaceCrypto.wrapGroupKey(groupKeyBytes!!, pub)))
+                .set(mapOf(
+                    Constants.Fields.E2EE_KEY_BYTES to WorkspaceCrypto.wrapGroupKey(groupKeyBytes!!, pub),
+                    Constants.Fields.E2EE_KEY_VERSION to (memberVersion ?: 0L)
+                ))
                 .await()
         }.onFailure { Log.w(TAG, "wrapForNewMember gagal: ${it.message}") }
     }
@@ -167,15 +188,25 @@ object E2eeSyncManager {
         val wrapped = e2eeKeysRef().document(uid).get().await()
             .getString(Constants.Fields.E2EE_KEY_BYTES) ?: return
         val priv = loadPrivateKey() ?: return
-        val key = WorkspaceCrypto.unwrapGroupKey(wrapped, priv)
+        val key = runCatching { WorkspaceCrypto.unwrapGroupKey(wrapped, priv) }.getOrNull()
+        if (key == null) {
+            // Wrap tidak bisa dibuka (biasanya karena pubkey member doc milik
+            // perangkat lain, atau wrap lama dari keypair yang dihapus). Re-publish
+            // pubkey sendiri (naikkan versi) → perangkat pemegang grup key
+            // me-rewrap pada self-heal berikutnya.
+            Log.w(TAG, "Grup key gagal dibuka — republish pubkey untuk memicu rewrap")
+            syncPubKeyToMemberDoc(ensureKeyPair())
+            return
+        }
         storeGroupKey(key)
         Log.d(TAG, "Grup key workspace diterima & dibuka")
     }
 
     /**
-     * Pastikan SEMUA member yang sudah punya public key memiliki wrap grup key.
-     * Idempoten (cek `e2eeKeys/{uid}` dulu). Menutup celah: member baru di-approve
-     * sebelum public key-nya muncul → wrap dibuat begitu key-nya ter-sync.
+     * Pastikan SEMUA member yang sudah punya public key memiliki wrap grup key
+     * yang sesuai dengan pubkey-nya. Re-wrap bila: wrap belum ada, ATAU versi
+     * pubkey member lebih baru dari versi yang tersimpan di wrap (reinstall /
+     * perangkat baru → pubkey berubah). Idempoten.
      */
     private suspend fun selfHealWraps() {
         val groupKey = groupKeyBytes ?: return
@@ -184,12 +215,25 @@ object E2eeSyncManager {
         for (doc in docs.documents) {
             val pub = doc.getString(Constants.Fields.E2EE_PUB_KEY) ?: continue
             val memberUid = doc.id
+            val memberVersion = doc.getLong(Constants.Fields.E2EE_KEY_VERSION)
             val wrapRef = e2eeKeysRef().document(memberUid)
-            if (wrapRef.get().await().exists()) continue
+            val wrapSnap = wrapRef.get().await()
+            if (wrapSnap.exists() && !needsRewrap(
+                    wrapSnap.getLong(Constants.Fields.E2EE_KEY_VERSION), memberVersion
+                )
+            ) continue
             val wrapped = runCatching { WorkspaceCrypto.wrapGroupKey(groupKey, pub) }.getOrNull() ?: continue
-            wrapRef.set(mapOf(Constants.Fields.E2EE_KEY_BYTES to wrapped)).await()
+            wrapRef.set(mapOf(
+                Constants.Fields.E2EE_KEY_BYTES to wrapped,
+                Constants.Fields.E2EE_KEY_VERSION to (memberVersion ?: 0L)
+            )).await()
         }
     }
+
+    /** true bila wrap perlu ditulis ulang: versi pubkey di wrap != versi pubkey
+     *  member saat ini (wrap legacy tanpa versi dianggap 0 → di-rewrap). */
+    internal fun needsRewrap(wrapVersion: Long?, memberVersion: Long?): Boolean =
+        (wrapVersion ?: 0L) != (memberVersion ?: 0L)
 
     private suspend fun ensureKeyPair(): String {
         val ctx = appContext ?: return ""
@@ -258,12 +302,15 @@ object E2eeSyncManager {
         }
     }
 
-    /** Self-heal berkala: tangkap member/public-key baru tanpa buka ulang app. */
+    /** Self-heal berkala: tangkap member/public-key baru, me-rewrap bila versi
+     *  berubah, DAN retry ambil kunci bila perangkat ini belum punya grup key
+     *  (kunci bisa datang belakangan — mis. setelah perangkat lain me-rewrap
+     *  pasca-reinstall). */
     private fun startPeriodicHeal() {
         scope.launch {
             while (familyId.isNotEmpty()) {
                 delay(HEAL_INTERVAL_MS)
-                runCatching { selfHealWraps() }
+                heal()
             }
         }
     }
