@@ -10,7 +10,6 @@
  * Cloud hanya menyalurkan payload — tidak menentukan tampilan/suara.
  */
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
-const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 // CATATAN: firebase-functions/logger mengekspor objek logger LANGSUNG, BUKAN
@@ -399,6 +398,13 @@ exports.cleanupDeliveredMessage = onDocumentWritten(
  * menerima); marker ini hanya membawa array uid (tanpa konten) supaya dots
  * tetap hidup.
  *
+ * Sekaligus TTL jaring pengaman (14 hari tanpa aktivitas) untuk anggota yang
+ * UNINSTALL: pesannya tak pernah "semua baca", marker dibiarkan hidup sampai
+ * kedaluwarsa, lalu dots hilang (pesan tetap ada di Room perangkat). Cleanup
+ * TTL dijalankan INLINE di sini (tiap tulis receipt) — sengaja TIDAK memakai
+ * onSchedule supaya deploy tidak perlu mengaktifkan API Cloud Scheduler
+ * (perlu IAM tambahan di service account CI).
+ *
  * Trigger: tiap tulis di `families/{familyId}/receipts/{cloudId}`.
  */
 exports.cleanupReceipt = onDocumentWritten(
@@ -406,49 +412,44 @@ exports.cleanupReceipt = onDocumentWritten(
   async (event) => {
     const familyId = event.params.familyId;
     const cloudId = event.params.cloudId;
-    const receiptRef = admin.firestore()
-      .collection('families').doc(familyId)
-      .collection('receipts').doc(cloudId);
+    const familyRef = admin.firestore()
+      .collection('families').doc(familyId);
+    const receiptRef = familyRef.collection('receipts').doc(cloudId);
     const receiptSnap = await receiptRef.get();
     if (!receiptSnap.exists) return;
     const data = receiptSnap.data() || {};
     const readBy = Array.isArray(data.readBy) ? data.readBy : [];
     const senderUid = typeof data.senderUid === 'string' ? data.senderUid : '';
-    if (!senderUid) return; // belum ada info pengirim → tunggu tulis berikutnya
-    const membersSnap = await admin.firestore()
-      .collection('families').doc(familyId).collection('members').get();
-    const memberUids = membersSnap.docs.map((d) => d.id);
-    // "Semua baca" = setiap anggota LAIN (selain pengirim) sudah masuk readBy.
-    const others = memberUids.filter((uid) => uid && uid !== senderUid);
-    const allRead = others.length > 0 &&
-      others.every((uid) => readBy.includes(uid));
-    if (allRead) {
-      await receiptRef.delete()
-        .catch((err) => logger.warn('Hapus receipt gagal', err));
+    if (senderUid) {
+      const membersSnap = await familyRef.collection('members').get();
+      const memberUids = membersSnap.docs.map((d) => d.id);
+      // "Semua baca" = setiap anggota LAIN (selain pengirim) sudah masuk readBy.
+      const others = memberUids.filter((uid) => uid && uid !== senderUid);
+      const allRead = others.length > 0 &&
+        others.every((uid) => readBy.includes(uid));
+      if (allRead) {
+        await receiptRef.delete()
+          .catch((err) => logger.warn('Hapus receipt gagal', err));
+        return;
+      }
     }
-  }
-);
 
-/**
- * r1.7.1 — TTL jaring pengaman untuk marker baca/diterima (14 hari tanpa
- * aktivitas). Menangani anggota yang UNINSTALL: pesannya tak pernah "semua
- * baca", marker dibiarkan hidup sampai kedaluwarsa di sini, lalu dots hilang
- * (pesan tetap ada di Room perangkat). Menjaga koleksi receipts tetap ramping.
- */
-exports.cleanupStaleReceipts = onSchedule('every day 03:00', async () => {
-  const CUTOFF_MS = 14 * 24 * 60 * 60 * 1000; // 14 hari
-  const cutoff = new Date(Date.now() - CUTOFF_MS);
-  const families = await admin.firestore().collection('families').get();
-  for (const family of families.docs) {
-    const receipts = await family.ref.collection('receipts')
+    // TTL jaring pengaman: bersihkan marker lama (>= 14 hari tanpa aktivitas)
+    // di keluarga ini. Dipicu tiap tulis receipt — cukup untuk menjaga koleksi
+    // tetap ramping tanpa jam dinding terpisah.
+    const STALE_RECEIPT_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 hari
+    const cutoff = new Date(Date.now() - STALE_RECEIPT_TTL_MS);
+    const stale = await familyRef.collection('receipts')
       .where('updatedAt', '<', cutoff).limit(1000).get();
-    if (receipts.empty) continue;
+    if (stale.empty) return;
     const batch = admin.firestore().batch();
-    receipts.docs.forEach((d) => batch.delete(d.ref));
+    stale.docs.forEach((d) => {
+      if (d.id !== cloudId) batch.delete(d.ref);
+    });
     await batch.commit()
       .catch((err) => logger.warn('Hapus receipt kadaluwarsa gagal', err));
   }
-});
+);
 
 /**
  * Notifikasi keanggotaan (r1.6.0) — trigger pada join request:

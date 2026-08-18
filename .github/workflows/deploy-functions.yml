@@ -33,6 +33,7 @@ on:
       - "functions/**"
       - ".github/workflows/deploy-functions.yml"
       - "firebase.json"
+      - "firestore.rules"
       - ".firebaserc"
   workflow_dispatch:
 
@@ -100,10 +101,11 @@ jobs:
             echo "::notice::GitHub secret GEMINI_API_KEY kosong — dilewati"
           fi
 
-      - name: Deploy functions
+- name: Deploy functions
         working-directory: functions
         # --force: (1) skip konfirmasi, (2) otomatis set cleanup policy
         # artifact repository (tanpa ini deploy berakhir non-zero walaupun
-        # fungsi sukses dibuat — semua fungsi sudah ada di index.js, jadi
-        # aman).
-        run: firebase deploy --only functions --project nyachat-in --force
+        # fungsi sukses dibuat -- semua fungsi sudah ada di index.js, jadi
+        # aman). Sekalian deploy firestore.rules (blok receipts r1.7.1) agar
+        # rules ikut ter-rollout otomatis di tiap push main.
+        run: firebase deploy --only functions,firestore:rules --project nyachat-in --force
