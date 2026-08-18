@@ -278,6 +278,25 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // r1.7.1 (tanda terima/baca) — marker ringan per pesan terenkripsi:
+    // `families/{familyId}/receipts/{cloudId}` berisi `deliveredBy` + `readBy`
+    // (array uid, TANPA konten). Konten pesan dihapus server begitu semua
+    // device menerima; marker ini bertahan sampai semua MEMBACA (titik pelangi)
+    // atau TTL 14 hari. Setiap anggota hanya boleh MENAMBAH uid-nya sendiri;
+    // array bersifat grow-only (ukuran tidak boleh mengecil — anti-hapus).
+    match /families/{familyId}/receipts/{cloudId} {
+      allow read: if signedInGoogle() && isMember(familyId);
+      allow create, update: if signedInGoogle() && isMember(familyId)
+        && request.resource.data.deliveredBy is list
+        && request.resource.data.readBy is list
+        && request.auth.uid in request.resource.data.deliveredBy
+        && (resource == null
+            || request.resource.data.deliveredBy.size() >= resource.data.deliveredBy.size())
+        && (resource == null
+            || request.resource.data.readBy.size() >= resource.data.readBy.size());
+      allow delete: if false;
+    }
+
     // Transaksi: selain validasi dasar, amount wajib angka positif (bukan
     // negatif/NaN) dan di bawah batas kewajaran — mencegah data korup dari
     // klien tak patuh. r1.7.0 (E2EE): transaksi terenkripsi hanya membawa

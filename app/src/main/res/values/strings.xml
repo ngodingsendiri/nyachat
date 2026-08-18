@@ -52,6 +52,7 @@
     <string name="action_delete">Hapus</string>
     <string name="action_edit">Edit</string>
     <string name="action_cancel">Batal</string>
+    <string name="action_close">Tutup</string>
     <string name="action_save">Simpan</string>
     <string name="api_key_label">API Key</string>
     <!-- Audit response (2026-08-12): konfirmasi simpan kunci API. -->
@@ -234,11 +235,17 @@
     <!-- r1.6.1 (audit pesan): bubble pengganti saat foto pesan belum terunduh
          di perangkat penerima (masih ada di Storage / sedang di-download). -->
     <string name="chat_photo_placeholder">Foto</string>
-    <!-- r1.7.0 (chat ephemeral): deskripsi aksesibilitas centang pengiriman
-         ala WhatsApp di pojok kanan-bawah bubble pesan milik user. -->
-    <string name="chat_delivery_pending_desc">Pesan sedang dikirim</string>
-    <string name="chat_delivery_sent_desc">Pesan terkirim ke server</string>
-    <string name="chat_delivery_delivered_desc">Semua perangkat anggota telah menerima pesan</string>
+    <!-- r1.7.1 (tanda terima/baca #3): titik pengganti centang + dialog Info Pesan. -->
+    <string name="chat_info_pending_desc">Menunggu pengiriman</string>
+    <string name="chat_info_dot_desc">Pesan diterima oleh %1$d dari %2$d anggota</string>
+    <string name="chat_info_dot_read_desc">Pesan dibaca oleh %1$d dari %2$d anggota</string>
+    <string name="chat_info_rainbow_desc">Semua anggota telah membaca pesan</string>
+    <string name="chat_message_info">Info Pesan</string>
+    <string name="chat_info_delivered">Diterima</string>
+    <string name="chat_info_read">Dibaca</string>
+    <string name="chat_info_nobody">—</string>
+    <!-- r1.7.1 (anti-degradasi #2): E2EE aktif tapi kunci lokal belum siap. -->
+    <string name="chat_e2ee_preparing">Mempersiapkan enkripsi… pesan baru akan terkirim setelah siap</string>
     <string name="chat_reply_label">Membalas %1$s</string>
     <string name="chat_reply_cancel">Batalkan balasan</string>
     <string name="chat_send_pdf">Kirim PDF / Dokumen</string>

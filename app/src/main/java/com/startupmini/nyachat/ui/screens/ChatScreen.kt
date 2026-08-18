@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -37,17 +39,19 @@ import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -73,10 +77,15 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.google.firebase.auth.FirebaseAuth
 import com.startupmini.nyachat.Constants
+import com.startupmini.nyachat.data.remote.E2eeSyncManager
+import com.startupmini.nyachat.data.remote.FirestoreSyncManager
+import com.startupmini.nyachat.data.remote.MembershipManager
+import com.startupmini.nyachat.data.remote.ReceiptInfo
+import com.startupmini.nyachat.data.remote.receiptStats
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
-import com.startupmini.nyachat.data.remote.FirestoreSyncManager
 import com.startupmini.nyachat.data.remote.ImageFileUtil
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.theme.Motion
@@ -147,6 +156,8 @@ fun ChatScreen(
     // Viewer foto full-screen (audit gestur 2026-08-13): sentuh sekali pada
     // bubble GAMBAR membuka foto diperbesar — bukan menu (menu = tahan lama).
     var viewerMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    // r1.7.1: dialog "Info Pesan" — daftar anggota yang menerima/membaca.
+    var infoMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -226,25 +237,25 @@ fun ChatScreen(
         messages.lastOrNull { it.sender == activeSender }?.id
     } else null
 
-    // r1.7.0 (chat ephemeral): centang pengiriman ala WhatsApp (✓ tersinkron /
-    // ✓✓ semua perangkat menerima). Status ACK dibaca dari FirestoreSyncManager
-    // (memantau deliveries/{uid} pesan terakhir milik user). Server menghapus
-    // pesan begitu semua device menerima — perangkat tetap menyimpan salinan.
-    val deliveryState by FirestoreSyncManager.deliveryState.collectAsState()
-    // CloudId yang SUDAH mencapai ✓✓ — diingat supaya tidak "turun" jadi ✓ lagi
-    // saat server menghapus pesan (koleksi deliveries kosong → snapshot 0).
-    var deliveredIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    LaunchedEffect(deliveryState?.cloudId, deliveryState?.allAcked) {
-        val st = deliveryState
-        if (st != null && st.allAcked) deliveredIds = deliveredIds + st.cloudId
+    // r1.7.1 (tanda terima/baca): marker `receipts/{cloudId}` per pesan
+    // terenkripsi → titik abu (diterima) / hijau (dibaca) / pelangi (semua
+    // baca). Pengganti centang ✓/✓✓ (r1.7.0) yang hanya tahu "semua menerima".
+    val receipts by FirestoreSyncManager.receipts.collectAsState()
+    // UID akun sendiri + himpunan anggota lain → titik menghitung anggota lain
+    // (device pengirim di-exclude), konsisten dengan model delivery/read.
+    val myUid = remember { runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull() }
+    val members by MembershipManager.members.collectAsState()
+    val otherUids = remember(members, myUid) {
+        members.filter { it.uid.isNotBlank() && it.uid != myUid }.map { it.uid }.toSet()
     }
-    val lastMyCloudId = messages.lastOrNull { it.sender == activeSender }?.cloudId
-    LaunchedEffect(lastMyCloudId) {
-        FirestoreSyncManager.trackDeliveries(lastMyCloudId)
+    // Label tampilan (nama/alias) per UID → dialog "Info Pesan".
+    val memberLabels = remember(members) {
+        members.associate { it.uid to (it.label.ifBlank { it.name }.ifBlank { it.uid }) }
     }
-    DisposableEffect(Unit) {
-        onDispose { FirestoreSyncManager.trackDeliveries(null) }
-    }
+
+    // r1.7.1 (anti-degradasi #2): workspace terenkripsi tapi kunci belum siap →
+    // banner kecil di atas input menjelaskan mengapa pesan baru tertunda.
+    val e2eeStatus by E2eeSyncManager.status.collectAsState()
 
     // Tombol "lompat ke pesan terbaru" muncul saat user tidak di dasar obrolan.
     val shouldShowJumpButton by remember {
@@ -290,7 +301,15 @@ fun ChatScreen(
     // riwayat: re-anchor hanya bila masih "menempel" di dasar / di posisi yang
     // kita tinggalkan — kalau user sengaja scroll ke atas, posisi dihormati
     // (juga membuat kembali dari picker foto/PDF tidak melompat).
+    // r1.7.1 (mark-as-read): hanya tandai pesan DIBACA saat layar chat benar
+    // aktif (resumed) — app di background / tab lain tidak boleh menandai baca.
+    var isChatResumed by remember { mutableStateOf(false) }
+    // r1.7.1 (tanda terima/baca): cloudId yang SUDAH mencapai titik pelangi
+    // (semua anggota lain baca) — diingat sesi ini karena server menghapus
+    // marker begitu semua baca; tanpa ini titik pelangi "turun" jadi abu lagi.
+    var rainbowIdsState by remember { mutableStateOf<Set<String>>(emptySet()) }
     LifecycleResumeEffect(Unit) {
+        isChatResumed = true
         coroutineScope.launch {
             delay(120)
             if (rows.isNotEmpty()) {
@@ -303,7 +322,7 @@ fun ChatScreen(
                 }
             }
         }
-        onPauseOrDispose { }
+        onPauseOrDispose { isChatResumed = false }
     }
 
     // Re-anchor saat keyboard (IME) muncul: viewport menyusut sehingga pesan yang
@@ -427,12 +446,46 @@ fun ChatScreen(
                             var menuOpen by remember { mutableStateOf(false) }
                             val clipboard = LocalClipboardManager.current
                             val msg = row.message
-                            // r1.7.0: status centang pengiriman per bubble milik user.
+                            // r1.7.1: status titik baca/diterima per bubble milik user
+                            // (pengganti centang ✓/✓✓ r1.7.0). PENDING saat belum punya
+                            // cloudId; SYNCED + stats → deretan titik; allRead → pelangi.
                             val delivery = when {
                                 msg.sender != activeSender -> null
                                 msg.cloudId.isNullOrBlank() -> DeliveryStatus.PENDING
-                                deliveredIds.contains(msg.cloudId) -> DeliveryStatus.DELIVERED
                                 else -> DeliveryStatus.SYNCED
+                            }
+                            // Semua anggota lain sudah baca → titik pelangi. Server
+                            // menghapus marker begitu itu terjadi (cleanupReceipt),
+                            // jadi status pelangi diINGAT sesi ini supaya tidak
+                            // "turun" lagi jadi titik abu setelah marker hilang.
+                            val rainbowIds = rainbowIdsState
+                            val dotsStats = if (delivery != null && msg.cloudId != null) {
+                                val stats = receiptStats(receipts[msg.cloudId], otherUids)
+                                if (stats.allRead || rainbowIds.contains(msg.cloudId)) {
+                                    stats.copy(allRead = true)
+                                } else stats
+                            } else null
+                            // r1.7.1: tandai pesan anggota lain DIBACA begitu bubble
+                            // tampil di layar (chat resumed). Sekali per komposisi;
+                            // arrayUnion idempoten → aman meski di-recompose.
+                            LaunchedEffect(msg.cloudId, isChatResumed) {
+                                val cid = msg.cloudId
+                                if (isChatResumed && !cid.isNullOrBlank() &&
+                                    msg.sender != Constants.Sender.AI &&
+                                    msg.senderUid != null && msg.senderUid != myUid
+                                ) {
+                                    FirestoreSyncManager.markRead(cid)
+                                }
+                            }
+                            // r1.7.1: ingat status pelangi sebelum marker dihapus
+                            // server (cleanupReceipt) — sekali pelangi, tetap pelangi.
+                            LaunchedEffect(msg.cloudId, dotsStats?.allRead) {
+                                val cid = msg.cloudId
+                                if (dotsStats?.allRead == true && cid != null) {
+                                    if (cid !in rainbowIdsState) {
+                                        rainbowIdsState = rainbowIdsState + cid
+                                    }
+                                }
                             }
                             // Grouping pengirim sama (item 6): jarak rapat antar
                             // pesan berurutan dari pengirim yang sama; jarak penuh
@@ -459,6 +512,7 @@ fun ChatScreen(
                                     senderAvatarPath = senderAvatarPaths[msg.sender],
                                     isProcessing = processingMessageId == msg.id,
                                     delivery = delivery,
+                                    receiptStats = dotsStats,
                                     modifier = Modifier.animateItem()
                                 )
                                 DropdownMenu(
@@ -491,6 +545,17 @@ fun ChatScreen(
                                             menuOpen = false
                                         }
                                     )
+                                    val receipt = receipts[msg.cloudId]
+                                    if (receipt != null) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.chat_message_info)) },
+                                            leadingIcon = { Icon(Icons.Rounded.Info, contentDescription = null) },
+                                            onClick = {
+                                                infoMessage = msg
+                                                menuOpen = false
+                                            }
+                                        )
+                                    }
                                     if (msg.sender == activeSender || msg.sender == Constants.Sender.AI) {
                                         // Konsisten dengan izin edit: hanya pesan milik sendiri
                                         // (dan bubble AI bersama) yang boleh dihapus — pesan
@@ -666,6 +731,33 @@ fun ChatScreen(
                 )
             }
 
+            // r1.7.1 (#2): E2EE aktif tapi kunci lokal belum siap → kirim pesan
+            // BARU ditunda (tidak diam-diam turun ke plaintext). Banner kecil
+            // menjelaskan; auto-pulih via self-heal (wrap re-install device baru).
+            if (e2eeStatus.active && !e2eeStatus.ready) {
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Rounded.Lock,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.chat_e2ee_preparing),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+
             // Chat Input Box — Telegram-style: Plus | TextField (auto-expand) | Send
             ChatInputBar(
                 value = draftText,
@@ -794,6 +886,18 @@ fun ChatScreen(
                 )
             }
         }
+
+        // r1.7.1: "Info Pesan" — siapa yang sudah menerima/membaca (ala WhatsApp).
+        infoMessage?.let { msg ->
+            val r = receipts[msg.cloudId]
+            if (r != null) {
+                MessageInfoDialog(
+                    receipt = r,
+                    memberLabels = memberLabels,
+                    onDismiss = { infoMessage = null }
+                )
+            }
+        }
     }
 }
 
@@ -849,4 +953,63 @@ private fun buildChatRows(
         rows.add(ChatRow.MessageRow(msg, prev?.sender != msg.sender))
     }
     return rows
+}
+
+// ---- Dialog "Info Pesan" (r1.7.1) ----
+
+/**
+ * Dialog ala WhatsApp: daftar anggota yang sudah menerima / membaca pesan
+ * terenkripsi (marker `receipts/{cloudId}`). Nama diambil dari label/alias
+ * member; anggota yang sudah meninggalkan keluarga di-lewati (mapNotNull).
+ */
+@Composable
+private fun MessageInfoDialog(
+    receipt: ReceiptInfo,
+    memberLabels: Map<String, String>,
+    onDismiss: () -> Unit
+) {
+    val delivered = receipt.deliveredBy.mapNotNull { memberLabels[it] }
+    val read = receipt.readBy.mapNotNull { memberLabels[it] }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.chat_message_info)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(R.string.chat_info_delivered),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = if (delivered.isEmpty()) {
+                        stringResource(R.string.chat_info_nobody)
+                    } else {
+                        delivered.joinToString(", ")
+                    },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.chat_info_read),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = if (read.isEmpty()) {
+                        stringResource(R.string.chat_info_nobody)
+                    } else {
+                        read.joinToString(", ")
+                    },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_close))
+            }
+        }
+    )
 }

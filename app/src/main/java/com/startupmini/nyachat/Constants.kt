@@ -90,6 +90,12 @@ object Constants {
         // `families/{PIN}/messages/{cloudId}/deliveries/{uid}`. Sebuah pesan
         // dihapus dari server begitu semua member menulis ACK (model WA).
         const val DELIVERIES = "deliveries"
+        // r1.7.1 (tanda terima/baca): marker ringan per pesan terenkripsi —
+        // `families/{PIN}/receipts/{cloudId}` berisi `deliveredBy` + `readBy`
+        // (array uid, TANPA konten). Konten pesan dihapus server begitu semua
+        // device menerima; marker ini bertahan (TTL 14 hari) sampai semua
+        // membaca supaya UI bisa menampilkan titik abu/hijau/pelangi.
+        const val RECEIPTS = "receipts"
     }
 
     // ===== Firestore document field names =====
@@ -190,6 +196,14 @@ object Constants {
         // r1.7.0 (chat ephemeral): timestamp ACK di `deliveries/{uid}` doc —
         // pesan dihapus server saat semua member punya ACK lebih muda dari doc.
         const val DELIVERED_AT = "deliveredAt"
+        // r1.7.1 (tanda terima/baca): array uid yang SUDAH menerima pesan
+        // (termasuk dirinya sendiri) di doc `families/{PIN}/receipts/{cloudId}`.
+        const val RECEIPT_DELIVERED_BY = "deliveredBy"
+        // r1.7.1 (tanda terima/baca): array uid yang SUDAH MEMBACA pesan.
+        const val RECEIPT_READ_BY = "readBy"
+        // r1.7.1 (tanda terima/baca): timestamp aktivitas terakhir receipt —
+        // basis TTL cloud function (hapus marker 14 hari tanpa aktivitas).
+        const val RECEIPT_UPDATED_AT = "updatedAt"
     }
 
     // ===== Peran workspace (wajib sama dengan rules) =====

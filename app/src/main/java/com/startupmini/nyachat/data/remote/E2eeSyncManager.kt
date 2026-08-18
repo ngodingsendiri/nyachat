@@ -15,6 +15,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.security.KeyFactory
@@ -72,6 +75,12 @@ object E2eeSyncManager {
     @Volatile private var groupKeyBytes: ByteArray? = null
     @Volatile private var markerListener: ListenerRegistration? = null
 
+    /** r1.7.1: status E2EE untuk UI (banner "mempersiapkan enkripsi" & gating
+     *  kirim). Dipublikasikan tiap perubahan marker/kunci (start/heal/stop). */
+    data class E2eeStatus(val active: Boolean = false, val ready: Boolean = false)
+    private val _status = MutableStateFlow(E2eeStatus())
+    val status: StateFlow<E2eeStatus> = _status.asStateFlow()
+
     @Volatile private var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // ======================= Status publik =======================
@@ -105,6 +114,7 @@ object E2eeSyncManager {
             // 4) Wrap untuk member yang belum punya (termasuk diri sendiri bila baru).
             selfHealWraps()
             notifyReady()
+            publishStatus()
             // 5) Pemantau realtime + self-heal berkala.
             listenForActivation()
             startPeriodicHeal()
@@ -121,6 +131,7 @@ object E2eeSyncManager {
         appContext = null
         markerActive = false
         groupKeyBytes = null
+        _status.value = E2eeStatus()
     }
 
     /**
@@ -136,6 +147,7 @@ object E2eeSyncManager {
             if (markerActive && groupKeyBytes == null) fetchAndUnwrapGroupKey()
             selfHealWraps()
             notifyReady()
+            publishStatus()
         }.onFailure { Log.w(TAG, "E2EE heal gagal: ${it.message}") }
     }
 
@@ -162,14 +174,17 @@ object E2eeSyncManager {
 
     // ======================= Aktivasi & pengambilan kunci =======================
 
-    /** Kalau marker belum ada dan saya OWNER → buat marker + grup key + wrap. */
+    /** Kalau marker sudah ada di server (dibuat owner) → tandai aktif. Semua
+     *  peran membaca marker (tidak hanya owner) supaya keputusan "workspace
+     *  terenkripsi" segera akurat — menutup race di start: member tidak boleh
+     *  mengirim plaintext hanya karena marker listener belum menembak. */
     private suspend fun ensureActivation() {
         if (markerActive) return
-        if (activeRole != Constants.Roles.OWNER) return
         if (markerRef().get().await().exists()) {
             markerActive = true
             return
         }
+        if (activeRole != Constants.Roles.OWNER) return
         activateNow()
     }
 
@@ -297,6 +312,7 @@ object E2eeSyncManager {
                     if (groupKeyBytes == null) fetchAndUnwrapGroupKey()
                     selfHealWraps()
                     notifyReady()
+                    publishStatus()
                 }
             }
         }
@@ -318,6 +334,11 @@ object E2eeSyncManager {
     /** Beri tahu FirestoreSyncManager bahwa kunci siap → proses ulang yang tertunda. */
     private fun notifyReady() {
         if (isReady()) FirestoreSyncManager.onE2eeKeyReady()
+    }
+
+    /** Publikasikan status E2EE untuk UI (banner & gating kirim). */
+    private fun publishStatus() {
+        _status.value = E2eeStatus(active = markerActive, ready = isReady())
     }
 
     // ======================= Referensi & util =======================

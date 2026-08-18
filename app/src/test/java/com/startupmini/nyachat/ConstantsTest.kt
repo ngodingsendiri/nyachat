@@ -45,6 +45,8 @@ class ConstantsTest {
         assertEquals("e2ee", Constants.Collections.E2EE)
         assertEquals("e2eeKeys", Constants.Collections.E2EE_KEYS)
         assertEquals("deliveries", Constants.Collections.DELIVERIES)
+        // r1.7.1 (tanda terima/baca)
+        assertEquals("receipts", Constants.Collections.RECEIPTS)
     }
 
     // ===== Firestore document field names =====
@@ -98,6 +100,10 @@ class ConstantsTest {
         assertEquals("e2eeKeyBytes", Constants.Fields.E2EE_KEY_BYTES)
         assertEquals("activated", Constants.Fields.E2EE_ACTIVATED)
         assertEquals("deliveredAt", Constants.Fields.DELIVERED_AT)
+        // r1.7.1 (tanda terima/baca) — kontrak cloud baru.
+        assertEquals("deliveredBy", Constants.Fields.RECEIPT_DELIVERED_BY)
+        assertEquals("readBy", Constants.Fields.RECEIPT_READ_BY)
+        assertEquals("updatedAt", Constants.Fields.RECEIPT_UPDATED_AT)
     }
 
     @Test
@@ -131,7 +137,10 @@ class ConstantsTest {
             Constants.Fields.ENC, Constants.Fields.MSG_VERSION,
             Constants.Fields.E2EE_PUB_KEY, Constants.Fields.E2EE_KEY_VERSION,
             Constants.Fields.E2EE_KEY_BYTES, Constants.Fields.E2EE_ACTIVATED,
-            Constants.Fields.DELIVERED_AT
+            Constants.Fields.DELIVERED_AT,
+            // r1.7.1 (tanda terima/baca)
+            Constants.Fields.RECEIPT_DELIVERED_BY, Constants.Fields.RECEIPT_READ_BY,
+            Constants.Fields.RECEIPT_UPDATED_AT
         )
         assertTrue("ada field blank", values.none { it.isBlank() })
         assertEquals("ada nama field duplikat", values.size, values.toSet().size)

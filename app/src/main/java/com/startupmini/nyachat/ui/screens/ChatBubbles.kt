@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -38,11 +39,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.Circle
 import androidx.compose.material.icons.rounded.OfflineBolt
 import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Receipt
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Icon
@@ -89,6 +90,7 @@ import com.startupmini.nyachat.Constants
 import com.startupmini.nyachat.R
 import com.startupmini.nyachat.data.local.ChatMessage
 import com.startupmini.nyachat.data.remote.BitmapCache
+import com.startupmini.nyachat.data.remote.ReceiptStats
 import com.startupmini.nyachat.ui.theme.LocalSemanticColors
 import com.startupmini.nyachat.ui.theme.Motion
 import com.startupmini.nyachat.ui.util.AvatarImage
@@ -176,7 +178,10 @@ fun ChatMessageBubble(
     isProcessing: Boolean = false,
     // r1.7.0 (chat ephemeral): status pengiriman pesan milik user (✓ / ✓✓).
     // null → bukan pesan milik user → tanpa indikator.
-    delivery: DeliveryStatus? = null
+    delivery: DeliveryStatus? = null,
+    // r1.7.1 (tanda terima/baca #3): statistik titik baca/diterima pesan milik
+    // user (hitung anggota LAIN, exclude sendiri). null → tanpa titik.
+    receiptStats: ReceiptStats? = null
 ) {
     val isAi = message.sender == Constants.Sender.AI
     val isMe = message.sender == currentActiveSender
@@ -437,6 +442,7 @@ fun ChatMessageBubble(
                     timeDisplay = timeDisplay,
                     isProcessing = isProcessing,
                     delivery = delivery,
+                    receiptStats = receiptStats,
                     onOpenFile = onOpenFile,
                     onOpenTransaction = onOpenTransaction
                 )
@@ -532,6 +538,7 @@ fun ChatMessageBubble(
                         isProcessing = isProcessing,
                         isMe = isMe,
                         delivery = delivery,
+                        receiptStats = receiptStats,
                         onOpenTransaction = onOpenTransaction,
                         modifier = Modifier.padding(top = 4.dp)
                     )
@@ -739,6 +746,7 @@ private fun ChatMediaBubbleContent(
     timeDisplay: String,
     isProcessing: Boolean,
     delivery: DeliveryStatus?,
+    receiptStats: ReceiptStats?,
     onOpenFile: (() -> Unit)?,
     onOpenTransaction: (() -> Unit)?
 ) {
@@ -851,6 +859,7 @@ private fun ChatMediaBubbleContent(
                     isProcessing = isProcessing,
                     isMe = isMe,
                     delivery = delivery,
+                    receiptStats = receiptStats,
                     onOpenTransaction = onOpenTransaction,
                     modifier = Modifier.padding(top = if (hasCaption) 6.dp else 0.dp)
                 )
@@ -875,6 +884,7 @@ private fun ColumnScope.MessageFooterRow(
     isProcessing: Boolean,
     isMe: Boolean,
     delivery: DeliveryStatus?,
+    receiptStats: ReceiptStats?,
     onOpenTransaction: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
@@ -901,8 +911,9 @@ private fun ColumnScope.MessageFooterRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = timeColor
             )
-            DeliveryCheckmarks(
+            MessageStatusIndicators(
                 delivery = delivery,
+                receiptStats = receiptStats,
                 tint = timeColor,
                 modifier = Modifier.padding(start = 3.dp)
             )
@@ -932,33 +943,90 @@ private fun TimeChipOverlay(timeDisplay: String, modifier: Modifier = Modifier) 
 }
 
 /**
- * r1.7.0 (chat ephemeral): centang pengiriman ala WhatsApp —
- * PENDING (jam) → SYNCED (✓) → DELIVERED (✓✓ semua perangkat menerima).
- * null → bukan pesan milik user → tidak digambar.
+ * r1.7.1 (tanda terima/baca #3): indikator status pesan milik user di pojok
+ * kanan-bawah bubble — pengganti centang ✓/✓✓ (r1.7.0):
+ *  - PENDING          → jam (belum punya cloudId / masih diantre).
+ *  - SYNCED + statistik → deretan titik per anggota LAIN: outline abu =
+ *    diterima, isi hijau = dibaca (urutan = urutan yang membaca).
+ *  - SYNCED + allRead → SATU titik pelangi (semua anggota lain sudah membaca).
+ *  - null             → bukan pesan milik user → tidak digambar.
+ * A11y: deretan titik adalah SATU node semantics (deskripsi ringkas "diterima/
+ * dibaca oleh N dari M") — pembaca layar tidak dijejali satu deskripsi per titik.
  */
 @Composable
-private fun DeliveryCheckmarks(
+private fun MessageStatusIndicators(
     delivery: DeliveryStatus?,
+    receiptStats: ReceiptStats?,
     tint: Color,
     modifier: Modifier = Modifier
 ) {
     val d = delivery ?: return
-    Icon(
-        imageVector = when (d) {
-            DeliveryStatus.PENDING -> Icons.Rounded.Schedule
-            DeliveryStatus.SYNCED -> Icons.Rounded.Check
-            DeliveryStatus.DELIVERED -> Icons.Rounded.DoneAll
-        },
-        contentDescription = stringResource(
-            when (d) {
-                DeliveryStatus.PENDING -> R.string.chat_delivery_pending_desc
-                DeliveryStatus.SYNCED -> R.string.chat_delivery_sent_desc
-                DeliveryStatus.DELIVERED -> R.string.chat_delivery_delivered_desc
+    if (d == DeliveryStatus.PENDING) {
+        Icon(
+            imageVector = Icons.Rounded.Schedule,
+            contentDescription = stringResource(R.string.chat_info_pending_desc),
+            tint = tint,
+            modifier = modifier.size(13.dp)
+        )
+        return
+    }
+    val stats = receiptStats ?: return
+    if (stats.allRead) {
+        // Semua anggota lain sudah membaca → titik pelangi gradien (merah →
+        // oranye → hijau → biru), kontras cukup di bubble terang/gelap.
+        Icon(
+            imageVector = Icons.Rounded.Circle,
+            contentDescription = stringResource(R.string.chat_info_rainbow_desc),
+            tint = Color.Transparent,
+            modifier = modifier
+                .size(11.dp)
+                .background(
+                    brush = Brush.linearGradient(
+                        listOf(
+                            Color(0xFFF44336),
+                            Color(0xFFFF9800),
+                            Color(0xFF4CAF50),
+                            Color(0xFF2196F3)
+                        )
+                    ),
+                    shape = CircleShape
+                )
+        )
+        return
+    }
+    // Deretan titik: totalOthers titik (>=1), `read` pertama berisi hijau.
+    val statusDesc = if (stats.read > 0) {
+        stringResource(R.string.chat_info_dot_read_desc, stats.read, stats.delivered)
+    } else {
+        stringResource(R.string.chat_info_dot_desc, stats.delivered, stats.totalOthers)
+    }
+    Row(
+        modifier = modifier.semantics { contentDescription = statusDesc },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        val total = stats.totalOthers.coerceAtLeast(1)
+        repeat(total) { i ->
+            val isRead = i < stats.read
+            // Ikon titik dekoratif (deskripsi gabungan ada di Row di atas) —
+            // TalkBack tidak membacakan satu-per-satu.
+            if (isRead) {
+                Icon(
+                    imageVector = Icons.Rounded.Circle,
+                    contentDescription = null,
+                    tint = Color(0xFF4CAF50),
+                    modifier = Modifier.size(8.dp)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(8.dp)
+                )
             }
-        ),
-        tint = tint,
-        modifier = modifier.size(13.dp)
-    )
+        }
+    }
 }
 
 /**

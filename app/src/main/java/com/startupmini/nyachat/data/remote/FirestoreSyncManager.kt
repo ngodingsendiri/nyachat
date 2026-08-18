@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 
 /** Representasi dokumen Firestore (data tanpa id lokal Room). */
 data class CloudMessage(
@@ -122,6 +123,58 @@ data class DeliveryState(
     val allAcked: Boolean get() = members > 0 && acked >= members
 }
 
+/**
+ * r1.7.1 (anti-degradasi senyap): mode kirim pesan/transaksi/foto.
+ * - PLAINTEXT: marker E2EE belum ada → workspace memang belum terenkripsi
+ *   (legacy, kompatibilitas versi lama).
+ * - ENCRYPT  : workspace terenkripsi & kunci lokal siap.
+ * - BLOCK    : workspace TERENKRIPSI tapi kunci lokal belum siap (mis. baru
+ *   reinstall) — TIDAK boleh jatuh diam-diam ke plaintext; kirim ditunda dan
+ *   di-retry otomatis begitu kunci pulih (banner UI menjelaskan).
+ */
+internal enum class SendMode { PLAINTEXT, ENCRYPT, BLOCK }
+
+internal fun sendMode(active: Boolean, ready: Boolean): SendMode = when {
+    !active -> SendMode.PLAINTEXT
+    ready -> SendMode.ENCRYPT
+    else -> SendMode.BLOCK
+}
+
+/** r1.7.1 (tanda terima/baca): marker `receipts/{cloudId}` — array uid
+ *  (TANPA konten). Dibaca via snapshot listener; drive titik abu/hijau/pelangi. */
+data class ReceiptInfo(
+    val cloudId: String = "",
+    val deliveredBy: Set<String> = emptySet(),
+    val readBy: Set<String> = emptySet()
+)
+
+/** r1.7.1: turunan status baca/diterima UNTUK PESAN MILIK USER (exclude diri
+ *  sendiri & member non-anggota lagi). Dihitung murni → unit-testable. */
+data class ReceiptStats(
+    val delivered: Int = 0,
+    val read: Int = 0,
+    val totalOthers: Int = 0,
+    /** Semua anggota lain sudah membaca (dan pasti sudah menerima) → titik
+     *  pelangi tunggal menggantikan deretan titik. */
+    val allRead: Boolean = false
+)
+
+/** r1.7.1: hitung statistik titik dari receipt + himpunan uid anggota LAIN.
+ *  Receipt null (belum ada) → semua nol (belum ada yang menerima). */
+internal fun receiptStats(receipt: ReceiptInfo?, otherUids: Set<String>): ReceiptStats {
+    val others = if (otherUids.isEmpty()) emptySet() else otherUids
+    if (receipt == null) return ReceiptStats(totalOthers = others.size)
+    val delivered = receipt.deliveredBy.intersect(others)
+    val read = receipt.readBy.intersect(others)
+    val total = others.size
+    return ReceiptStats(
+        delivered = delivered.size,
+        read = read.size,
+        totalOthers = total,
+        allRead = total > 0 && read.size >= total
+    )
+}
+
 // P5: FamilyMember, JoinRequest, MembershipStatus, JoinRequestResult,
 // OwnerSetupResult & seluruh alur keanggotaan pindah ke MembershipManager.kt.
 
@@ -186,6 +239,15 @@ object FirestoreSyncManager {
     val deliveryState: StateFlow<DeliveryState?> = _deliveryState.asStateFlow()
     @Volatile private var trackedCloudId: String? = null
     @Volatile private var deliveryListener: ListenerRegistration? = null
+    // r1.7.1 (tanda terima/baca): status baca/diterima per pesan terenkripsi —
+    // key = cloudId, value = array uid yang menerima/membaca. Dipantau dari
+    // koleksi `families/{PIN}/receipts` (marker ringan, tanpa konten).
+    private val _receipts = MutableStateFlow<Map<String, ReceiptInfo>>(emptyMap())
+    val receipts: StateFlow<Map<String, ReceiptInfo>> = _receipts.asStateFlow()
+    @Volatile private var receiptsListener: ListenerRegistration? = null
+    // r1.7.1: cloudId pesan TERENKRIPSI yang pernah di-merge → markRead hanya
+    // menulis receipt untuk pesan seperti ini (bukan legacy plaintext).
+    private val encryptedCloudIds = ConcurrentHashMap.newKeySet<String>()
     /** Sinyal "ada op baru di antrian" — drain tidur di sini (bukan polling 2s). */
     private val opsSignal = Channel<Unit>(Channel.CONFLATED)
     /** Listener dijeda saat app di background (P2-12) — hemat baterai/kuota. */
@@ -241,6 +303,7 @@ object FirestoreSyncManager {
         ensureFamilyDoc()
         listenMessages()
         listenTransactions()
+        listenReceipts()
         startPendingDrain()
         // P4-1: PIN adalah password bersama workspace — jangan pernah dicatat
         // apa adanya ke log (meski Log.d sudah di-strip R8 di build release).
@@ -257,8 +320,11 @@ object FirestoreSyncManager {
         messagesListener?.remove(); messagesListener = null
         transactionsListener?.remove(); transactionsListener = null
         deliveryListener?.remove(); deliveryListener = null
+        receiptsListener?.remove(); receiptsListener = null
         trackedCloudId = null
         _deliveryState.value = null
+        _receipts.value = emptyMap()
+        encryptedCloudIds.clear()
         scope.cancel()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         familyId = ""
@@ -283,6 +349,7 @@ object FirestoreSyncManager {
         messagesListener?.remove(); messagesListener = null
         transactionsListener?.remove(); transactionsListener = null
         deliveryListener?.remove(); deliveryListener = null
+        receiptsListener?.remove(); receiptsListener = null
     }
 
     /** Aktifkan kembali listener saat app kembali ke foreground. */
@@ -292,12 +359,80 @@ object FirestoreSyncManager {
         if (familyId.isEmpty() || chatDao == null) return
         listenMessages()
         listenTransactions()
+        listenReceipts()
         // r1.7.0: pantau ulang pesan yang tadinya dipantau (ACK / centang ✓✓).
         val tracked = trackedCloudId
         if (tracked != null) trackDeliveries(tracked)
     }
 
-    /** r1.7.0 (chat ephemeral): mulai/hentikan pantauan ACK sebuah pesan
+    /**
+     * r1.7.1 (tanda terima/baca): pantau SEMUA marker `families/{PIN}/receipts`
+     * → peta cloudId → (deliveredBy, readBy) untuk titik abu/hijau/pelangi.
+     * Marker TIDAK memuat konten; konten pesan sudah dihapus server begitu
+     * semua device menerima. Doc dihapus cloud function saat semua membaca /
+     * TTL 14 hari → otomatis hilang dari peta (snapshot REMOVED).
+     */
+    private fun listenReceipts(retryDelayMs: Long = MIN_RETRY_DELAY_MS) {
+        receiptsListener = receiptsRef().addSnapshotListener { snapshot, error ->
+            if (paused) return@addSnapshotListener
+            if (error != null) {
+                Log.w(TAG, "Listen receipts gagal: ${error.message}")
+                if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    receiptsListener?.remove(); receiptsListener = null
+                    return@addSnapshotListener
+                }
+                onSyncFailure(error)
+                receiptsListener?.remove(); receiptsListener = null
+                scope.launch {
+                    retryWithBackoff(
+                        label = "receipts",
+                        delayMs = retryDelayMs,
+                        action = { listenReceipts((retryDelayMs * 2).coerceAtMost(MAX_RETRY_DELAY_MS)) }
+                    )
+                }
+                return@addSnapshotListener
+            }
+            snapshot ?: return@addSnapshotListener
+            markSynced()
+            scope.launch {
+                val next = hashMapOf<String, ReceiptInfo>()
+                for (doc in snapshot.documents) {
+                    val delivered = (doc.get(Constants.Fields.RECEIPT_DELIVERED_BY) as? List<*>)
+                        ?.filterIsInstance<String>()?.toSet() ?: emptySet()
+                    val read = (doc.get(Constants.Fields.RECEIPT_READ_BY) as? List<*>)
+                        ?.filterIsInstance<String>()?.toSet() ?: emptySet()
+                    next[doc.id] = ReceiptInfo(cloudId = doc.id, deliveredBy = delivered, readBy = read)
+                }
+                _receipts.value = next
+            }
+        }
+    }
+
+    /**
+     * r1.7.1 (tanda terima/baca): tandai pesan [cloudId] SUDAH DIBACA oleh
+     * perangkat ini. Dipanggil ChatScreen saat bubble pesan anggota lain tampil
+     * di layar (chat aktif). arrayUnion idempoten; hanya pesan TERENKRIPSI
+     * yang di-track (encryptedCloudIds). Ikut menulis deliveredBy — menjamin
+     * receipt selalu memenuhi rules (uid ada di deliveredBy) walau write
+     * delivery belum sempat tiba.
+     */
+    suspend fun markRead(cloudId: String) {
+        if (familyId.isEmpty() || cloudId.isBlank()) return
+        if (!encryptedCloudIds.contains(cloudId)) return
+        val uid = uid() ?: return
+        runCatching {
+            receiptsRef().document(cloudId).set(
+                mapOf(
+                    Constants.Fields.RECEIPT_DELIVERED_BY to FieldValue.arrayUnion(uid),
+                    Constants.Fields.RECEIPT_READ_BY to FieldValue.arrayUnion(uid),
+                    Constants.Fields.RECEIPT_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            ).await()
+        }.onFailure { Log.w(TAG, "Tandai baca pesan $cloudId gagal: ${it.message}") }
+    }
+
+    /** r1.7.1 (chat ephemeral): mulai/hentikan pantauan ACK sebuah pesan
      *  (dipanggil ChatScreen untuk pesan terakhir milik user). Setelah SEMUA
      *  perangkat anggota menulis ACK, `deliveryState.allAcked` menjadi true →
      *  UI menampilkan ✓✓. Null → hentikan pantauan. */
@@ -379,6 +514,8 @@ object FirestoreSyncManager {
 
     private fun transactionsRef() =
         db().collection(Constants.Collections.FAMILIES).document(familyId).collection(Constants.Collections.TRANSACTIONS)
+    private fun receiptsRef() =
+        db().collection(Constants.Collections.FAMILIES).document(familyId).collection(Constants.Collections.RECEIPTS)
 
     // ---------- Baca: snapshot listener realtime ----------
 
@@ -624,7 +761,10 @@ object FirestoreSyncManager {
         // r1.7.0 (chat ephemeral): tandai "sudah diterima" di server. Begitu SEMUA
         // perangkat anggota menulis ACK, cloud function menghapus pesan dari
         // server — perangkat tetap menyimpan salinan lokalnya (Room).
-        if (c2.msgVersion == Constants.MsgVersion.ENCRYPTED) writeAck(c2.cloudId)
+        if (c2.msgVersion == Constants.MsgVersion.ENCRYPTED) {
+            encryptedCloudIds.add(c2.cloudId)
+            writeAck(c2)
+        }
     }
 
     /**
@@ -670,15 +810,32 @@ object FirestoreSyncManager {
         }.getOrNull()
     }
 
-    /** r1.7.0 (chat ephemeral): tulis ACK "sudah diterima" — `deliveries/{uid}`. */
-    private suspend fun writeAck(cloudId: String) {
+    /** r1.7.0/1.7.1 (chat ephemeral + tanda terima): ACK "sudah diterima" — tulis
+     *  `deliveries/{uid}` (dasar cleanup konten) + marker `receipts/{cloudId}`
+     *  deliveredBy. Pesan milik SENDIRI tidak di-ACK (titik menghitung anggota
+     *  lain). */
+    private suspend fun writeAck(c: CloudMessage) {
         val uid = uid() ?: return
-        if (familyId.isEmpty()) return
+        if (familyId.isEmpty() || c.cloudId.isBlank()) return
+        if (c.senderUid == uid) return
+        val cloudId = c.cloudId
         runCatching {
             messagesRef().document(cloudId)
                 .collection(Constants.Collections.DELIVERIES).document(uid)
                 .set(mapOf(Constants.Fields.DELIVERED_AT to FieldValue.serverTimestamp()))
                 .await()
+            receiptsRef().document(cloudId).set(
+                mapOf(
+                    Constants.Fields.RECEIPT_DELIVERED_BY to FieldValue.arrayUnion(uid),
+                    Constants.Fields.RECEIPT_READ_BY to emptyList<String>(),
+                    // Pengirim dipakai cloud function cleanupReceipt untuk
+                    // menentukan "semua ANGGOTA LAIN sudah baca" (pengirim tidak
+                    // pernah menandai pesannya sendiri dibaca).
+                    Constants.Fields.SENDER_UID to (c.senderUid ?: ""),
+                    Constants.Fields.RECEIPT_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            ).await()
         }.onFailure { Log.w(TAG, "Tulis ACK pesan ${cloudId} gagal: ${it.message}") }
     }
 
@@ -898,7 +1055,20 @@ object FirestoreSyncManager {
             // Nama field memakai Constants.Fields.* (kontrak cloud — nilai TIDAK
             // boleh berubah: data lintas perangkat & backup lama bergantung padanya;
             // dijaga ConstantsTest).
-            val e2eeKey = if (E2eeSyncManager.isReady()) E2eeSyncManager.currentGroupKey() else null
+            // r1.7.1 (anti-degradasi): workspace TERENKRIPSI tapi kunci lokal belum
+            // siap → TUNDA (return false → op diantri & di-retry), JANGAN jatuh
+            // diam-diam ke plaintext. Keputusan berbasis marker server
+            // (isActive), bukan isReady — member yang baru start tidak boleh
+            // mengirim plaintext hanya karena marker listener belum menembak.
+            val e2eeKey = when (sendMode(E2eeSyncManager.isActive(), E2eeSyncManager.isReady())) {
+                SendMode.ENCRYPT -> E2eeSyncManager.currentGroupKey()
+                SendMode.PLAINTEXT -> null
+                SendMode.BLOCK -> {
+                    Log.w(TAG, "E2EE aktif tapi kunci belum siap — pesan ditunda (bukan plaintext)")
+                    E2eeSyncManager.heal()
+                    return false
+                }
+            }
             // Metadata selalu plaintext (dibutuhkan sinkronisasi & routing tanpa
             // dekripsi): sender, senderUid, timestamp, imageUrl, editedAt, versi.
             val metadata = nonNullMap(
@@ -973,8 +1143,16 @@ object FirestoreSyncManager {
         return try {
             val path = "${Constants.Collections.FAMILIES}/${familyId}/${Constants.Collections.MESSAGES}/$cloudId.jpg"
             val ref = storage().getReference(path)
-            val groupKey = E2eeSyncManager.currentGroupKey()
-            if (E2eeSyncManager.isReady() && groupKey != null) {
+            val groupKey = when (sendMode(E2eeSyncManager.isActive(), E2eeSyncManager.isReady())) {
+            SendMode.ENCRYPT -> E2eeSyncManager.currentGroupKey()
+            SendMode.PLAINTEXT -> null
+            SendMode.BLOCK -> {
+                Log.w(TAG, "E2EE aktif tapi kunci belum siap — foto pesan ditunda")
+                E2eeSyncManager.heal()
+                return null
+            }
+        }
+        if (groupKey != null) {
                 val encrypted = WorkspaceCrypto.encryptBytes(groupKey, file.readBytes())
                 ref.putBytes(encrypted).await()
             } else {
@@ -1056,7 +1234,16 @@ object FirestoreSyncManager {
             // pencatat) dienkripsi saat E2EE aktif — server hanya menyimpan
             // ciphertext `enc`; Rekap dihitung lokal di setiap perangkat dari
             // Room (yang tetap polos). Legacy plaintext untuk kompatibilitas.
-            val e2eeKey = if (E2eeSyncManager.isReady()) E2eeSyncManager.currentGroupKey() else null
+            // r1.7.1: BLOCK saat aktif tapi kunci belum siap (jangan plaintext).
+            val e2eeKey = when (sendMode(E2eeSyncManager.isActive(), E2eeSyncManager.isReady())) {
+                SendMode.ENCRYPT -> E2eeSyncManager.currentGroupKey()
+                SendMode.PLAINTEXT -> null
+                SendMode.BLOCK -> {
+                    Log.w(TAG, "E2EE aktif tapi kunci belum siap — transaksi ditunda")
+                    E2eeSyncManager.heal()
+                    return false
+                }
+            }
             val metadata = nonNullMap(
                 Constants.Fields.CLOUD_ID to cid,
                 Constants.Fields.TIMESTAMP to transaction.timestamp,
