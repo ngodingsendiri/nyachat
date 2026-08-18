@@ -42,7 +42,6 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Circle
 import androidx.compose.material.icons.rounded.OfflineBolt
 import androidx.compose.material.icons.rounded.PictureAsPdf
-import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Receipt
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Icon
@@ -538,6 +537,9 @@ fun ChatMessageBubble(
                 // r1.7.0 (L5): footer SATU BARIS ala WhatsApp — [spark][badge]
                 // di kiri, waktu + centang ✓/✓✓ di pojok kanan-bawah (bukan lagi
                 // bertumpuk: caption → jam → badge).
+                // r1.7.3 (permintaan user): untuk bubble TEKS footer pindah ke
+                // pojok KIRI-bawah (placeTimeAtStart = true); bubble gambar tetap
+                // di kanan-bawah (lihat ChatMediaBubbleContent).
                 val hasFinancialBadge = message.isFinancial && message.detectedAmount != null
                 if (isMe || hasFinancialBadge) {
                     MessageFooterRow(
@@ -549,6 +551,7 @@ fun ChatMessageBubble(
                         delivery = delivery,
                         receiptStats = receiptStats,
                         onOpenTransaction = onOpenTransaction,
+                        placeTimeAtStart = true,
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }
@@ -885,12 +888,17 @@ private fun ChatMediaBubbleContent(
 }
 
 /**
- * Footer pesan — kluster SATU BARIS di pojok kanan-bawah ala WhatsApp (r1.7.0
- * L5): [spark AI] [badge finansial] ................. [waktu] [✓/✓✓].
- * Wrap-content (TIDAK fillMaxWidth): bubble teks tetap selebar isi terpanjang
- * (bukan melebar penuh ke 300dp), sehingga area tengah bubble tidak pernah
- * tertutup elemen clickable badge — long-press/menu tetap responsif.
- * Dipakai footer bubble teks & media.
+ * Footer pesan — kluster SATU BARIS ala WhatsApp: [spark AI] [badge finansial]
+ * ... [indikator] [waktu]. Wrap-content (TIDAK fillMaxWidth): bubble teks tetap
+ * selebar isi terpanjang (bukan melebar penuh ke 300dp), sehingga area tengah
+ * bubble tidak pernah tertutup elemen clickable badge — long-press/menu tetap
+ * responsif. Dipakai footer bubble teks & media.
+ *
+ * r1.7.3 (permintaan user): posisi & urutan disesuaikan jenis pesan:
+ *  - [placeTimeAtStart] = true (bubble TEKS)   → footer di pojok KIRI-bawah,
+ *    indikator status diletakkan di KIRI waktu ([lingkaran] [waktu]).
+ *  - [placeTimeAtStart] = false (bubble GAMBAR) → footer tetap di pojok
+ *    kanan-bawah (tempatnya tidak berubah).
  */
 @Composable
 private fun ColumnScope.MessageFooterRow(
@@ -902,10 +910,11 @@ private fun ColumnScope.MessageFooterRow(
     delivery: DeliveryStatus?,
     receiptStats: ReceiptStats?,
     onOpenTransaction: (() -> Unit)?,
+    placeTimeAtStart: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.align(Alignment.End),
+        modifier = modifier.align(if (placeTimeAtStart) Alignment.Start else Alignment.End),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isProcessing) {
@@ -922,17 +931,32 @@ private fun ColumnScope.MessageFooterRow(
             Spacer(modifier = Modifier.width(8.dp))
         }
         if (isMe) {
-            Text(
-                text = timeDisplay,
-                style = MaterialTheme.typography.labelSmall,
-                color = timeColor
-            )
-            MessageStatusIndicators(
-                delivery = delivery,
-                receiptStats = receiptStats,
-                tint = timeColor,
-                modifier = Modifier.padding(start = 3.dp)
-            )
+            if (placeTimeAtStart) {
+                // Bubble teks (r1.7.3): indikator di KIRI waktu — [lingkaran] [waktu]
+                MessageStatusIndicators(
+                    delivery = delivery,
+                    receiptStats = receiptStats,
+                    tint = timeColor,
+                    modifier = Modifier.padding(end = 3.dp)
+                )
+                Text(
+                    text = timeDisplay,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = timeColor
+                )
+            } else {
+                Text(
+                    text = timeDisplay,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = timeColor
+                )
+                MessageStatusIndicators(
+                    delivery = delivery,
+                    receiptStats = receiptStats,
+                    tint = timeColor,
+                    modifier = Modifier.padding(start = 3.dp)
+                )
+            }
         }
     }
 }
@@ -1034,8 +1058,11 @@ private fun MessageStatusIndicators(
                     modifier = Modifier.size(8.dp)
                 )
             } else {
+                // r1.7.3 (permintaan user): indikator "diterima" memakai lingkaran
+                // PENUH (bukan ring/outline seperti sebelumnya) — warna waktu
+                // membedakannya dari titik hijau "dibaca".
                 Icon(
-                    imageVector = Icons.Rounded.RadioButtonUnchecked,
+                    imageVector = Icons.Rounded.Circle,
                     contentDescription = null,
                     tint = tint,
                     modifier = Modifier.size(8.dp)
