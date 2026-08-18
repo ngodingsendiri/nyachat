@@ -1,13 +1,12 @@
 package com.startupmini.nyachat
 
+import android.view.View
+import android.view.ViewGroup
 import androidx.test.core.app.ActivityScenario
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
-import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,9 +45,21 @@ class AppSmokeTest {
     fun app_launches_and_renders_content_without_crash() {
         // Beri waktu startup phase (Firestore auto-connect / layar connect).
         Thread.sleep(6_000)
-        // Masih ada view yang dirender → app tidak blank & tidak crash.
-        onView(isRoot()).check(matches(isDisplayed()))
-        // Activity masih hidup (onActivity melempar kalau sudah di-destroy).
-        scenario.onActivity { activity -> assertNotNull(activity) }
+        // Activity masih hidup (onActivity melempar kalau sudah di-destroy) dan
+        // decor view ter-attach dengan konten ter-render (bukan blank).
+        // SENGJA tidak memakai Espresso onView(isRoot()): RootViewPicker menuntut
+        // window FOCUS — di emulator CI headless (`-no-window`) window kadang tidak
+        // pernah melapor focus → RootViewWithoutFocusException flaky (terlihat sejak
+        // r1.5.2). Cek langsung ke Activity bebas-fokus & tetap memverifikasi tujuan
+        // test (launch tanpa crash + ada konten di layar).
+        scenario.onActivity { activity ->
+            assertNotNull(activity)
+            val decor = activity.window.decorView
+            assertTrue("DecorView harus VISIBLE", decor.visibility == View.VISIBLE)
+            assertTrue(
+                "DecorView harus punya konten (bukan blank)",
+                (decor as? ViewGroup)?.childCount?.let { it > 0 } == true
+            )
+        }
     }
 }
