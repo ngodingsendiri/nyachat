@@ -1,6 +1,6 @@
 <resources>
     <!-- App -->
-    <string name="app_name">Nyachat</string>
+    <string name="app_name">NyaChat</string>
 
     <!-- Top bar & navigasi -->
     <string name="topbar_title">Keuangan Bersama</string>
@@ -125,8 +125,8 @@
     <string name="tag_other">👤 %1$s</string>
 
     <!-- PIN / onboarding -->
-    <string name="pin_image_desc">Logo Nyachat</string>
-    <string name="pin_title">Nyachat</string>
+    <string name="pin_image_desc">Logo NyaChat</string>
+    <string name="pin_title">NyaChat</string>
     <string name="pin_subtitle">Nyatat keuangan cukup dengan Chat</string>
 
     <!-- Google Sign-In -->
@@ -148,7 +148,7 @@
     <!-- Hanya dipakai di build DEBUG (PinConnectScreen): detail teknis buat developer. -->
     <string name="google_err_sha1_hint">\n\nSHA-1 APK ini: %1$s\nDaftarkan di Firebase Console → Pengaturan project → Aplikasi Anda → Tambahkan sidik jari.</string>
     <string name="google_not_configured">Masuk dengan Google belum siap di aplikasi ini. Coba lagi nanti.</string>
-    <string name="login_version_label">Nyachat %1$s · build %2$d</string>
+    <string name="login_version_label">NyaChat %1$s · build %2$d</string>
     <string name="pin_name_label">Nama Anda (Cth: Suami / Istri)</string>
     <!-- BUG-04: tombol clear cepat untuk field nama prefilled dari Google -->
     <string name="pin_name_clear">Hapus isi nama</string>

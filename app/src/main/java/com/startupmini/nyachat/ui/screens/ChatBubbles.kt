@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -340,13 +341,19 @@ fun ChatMessageBubble(
         val density = androidx.compose.ui.platform.LocalDensity.current
         val swipeThresholdPx = with(density) { 60.dp.toPx() }
 
+        // r1.7.2 (bentuk bubble): shape diekstrak ke variabel supaya feedback
+        // sentuh/ripple DI-CLIP mengikuti bentuk bubble (sebelumnya ripple
+        // kotak — persegi — tidak sesuai lekuk bubble). Surface pakai shape
+        // yang sama, jadi warna & ripple sama-sama mengikuti lekukan.
+        val bubbleShape = RoundedCornerShape(
+            topStart = 20.dp,
+            topEnd = 20.dp,
+            bottomStart = if (isMe) 20.dp else 4.dp,
+            bottomEnd = if (isMe) 4.dp else 20.dp
+        )
+
         Surface(
-            shape = RoundedCornerShape(
-                topStart = 20.dp,
-                topEnd = 20.dp,
-                bottomStart = if (isMe) 20.dp else 4.dp,
-                bottomEnd = if (isMe) 4.dp else 20.dp
-            ),
+            shape = bubbleShape,
             // Tanpa shadow untuk SEMUA bubble (2026-08-12): sisa shadow 1.dp
             // khusus bubble incoming membuat "bayangan" di mode terang — tidak
             // konsisten dengan prinsip tanpa-bayangan di seluruh app (composer
@@ -356,12 +363,16 @@ fun ChatMessageBubble(
             modifier = Modifier
                 // Media (foto) lebih lebar dari teks — screenshot/nota perlu ruang
             // baca; teks tetap 300dp agar nyaman dibaca.
-            .widthIn(min = 60.dp, max = if (mediaBitmap != null) 340.dp else 300.dp)
+            // r1.7.2 (ukuran tampilan): foto media dipangkas ala WhatsApp —
+            // lebar bubble 300dp & tinggi gambar di-cap 340dp (foto potret
+            // 9:16 → ~191dp lebar, tak menutup layar; landscape selebar bubble).
+            .widthIn(min = 60.dp, max = if (mediaBitmap != null) 280.dp else 300.dp)
                 // r1.4.0 (lint): lambda overload supaya offset mengikuti state
                 // swipeOffsetX saat berubah (non-lambda hanya dibaca sekali).
                 .offset {
                     IntOffset(with(density) { swipeOffsetX.value.toDp().roundToPx() }, 0)
                 }
+                .clip(bubbleShape)
                 // GESTUR (audit 2026-08-13, permintaan user): sentuh SEKALI TIDAK
                 // lagi membuka menu — menu hanya muncul lewat TAHAN LAMA (long-press).
                 // Pada bubble GAMBAR, sentuh sekali membuka viewer foto full-screen
@@ -801,9 +812,16 @@ private fun ChatMediaBubbleContent(
             Spacer(modifier = Modifier.height(6.dp))
         }
 
-        // Gambar — EDGE-TO-EDGE: lebar mengikuti bubble (max 340dp via widthIn
+        // Gambar — EDGE-TO-EDGE: lebar mengikuti bubble (max 280dp via widthIn
         // di Surface), tinggi mengikuti aspect ratio, TANPA clip sendiri (sudut
         // di-clip shape Surface). Tidak ada frame/padding di sekeliling gambar.
+        //
+        // r1.7.2 (ukuran tampilan): .heightIn(max = 340dp) DIPASANG SEBELUM
+        // aspectRatio — foto potret tinggi di-cap: aspectRatio menurunkan lebar
+        // agar tinggi ≤ 340dp (foto 9:16 → ~191dp lebar, setara ukuran gambar
+        // chat WhatsApp; tak menutup layar); foto lanskap tetap lebar penuh
+        // (tinggi alamiah < 340dp). Proporsi terjaga, tanpa crop/stretch/
+        // letterbox karena box mengikuti rasio.
         //
         // CATATAN (2026-08-11): fillMaxWidth SAJA tidak cukup — Composer Image
         // menerapkan sizeToIntrinsics (ukuran intrinsic bitmap dalam px) yang
@@ -828,6 +846,7 @@ private fun ChatMediaBubbleContent(
                 contentDescription = stringResource(R.string.chat_image_desc),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = 340.dp)
                     .aspectRatio(mediaAspect),
                 contentScale = ContentScale.Fit
             )
